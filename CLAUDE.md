@@ -50,14 +50,18 @@ reachable over HTTP:
 
 ## Rules that are the owner's, not preferences
 
-- **No connection strings at all.** Managed identity on the server, the
-  developer's own `az login` locally. No account keys, SAS, client secrets or
-  connection strings, even ones holding no secret. `CredentialGuard` refuses
-  them at startup, the storage account refuses shared keys, and Azure Policy
-  denies key authentication across the resource group. Only the server has to
-  prove this; local runs need not.
+- **Managed identity only, and no connection string in GitHub.** Managed
+  identity on the server, the developer's own `az login` locally. No account
+  keys, SAS or client secrets: `CredentialGuard` refuses them at startup, the
+  storage account refuses shared keys, and Azure Policy denies key
+  authentication across the resource group. A connection string carrying no
+  secret (Application Insights') is fine where nobody would expect it to be
+  passed on, such as an App Service setting, but never in anything that reaches
+  GitHub: files, history, PRs. `RepositoryTests` scans what git would commit.
 - **A deleted save leaves no record.** No versioning, soft delete, change feed,
-  index or storage logging.
+  index or storage logging. This is about blob history, so a deleted save's
+  contents cannot be recovered. Telemetry naming a blob is fine: customer data
+  does not live in blob names or metadata.
 - **Security settings in `infra/main.bicep` are pinned by
   `InfrastructureTests`.** Changing one means changing its test, deliberately.
 - **Design calls belong to the owner.** The open decisions in `WIP.md` are
@@ -74,5 +78,6 @@ reachable over HTTP:
   `bicep lint infra/main.bicep`; Janet does not cover Bicep yet.
 - `az` needs `az login` before a what-if, a deployment or `janet az token`. The
   owner runs it themselves (`! az login`).
-- `gh` is not installed. Find GitHub repos through the REST API.- Commit messages: look at `git log --oneline` and match it -- an imperative
+- `gh` is not installed. Find GitHub repos through the REST API.
+- Commit messages: look at `git log --oneline` and match it -- an imperative
   subject, a prose body on why, and a closing line saying what was verified.

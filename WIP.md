@@ -6,7 +6,7 @@ what is still open. Delete it once the PR is merged and the open items have home
 
 - **Branch:** `claude/email-campaign-safety-system-lr7q1m`
 - **PR:** #1 (open, not merged; `main` holds only the initial commit)
-- **Tests:** `dotnet test` → 70 passing, no build warnings
+- **Tests:** `janet check` → 85 passing on `net10.0`, no build warnings
 - **Bicep:** `bicep build` and `bicep lint` clean (CLI 0.47.16)
 
 ## Background
@@ -33,8 +33,9 @@ Treat these as fixed unless the owner reopens them.
 - The stack is **ASP.NET / Blazor Server on Azure App Service**.
 - Storage is **Azure Blob Storage only**, with no SQL or other database.
 - Infrastructure is written in **Bicep**.
-- **Managed identity only.** No connection strings, account keys or SAS, anywhere. Restated on 2026-10-01 as "no connection strings at all": `CredentialGuard` now refuses a connection string even when it carries no secret, and the resource group denies key authentication through Azure Policy (see `infra/main.bicep`). Only the server matters; local runs need not prove it.
-- **Saves are date/time-stamped blobs.** Any blob can be deleted with no remaining record, so there is no index, versioning, soft delete or logging that would keep one.
+- **Managed identity only.** No account keys, SAS or client secrets, anywhere; the resource group denies key authentication through Azure Policy (see `infra/main.bicep`). Only the server matters; local runs need not prove it.
+- **Connection strings: fine, but never in GitHub** (2026-10-02, replacing 2026-10-01's "no connection strings at all"). The Application Insights connection string is acceptable. The general case is not a concern; a connection string just has to be stored where it would not be expected to be passed on, such as an App Service setting, and must not appear in any GitHub data. `CredentialGuard` now refuses only secrets (keys, SAS, passwords); `RepositoryTests` scans every file git would commit for a real-looking key. Git history was checked by hand on 2026-10-02 and holds only placeholders.
+- **Saves are date/time-stamped blobs.** Any blob can be deleted with no remaining record, so there is no index, versioning, soft delete or logging that would keep one. Clarified on 2026-10-02: the rule is about not keeping blob history, so a deleted save's contents cannot be recovered. Telemetry that names a blob is fine, because it never holds the blob's data, and customer data does not live in blob names or metadata.
 - Campaigns are created **from templates**.
 - **Tier copy must not merely copy everything.** It leaves the name and price blank and marks copied benefits unreviewed.
 - An **AI proofread** is part of the gate.
@@ -53,8 +54,9 @@ Treat these as fixed unless the owner reopens them.
 | Blob store (`CampaignStore`, `AzureBlobBackend`) | `src/Neelam.Campaigns.Storage` | Tested in-memory; checked once by hand against Azurite |
 | Startup credential guard | `src/Neelam.Campaigns.Storage` | Done, tested |
 | Web host | `src/Neelam.Web` | Skeleton only: wiring + guard, **no campaign pages** |
+| Monitoring | `infra/main.bicep`, `src/Neelam.Web/Program.cs` | Application Insights over a Log Analytics workspace, both with local auth off. The site's identity has Monitoring Metrics Publisher, and Bicep fills `APPLICATIONINSIGHTS_CONNECTION_STRING` from the resource. The app uses the Azure Monitor distro with the same credential as storage, only when that setting is present. Default telemetry, blob dependencies included (decided 2026-10-02). **Never deployed or run live** |
 | Infrastructure | `infra/main.bicep` | Builds and lints; settings pinned by tests; **never deployed** |
-| Key-auth policy | `infra/main.bicep` | 13 built-in policies assigned with Deny at resource-group scope, 4 App Service ones with AuditIfNotExists (no built-in Deny exists for basic publishing credentials). GUIDs read from Azure/azure-policy on 2026-10-01. **Never deployed**; deploying needs Owner or Resource Policy Contributor |
+| Key-auth policy | `infra/main.bicep` | 13 built-in policies assigned with Deny at resource-group scope, 4 App Service ones with AuditIfNotExists (no built-in Deny exists for basic publishing credentials). GUIDs read from Azure/azure-policy on 2026-10-01. **Never deployed**; deploying needs Owner or Resource Policy Contributor. On 2026-10-02 the same 17 were also assigned by hand at **subscription** scope (names `deny-`/`audit-` plus the first 8 characters of the definition id), so the resource-group copies in this template are now redundant but harmless |
 
 ## Open decisions (the owner's to make)
 
@@ -70,13 +72,12 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
 4. **Claude.** No answer yet. Options: call the Anthropic API directly, or go through Microsoft Foundry in the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
    - An API key, or another way to authenticate, is needed before the proofreader can be run on the two real sends.
    - Server-side refusal fallbacks were left out because they aren't available on Foundry. A refusal currently blocks the email until a person dismisses it.
-5. **Monitoring.** Application Insights is configured with a connection string even when ingestion is Entra-only, and "no connection strings at all" rules that out: `CredentialGuard` refuses `APPLICATIONINSIGHTS_CONNECTION_STRING`. Policy already requires any Application Insights or Log Analytics resource to block non-Entra ingestion. Open: leave monitoring out, or find a route that needs no connection string.
-6. **Placeholders the owner should replace:**
+5. **Placeholders the owner should replace:**
    - the "Gold Member" tier name and the `example.com` join and terms links in the fixtures
    - the restricted terms, medical terms and emoji limit in `CampaignPolicy`
    - whether "Beauty Bank" and "savings account" are acceptable. They are warnings, not blockers, on purpose: it is a business and legal call.
-7. **"Start from last campaign".** Offered but not answered. It would reuse slot origins, so every copied field has to be edited or confirmed.
-8. **Copied benefit amounts.** Offered but not answered: should a copied tier's amounts start blank, so every number has to be re-typed? Currently each copied benefit is kept but marked unreviewed.
+6. **"Start from last campaign".** Offered but not answered. It would reuse slot origins, so every copied field has to be edited or confirmed.
+7. **Copied benefit amounts.** Offered but not answered: should a copied tier's amounts start blank, so every number has to be re-typed? Currently each copied benefit is kept but marked unreviewed.
 
 ## Suggested next steps, once the decisions above land
 
@@ -86,7 +87,6 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
 4. Persist dismissals and approvals. By the owner's rule these are also timestamped blobs with no index, and they need a design decision on where they live.
 5. First real deployment of `infra/main.bicep`, with `developerPrincipalId` set for local work.
 6. A live proofread of `FirstSend()` and `SecondSend()` once Claude access is decided.
-7. Consider adding a `CLAUDE.md` to this repo. There is none yet.
 
 ## Environment notes
 

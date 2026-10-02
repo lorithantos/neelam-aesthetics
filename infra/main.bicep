@@ -77,6 +77,41 @@ resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@20
   }
 }
 
+// Built-in role: Monitoring Metrics Publisher (send telemetry; read nothing).
+var metricsPublisher = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '3913510d-42f4-4e42-8a64-420c390055eb'
+)
+
+// Monitoring. Both accept Entra-signed telemetry only, so the connection string the site is given
+// addresses Application Insights without being able to write to it. The string is filled in from
+// the resource at deploy time and lives only in the site's settings, never in this repository.
+// Telemetry may name a save's blob; it never holds a save's contents.
+resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
+  name: '${prefix}-logs-${suffix}'
+  location: location
+  properties: {
+    sku: {
+      name: 'PerGB2018'
+    }
+    retentionInDays: 30
+    features: {
+      disableLocalAuth: true
+    }
+  }
+}
+
+resource insights 'Microsoft.Insights/components@2020-02-02' = {
+  name: '${prefix}-insights-${suffix}'
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logs.id
+    DisableLocalAuth: true
+  }
+}
+
 resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   name: '${prefix}-plan'
   location: location
@@ -107,7 +142,8 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
       http20Enabled: true
       webSocketsEnabled: true
       alwaysOn: true
-      // Addresses only. No connection strings: the app refuses to start if it finds one.
+      // Addresses only. No keys, SAS or passwords: the app refuses to start if it finds one. The
+      // Application Insights connection string carries none, since ingestion is Entra-only.
       appSettings: [
         {
           name: 'Storage__BlobServiceUri'
@@ -116,6 +152,10 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'Storage__Container'
           value: containerName
+        }
+        {
+          name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+          value: insights.properties.ConnectionString
         }
       ]
     }
@@ -144,6 +184,16 @@ resource siteBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: container
   properties: {
     roleDefinitionId: blobDataContributor
+    principalId: site.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource siteTelemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(insights.id, site.id, metricsPublisher)
+  scope: insights
+  properties: {
+    roleDefinitionId: metricsPublisher
     principalId: site.identity.principalId
     principalType: 'ServicePrincipal'
   }

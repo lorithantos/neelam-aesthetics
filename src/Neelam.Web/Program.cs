@@ -1,11 +1,12 @@
 using Azure.Core;
 using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Neelam.Campaigns.Storage;
 using Neelam.Web.Components;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Managed identity only: refuse to start if any connection string, key or SAS is configured.
+// Managed identity only: refuse to start if any key, SAS or password is configured.
 CredentialGuard.EnsureNoStoredCredentials(builder.Configuration.AsEnumerable());
 
 // In Azure, the site's own identity. Locally, the developer's `az login` — still a person's
@@ -22,6 +23,13 @@ var blobServiceUri = storage["BlobServiceUri"] is { Length: > 0 } uri
         "Storage:BlobServiceUri is not set. In Azure the Bicep deployment sets it; locally, set it to " +
         "the blobServiceUri output of the deployment.");
 var containerName = storage["Container"] ?? "campaigns";
+
+// Application Insights, wherever its connection string is set: in Azure an App Service setting the
+// Bicep deployment fills in from the resource, never a file in the repository. Ingestion is
+// Entra-only, so the exporter signs in with the same identity as storage. Without the setting, as
+// in a local run, nothing is sent.
+if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
+    builder.Services.AddOpenTelemetry().UseAzureMonitor(monitor => monitor.Credential = credential);
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<IBlobBackend>(new AzureBlobBackend(blobServiceUri, containerName, credential));

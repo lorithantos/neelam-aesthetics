@@ -8,7 +8,7 @@ namespace Neelam.Campaigns.Tests;
 /// </summary>
 public class InfrastructureTests
 {
-    private static readonly string Root = FindRoot();
+    internal static readonly string Root = FindRoot();
     private static readonly string Bicep = File.ReadAllText(Path.Combine(Root, "infra", "main.bicep"));
 
     [Theory]
@@ -16,7 +16,16 @@ public class InfrastructureTests
     [InlineData("allowBlobPublicAccess: false")]
     [InlineData("isVersioningEnabled: false")]
     [InlineData("type: 'SystemAssigned'")]
+    [InlineData("disableLocalAuth: true")]   // Log Analytics: Entra ingestion only
+    [InlineData("DisableLocalAuth: true")]   // Application Insights: Entra ingestion only
+    [InlineData("3913510d-42f4-4e42-8a64-420c390055eb")]   // Monitoring Metrics Publisher for the site
     public void Template_sets(string setting) => Assert.Contains(setting, Bicep);
+
+    // Filled in from the resource at deploy time, so the value never sits in the repository.
+    [Fact]
+    public void Monitoring_connection_string_comes_from_the_resource() =>
+        Assert.Matches(new Regex(
+            @"name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'\s*value: insights\.properties\.ConnectionString\s*\}"), Bicep);
 
     [Theory]
     [InlineData("deleteRetentionPolicy")]
@@ -37,6 +46,7 @@ public class InfrastructureTests
     [Theory]
     [InlineData("8c6a50c6-9ffd-4ae7-986f-5fa6111f9a54")] // storage accounts: no shared key access
     [InlineData("199d5677-e4d9-4264-9465-efe1839c06bd")] // Application Insights: Entra ingestion only
+    [InlineData("e15effd4-2278-4c65-a0da-4d6f6d1890e2")] // Log Analytics: Entra ingestion only
     public void Policy_refuses_key_authentication(string builtInPolicyId)
     {
         Assert.Contains(builtInPolicyId, Bicep);

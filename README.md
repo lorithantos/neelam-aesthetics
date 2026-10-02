@@ -73,8 +73,14 @@ campaigns/templates/{template id}/20261002T150512.1234567Z.json
   connection strings and account SAS tokens are refused by the service itself. The web app
   uses its system-assigned identity with *Storage Blob Data Contributor* on the one container.
 - **No stored credentials in the app either.** `CredentialGuard` stops the app at startup if any
-  connection string, key, SAS or password is configured. FTP/basic publishing is off; deploy
-  with your Entra sign-in.
+  key, SAS or password is configured. FTP/basic publishing is off; deploy with your Entra sign-in.
+- **No connection string in the repository.** A connection string carrying no secret, such as
+  Application Insights', is allowed in an App Service setting, but never in anything that reaches
+  GitHub. `RepositoryTests` scans every file git would commit for a real-looking one.
+- **Monitoring** is Application Insights with Entra-only ingestion: the site's identity holds
+  *Monitoring Metrics Publisher*, and the connection string is set by the deployment. Telemetry
+  may name a blob, but it never holds a save's contents. Locally, without the setting, nothing
+  is sent.
 - Locally the app signs in as the developer (`az login`); pass `developerPrincipalId` to the
   deployment to give that person the same container access.
 - `InfrastructureTests` pins these settings so a later edit cannot quietly undo them.
@@ -123,7 +129,8 @@ a business and legal call, not one for the tool to make.
   (token credential only) and `CredentialGuard`.
 - `src/Neelam.Web` — the Blazor Server host. It wires up storage and the credential guard; it
   shows no campaign pages until sign-in exists.
-- `infra/main.bicep` — App Service, storage account, container and role assignments.
+- `infra/main.bicep` — App Service, storage account, container, Application Insights and role
+  assignments.
 - `tests/Neelam.Campaigns.Tests` — both real sends and a corrected version, one test per rule,
   drafts and saves (against an in-memory blob store), the credential guard, the infrastructure
   settings, and parsing of Claude's answer. No test calls the network.
@@ -144,9 +151,7 @@ dotnet test
    than a client secret. Who can create the app registration in the tenant?
 3. **Approval** — one person, or a second approver required before export? And must warnings be
    acknowledged individually before export, or only blockers stop it (current behaviour)?
-4. **Monitoring** — Application Insights is normally configured with a connection string, which
-   the credential guard refuses. Leave monitoring out, or decide how to add it.
-5. **Where Claude runs** — directly against the Anthropic API, or through Microsoft Foundry
+4. **Where Claude runs** — directly against the Anthropic API, or through Microsoft Foundry
    inside the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
-6. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`
+5. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`
    are starting points for the owner to set.
