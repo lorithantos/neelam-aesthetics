@@ -65,10 +65,14 @@ reachable over HTTP:
 
 ## Tooling notes
 
-- Bicep CLI is not installed here. Download the signed standalone
-  `bicep-win-x64.exe` from the Azure/bicep GitHub releases into the scratchpad,
-  then `bicep build` and `bicep lint infra/main.bicep`.
-- Neither `gh` nor `az` is installed. Find GitHub repos through the REST API;
-  for Azure, `janet az token` works only after `az login`.
-- Commit messages: look at `git log --oneline` and match it -- an imperative
+- Build and test .NET through Janet (`dotnet_check` / `janet check`), never bare
+  `dotnet build` or `dotnet test`: it refreshes the code graph and returns
+  structured results. Use `testFilter` for a narrowed run.
+- Bicep CLI and Azure CLI are installed with winget (`Microsoft.Bicep`,
+  `Microsoft.AzureCLI`), and `az` uses the same `bicep` from PATH
+  (`bicep.use_binary_from_path=true`). Check Bicep with `bicep build` and
+  `bicep lint infra/main.bicep`; Janet does not cover Bicep yet.
+- `az` needs `az login` before a what-if, a deployment or `janet az token`. The
+  owner runs it themselves (`! az login`).
+- `gh` is not installed. Find GitHub repos through the REST API.- Commit messages: look at `git log --oneline` and match it -- an imperative
   subject, a prose body on why, and a closing line saying what was verified.

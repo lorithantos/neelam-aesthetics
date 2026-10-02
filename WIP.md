@@ -94,7 +94,7 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
   - Targets `net10.0` (moved from `net8.0` on 2026-10-02); App Service runs `DOTNETCORE|10.0`. Sessions are local with SDK 10.
   - The solution is still a classic `Neelam.sln`, a leftover of the SDK 8 days; `.slnx` would now build.
   - Tests use xunit 2.4.2. Use `Assert.Equal` on sorted arrays, not `HashSet`s, for order-free comparisons.
-- **Bicep:** the standalone CLI downloaded from the GitHub releases page worked in the cloud container; `az` was not installed.
+- **Bicep:** Bicep CLI 0.47.16 and Azure CLI 2.90.0 installed with winget on 2026-10-02; `az` uses the PATH `bicep`. Signed in with `az login` on 2026-10-02 (the tenants need MFA, so sign in with `--tenant`).
 - **Azurite check (manual):**
   1. `npm i azurite@3`, then make a self-signed certificate for `127.0.0.1`.
   2. Run `npx azurite-blob --oauth basic --cert cert.pem --key key.pem`.
