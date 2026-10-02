@@ -25,6 +25,27 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 - An AI finding whose quoted excerpt isn't actually in the email is downgraded to a warning
   rather than trusted.
 
+## Templates and drafts
+
+Campaigns are written as a `CampaignDraft`, usually started from a `CampaignTemplate`. Every
+value in a draft is a `Slot` that remembers where it came from:
+
+| Origin | Meaning | Ready to build? |
+|---|---|---|
+| `Template` | Fixed text from the template (greeting, closing, sign-off, disclaimer) | Yes |
+| `Entered` | Typed, or a copy a person confirmed | Yes |
+| `Copied` | Copied and not yet looked at | **No** — edit it or `Confirm()` it |
+| `Empty` | Not filled in | No, if required |
+
+- A **template** fills only the parts that stay the same. Subject, headline, opening, offer and
+  call to action always start empty, never as last time's text.
+- **Copying a tier** (`OfferDraft.CopyTier`) copies its benefit list for convenience, but marks
+  each benefit `Copied`, and does **not** copy the name or price — those are what make it a
+  different tier. The draft will not build until every copied benefit is edited or confirmed
+  and the new tier has its own name and price.
+- `Build()` reports what's left as findings (`draft-missing`, `draft-unreviewed-copy`), in the
+  same shape as the gate. A built campaign still goes through the gate.
+
 ## Why: the one-year / Beauty Bank email
 
 It went out twice. `SampleCampaigns.FirstSend()` and `SecondSend()` in the tests reproduce
@@ -32,8 +53,8 @@ both, and the tests pin which rules each trips.
 
 | Problem in the sent email | Rule | Severity |
 |---|---|---|
-| First send: both offers identical | `tier-content-distinct` | Blocker |
-| Second send: one offer fixed, both still named "Platinum Member" | `tier-names-unique` | Blocker |
+| First send: both offers identical | Tier copy marks every benefit unreviewed; `tier-content-distinct` | Blocker |
+| Second send: one offer fixed, both still named "Platinum Member" | Tier copy doesn't copy the name; `tier-names-unique` | Blocker |
 | "50% Complimentary Wellness Injections" — free or half off? | Not expressible: benefits are typed (`FreeItem` / `DiscountedItem`) and worded by the model; `benefit-value` rejects 100%-off | Blocker |
 | No link or button to join | `cta-required`, `cta-https` | Blocker |
 | Monthly charge with no cancellation / rollover / refund terms | `terms-required` | Blocker |
