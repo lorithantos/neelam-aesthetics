@@ -4,6 +4,8 @@ namespace Neelam.Campaigns.Storage;
 /// Refuses to start the app if any stored credential is present in its configuration: a
 /// connection string, an account key, a SAS token, a password. Access is by managed identity
 /// only, so any of these is either a mistake or a leak. Only setting names are reported, never values.
+/// A connection string is refused as a form, even one carrying no secret: it is the shape a key
+/// travels in, and the owner's rule is no connection strings at all.
 /// </summary>
 public static class CredentialGuard
 {
@@ -13,7 +15,22 @@ public static class CredentialGuard
         "SharedAccessKey=",
         "SharedAccessSignature=",
         "Password=",
+        "Secret=",
         "InstrumentationKey=",
+    ];
+
+    // Connection-string keywords that are not secrets themselves.
+    private static readonly string[] ConnectionStringMarkers =
+    [
+        "UseDevelopmentStorage=",
+        "DefaultEndpointsProtocol=",
+        "AccountName=",
+        "AccountEndpoint=",
+        "BlobEndpoint=",
+        "Endpoint=sb://",
+        "IngestionEndpoint=",
+        "Data Source=",
+        "Initial Catalog=",
     ];
 
     /// <param name="settings">Typically <c>IConfiguration.AsEnumerable()</c>.</param>
@@ -31,9 +48,11 @@ public static class CredentialGuard
                 string.Join(", ", offending));
     }
 
+    // App Service connection-string settings arrive as CUSTOMCONNSTR_* and the like, which
+    // configuration maps to ConnectionStrings:*, so the name check covers those too.
     private static bool LooksLikeCredential(string key, string value) =>
-        key.StartsWith("ConnectionStrings:", StringComparison.OrdinalIgnoreCase)
-        || SecretMarkers.Any(m => value.Contains(m, StringComparison.OrdinalIgnoreCase))
+        key.Replace("_", "").Contains("ConnectionString", StringComparison.OrdinalIgnoreCase)
+        || SecretMarkers.Concat(ConnectionStringMarkers).Any(m => value.Contains(m, StringComparison.OrdinalIgnoreCase))
         || IsSasUrl(value);
 
     private static bool IsSasUrl(string value) =>
