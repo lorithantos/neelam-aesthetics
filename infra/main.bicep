@@ -158,6 +158,65 @@ resource developerBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
+// No keys at all, as a rule of this resource group rather than a habit of this template: built-in
+// Azure Policy definitions that refuse any resource left accepting key or local authentication.
+// They cover services this app does not use yet, so adding one later cannot bring keys with it.
+// Deploying this needs Owner or Resource Policy Contributor on the resource group, and a new
+// assignment can take up to 30 minutes to start refusing.
+var denyKeyAuthPolicies = [
+  { id: '8c6a50c6-9ffd-4ae7-986f-5fa6111f9a54', name: 'Storage accounts: no shared key access' }
+  { id: '199d5677-e4d9-4264-9465-efe1839c06bd', name: 'Application Insights: Entra ingestion only' }
+  { id: 'e15effd4-2278-4c65-a0da-4d6f6d1890e2', name: 'Log Analytics: Entra ingestion only' }
+  { id: 'cfb11c26-f069-4c14-8e36-56c394dae5af', name: 'Service Bus: no local authentication' }
+  { id: '5d4e3c65-4873-47be-94f3-6f8b953a3598', name: 'Event Hubs: no local authentication' }
+  { id: '5450f5bd-9c72-4390-a9c4-a7aba4edfdd2', name: 'Cosmos DB: no local authentication' }
+  { id: 'abda6d70-9778-44e7-84a8-06713e6db027', name: 'Azure SQL: Entra-only authentication at creation' }
+  { id: 'b3a22bc9-66de-45fb-98fa-00f5df42f41a', name: 'Azure SQL: Entra-only authentication stays on' }
+  { id: 'b08ab3ca-1062-4db3-8803-eec9cae605d6', name: 'App Configuration: no local authentication' }
+  { id: '71ef260a-8f18-47b7-abcb-62d0673d94dc', name: 'Azure AI services: no key access' }
+  { id: '6300012e-e9a4-4649-b41f-a85f5c43be91', name: 'Azure AI Search: no local authentication' }
+  { id: 'ae9fb87f-8a17-4428-94a4-8135d431055c', name: 'Event Grid topics: no local authentication' }
+  { id: '8bfadddb-ee1c-4639-8911-a38cb8e0b3bd', name: 'Event Grid domains: no local authentication' }
+]
+
+resource denyKeyAuth 'Microsoft.Authorization/policyAssignments@2024-04-01' = [
+  for policy in denyKeyAuthPolicies: {
+    name: guid(resourceGroup().id, policy.id)
+    properties: {
+      displayName: 'Deny - ${policy.name}'
+      policyDefinitionId: tenantResourceId('Microsoft.Authorization/policyDefinitions', policy.id)
+      enforcementMode: 'Default'
+      parameters: {
+        effect: { value: 'Deny' }
+      }
+    }
+  }
+]
+
+// App Service has no built-in policy that can refuse basic publishing credentials, only report
+// them. ftpPublishing and scmPublishing above turn them off; these make a later change show as
+// non-compliant.
+var auditPublishingPolicies = [
+  { id: '871b205b-57cf-4e1e-a234-492616998bf7', name: 'App Service: no FTP basic authentication' }
+  { id: 'aede300b-d67f-480a-ae26-4b3dfb1a1fdc', name: 'App Service: no SCM basic authentication' }
+  { id: 'ec71c0bc-6a45-4b1f-9587-80dc83e6898c', name: 'App Service slots: no FTP basic authentication' }
+  { id: '847ef871-e2fe-4e6e-907e-4adbf71de5cf', name: 'App Service slots: no SCM basic authentication' }
+]
+
+resource auditPublishing 'Microsoft.Authorization/policyAssignments@2024-04-01' = [
+  for policy in auditPublishingPolicies: {
+    name: guid(resourceGroup().id, policy.id)
+    properties: {
+      displayName: 'Audit - ${policy.name}'
+      policyDefinitionId: tenantResourceId('Microsoft.Authorization/policyDefinitions', policy.id)
+      enforcementMode: 'Default'
+      parameters: {
+        effect: { value: 'AuditIfNotExists' }
+      }
+    }
+  }
+]
+
 output siteName string = site.name
 output siteUrl string = 'https://${site.properties.defaultHostName}'
 output blobServiceUri string = storage.properties.primaryEndpoints.blob

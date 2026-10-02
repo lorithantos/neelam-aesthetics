@@ -33,7 +33,7 @@ Treat these as fixed unless the owner reopens them.
 - The stack is **ASP.NET / Blazor Server on Azure App Service**.
 - Storage is **Azure Blob Storage only**, with no SQL or other database.
 - Infrastructure is written in **Bicep**.
-- **Managed identity only.** No connection strings, account keys or SAS, anywhere.
+- **Managed identity only.** No connection strings, account keys or SAS, anywhere. Restated on 2026-10-01 as "no connection strings at all": `CredentialGuard` now refuses a connection string even when it carries no secret, and the resource group denies key authentication through Azure Policy (see `infra/main.bicep`). Only the server matters; local runs need not prove it.
 - **Saves are date/time-stamped blobs.** Any blob can be deleted with no remaining record, so there is no index, versioning, soft delete or logging that would keep one.
 - Campaigns are created **from templates**.
 - **Tier copy must not merely copy everything.** It leaves the name and price blank and marks copied benefits unreviewed.
@@ -54,6 +54,7 @@ Treat these as fixed unless the owner reopens them.
 | Startup credential guard | `src/Neelam.Campaigns.Storage` | Done, tested |
 | Web host | `src/Neelam.Web` | Skeleton only: wiring + guard, **no campaign pages** |
 | Infrastructure | `infra/main.bicep` | Builds and lints; settings pinned by tests; **never deployed** |
+| Key-auth policy | `infra/main.bicep` | 13 built-in policies assigned with Deny at resource-group scope, 4 App Service ones with AuditIfNotExists (no built-in Deny exists for basic publishing credentials). GUIDs read from Azure/azure-policy on 2026-10-01. **Never deployed**; deploying needs Owner or Resource Policy Contributor |
 
 ## Open decisions (the owner's to make)
 
@@ -69,7 +70,7 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
 4. **Claude.** No answer yet. Options: call the Anthropic API directly, or go through Microsoft Foundry in the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
    - An API key, or another way to authenticate, is needed before the proofreader can be run on the two real sends.
    - Server-side refusal fallbacks were left out because they aren't available on Foundry. A refusal currently blocks the email until a person dismisses it.
-5. **Monitoring.** Application Insights is normally configured with a connection string, which `CredentialGuard` refuses. Options: leave monitoring out, or find a keyless route.
+5. **Monitoring.** Application Insights is configured with a connection string even when ingestion is Entra-only, and "no connection strings at all" rules that out: `CredentialGuard` refuses `APPLICATIONINSIGHTS_CONNECTION_STRING`. Policy already requires any Application Insights or Log Analytics resource to block non-Entra ingestion. Open: leave monitoring out, or find a route that needs no connection string.
 6. **Placeholders the owner should replace:**
    - the "Gold Member" tier name and the `example.com` join and terms links in the fixtures
    - the restricted terms, medical terms and emoji limit in `CampaignPolicy`

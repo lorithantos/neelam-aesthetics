@@ -34,6 +34,16 @@ public class InfrastructureTests
     [InlineData("diagnosticSettings")]   // storage logs would keep the names of deleted saves
     public void Template_never_uses(string text) => Assert.DoesNotContain(text, Bicep);
 
+    [Theory]
+    [InlineData("8c6a50c6-9ffd-4ae7-986f-5fa6111f9a54")] // storage accounts: no shared key access
+    [InlineData("199d5677-e4d9-4264-9465-efe1839c06bd")] // Application Insights: Entra ingestion only
+    public void Policy_refuses_key_authentication(string builtInPolicyId)
+    {
+        Assert.Contains(builtInPolicyId, Bicep);
+        Assert.Contains("effect: { value: 'Deny' }", Bicep);
+        Assert.DoesNotContain("DoNotEnforce", Bicep);
+    }
+
     [Fact]
     public void Basic_publishing_credentials_are_off()
     {
