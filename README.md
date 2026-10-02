@@ -67,7 +67,7 @@ campaigns/templates/{template id}/20261002T150512.1234567Z.json
 
 ## Infrastructure and access
 
-`infra/main.bicep` creates an App Service (Linux, .NET 8) and a storage account.
+`infra/main.bicep` creates an App Service (Linux, .NET 10) and a storage account.
 
 - **Managed identity only.** The storage account has shared-key access off, so account keys,
   connection strings and account SAS tokens are refused by the service itself. The web app

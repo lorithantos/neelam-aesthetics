@@ -91,8 +91,8 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
 ## Environment notes
 
 - **.NET:**
-  - The SDK is 8.0.131, targeting `net8.0`.
-  - The solution is a classic `Neelam.sln`, because `.slnx` needs a newer SDK.
+  - Targets `net10.0` (moved from `net8.0` on 2026-10-02); App Service runs `DOTNETCORE|10.0`. Sessions are local with SDK 10.
+  - The solution is still a classic `Neelam.sln`, a leftover of the SDK 8 days; `.slnx` would now build.
   - Tests use xunit 2.4.2. Use `Assert.Equal` on sorted arrays, not `HashSet`s, for order-free comparisons.
 - **Bicep:** the standalone CLI downloaded from the GitHub releases page worked in the cloud container; `az` was not installed.
 - **Azurite check (manual):**

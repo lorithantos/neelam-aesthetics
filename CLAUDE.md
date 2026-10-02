@@ -30,8 +30,7 @@ janet check --target Neelam.sln     # build + test, structured JSON; exit 0 only
 dotnet test Neelam.sln              # fallback without janet
 ```
 
-The projects target `net8.0` and the solution is a classic `.sln`, because the
-cloud sessions run SDK 8. Local SDK 10 builds them as-is; do not retarget.
+The projects target `net10.0`, the house standard, and App Service runs .NET 10.
 
 No test touches the network. Keep it that way: real-service checks are manual
 probes, described in `WIP.md`.

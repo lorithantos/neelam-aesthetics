@@ -101,7 +101,7 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
     httpsOnly: true
     clientAffinityEnabled: true // Blazor Server keeps each user on the instance holding their circuit
     siteConfig: {
-      linuxFxVersion: 'DOTNETCORE|8.0'
+      linuxFxVersion: 'DOTNETCORE|10.0'
       minTlsVersion: '1.2'
       ftpsState: 'Disabled'
       http20Enabled: true
