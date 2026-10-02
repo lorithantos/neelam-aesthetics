@@ -427,3 +427,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Claude Code: .claude/settings.json is shared project config and IS committed.
+.claude/settings.local.json
