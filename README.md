@@ -1,6 +1,6 @@
 # Neelam Aesthetics — campaign safety
 
-Email campaigns go out through an editor with no API, so mistakes can't be caught by
+Email campaigns go out through Square Marketing, which has no API for campaigns, so mistakes can't be caught by
 automation on the sending side. This project moves the email upstream: it is written as
 **structured data**, checked by a **two-part gate**, and only then **exported as blocks** that a
 person pastes into the editor in order.
@@ -84,9 +84,11 @@ dotnet test
 
 ## Open decisions
 
-1. **Which editor** — the sample's footer is Square Marketing's; Squarespace Email Campaigns is
-   a different editor. `EditorBlock` kinds (heading, text, list, button, divider) map onto
-   either, but personalisation tokens (first name) differ and are not modelled yet.
+1. **Personalisation** — emails go out through **Square Marketing** (confirmed). Square adds the
+   footer (address, unsubscribe) itself, so the export leaves it out. Whether Square's editor
+   offers a first-name token, and what it looks like, still needs checking in the editor before
+   `Greeting` can use one. The mapping of `EditorBlock` kinds onto Square's blocks also needs a
+   check against the real editor, especially whether a text block keeps bullet lists.
 2. **Web app** — proposed: Blazor Server on Azure App Service, Entra ID sign-in, Azure SQL for
    templates, sent campaigns and approvals.
 3. **Approval** — one person, or a second approver required before export? And must warnings be
