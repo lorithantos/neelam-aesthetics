@@ -139,6 +139,13 @@ public sealed class TierDraft
     internal void AddCopiedBenefit(Benefit benefit, string source) =>
         _benefits.Add(Slot<Benefit>.CopiedFromSource(benefit, source));
 
+    internal Slot<Benefit> AddEmptyBenefit()
+    {
+        var slot = Slot<Benefit>.Empty();
+        _benefits.Add(slot);
+        return slot;
+    }
+
     public void RemoveBenefit(int index) => _benefits.RemoveAt(index);
 
     internal void Check(DraftProblems problems, string where)

@@ -56,6 +56,14 @@ public sealed class Slot<T>
         Origin = Origin.Entered;
     }
 
+    /// <summary>Puts back a value exactly as it was saved, origin included.</summary>
+    internal void Restore(Origin origin, T value, string? copiedFrom)
+    {
+        _value = origin == Origin.Empty ? default! : value;
+        Origin = origin;
+        CopiedFrom = origin == Origin.Copied ? copiedFrom : null;
+    }
+
     public void Clear()
     {
         _value = default!;

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Neelam.Campaigns;
 
@@ -7,15 +8,22 @@ namespace Neelam.Campaigns;
 /// held to is generated, never typed: "50% Complimentary" cannot be expressed, because a thing is
 /// either <see cref="FreeItem"/> or <see cref="DiscountedItem"/>.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(BirthdayCredit), "birthday-credit")]
+[JsonDerivedType(typeof(PercentOff), "percent-off")]
+[JsonDerivedType(typeof(FreeItem), "free-item")]
+[JsonDerivedType(typeof(DiscountedItem), "discounted-item")]
 public abstract record Benefit
 {
     /// <summary>Benefits of the same kind are compared across tiers.</summary>
+    [JsonIgnore]
     public abstract string Kind { get; }
 
     /// <summary>The customer-facing sentence for this benefit.</summary>
     public abstract string Describe();
 
     /// <summary>The service this benefit is about, if any; used to spot medical services.</summary>
+    [JsonIgnore]
     public virtual string? Item => null;
 
     protected static string Money(decimal amount) =>

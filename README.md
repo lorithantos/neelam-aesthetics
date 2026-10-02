@@ -46,6 +46,50 @@ value in a draft is a `Slot` that remembers where it came from:
 - `Build()` reports what's left as findings (`draft-missing`, `draft-unreviewed-copy`), in the
   same shape as the gate. A built campaign still goes through the gate.
 
+## Saving
+
+Drafts and templates are saved to Azure Blob Storage by `CampaignStore`, one blob per save:
+
+```
+campaigns/drafts/{campaign id}/20261002T143000.0000000Z.json
+campaigns/templates/{template id}/20261002T150512.1234567Z.json
+```
+
+- **Every save is a new blob.** Nothing is overwritten; two saves in the same instant get
+  different names.
+- **There is no index or database.** Lists are read from the blob names, and the title is in the
+  blob's own metadata. Deleting a blob therefore leaves no record of it: delete the newest save
+  and the previous one becomes the latest; delete them all and the campaign is gone.
+- **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
+  diagnostic logs are all off, so there is no recycle bin.
+- A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed
+  when the draft is opened again.
+
+## Infrastructure and access
+
+`infra/main.bicep` creates an App Service (Linux, .NET 8) and a storage account.
+
+- **Managed identity only.** The storage account has shared-key access off, so account keys,
+  connection strings and account SAS tokens are refused by the service itself. The web app
+  uses its system-assigned identity with *Storage Blob Data Contributor* on the one container.
+- **No stored credentials in the app either.** `CredentialGuard` stops the app at startup if any
+  connection string, key, SAS or password is configured. FTP/basic publishing is off; deploy
+  with your Entra sign-in.
+- Locally the app signs in as the developer (`az login`); pass `developerPrincipalId` to the
+  deployment to give that person the same container access.
+- `InfrastructureTests` pins these settings so a later edit cannot quietly undo them.
+
+```
+az group create -n neelam-rg -l westus2
+az deployment group create -g neelam-rg -f infra/main.bicep \
+  -p developerPrincipalId=$(az ad signed-in-user show --query id -o tsv)
+dotnet publish src/Neelam.Web -c Release -o publish && (cd publish && zip -r ../app.zip .)
+az webapp deploy -g neelam-rg -n <siteName output> --src-path app.zip --type zip
+```
+
+The deployment creates role assignments, so it needs Owner (or a role that can assign roles) on
+the resource group.
+
 ## Why: the one-year / Beauty Bank email
 
 It went out twice. `SampleCampaigns.FirstSend()` and `SecondSend()` in the tests reproduce
@@ -75,8 +119,14 @@ a business and legal call, not one for the tool to make.
   and the export (`EditorExport`). No web, storage, hosting or AI dependency.
 - `src/Neelam.Campaigns.Claude` — `ClaudeProofreader`, the `IProofreader` backed by Claude
   (Anthropic C# SDK, structured JSON output). Reads `ANTHROPIC_API_KEY` by default.
+- `src/Neelam.Campaigns.Storage` — `CampaignStore` (timestamped blob saves), `AzureBlobBackend`
+  (token credential only) and `CredentialGuard`.
+- `src/Neelam.Web` — the Blazor Server host. It wires up storage and the credential guard; it
+  shows no campaign pages until sign-in exists.
+- `infra/main.bicep` — App Service, storage account, container and role assignments.
 - `tests/Neelam.Campaigns.Tests` — both real sends and a corrected version, one test per rule,
-  the gate with a fake proofreader, and parsing of Claude's answer. No test calls the network.
+  drafts and saves (against an in-memory blob store), the credential guard, the infrastructure
+  settings, and parsing of Claude's answer. No test calls the network.
 
 ```
 dotnet test
@@ -89,11 +139,14 @@ dotnet test
    offers a first-name token, and what it looks like, still needs checking in the editor before
    `Greeting` can use one. The mapping of `EditorBlock` kinds onto Square's blocks also needs a
    check against the real editor, especially whether a text block keeps bullet lists.
-2. **Web app** — proposed: Blazor Server on Azure App Service, Entra ID sign-in, Azure SQL for
-   templates, sent campaigns and approvals.
+2. **Sign-in** — the app needs Entra ID sign-in before it shows any campaign. Keeping to "no
+   stored secrets" means signing in with a federated credential on the app's identity rather
+   than a client secret. Who can create the app registration in the tenant?
 3. **Approval** — one person, or a second approver required before export? And must warnings be
    acknowledged individually before export, or only blockers stop it (current behaviour)?
-4. **Where Claude runs** — directly against the Anthropic API, or through Microsoft Foundry
+4. **Monitoring** — Application Insights is normally configured with a connection string, which
+   the credential guard refuses. Leave monitoring out, or decide how to add it.
+5. **Where Claude runs** — directly against the Anthropic API, or through Microsoft Foundry
    inside the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
-5. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`
+6. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`
    are starting points for the owner to set.

@@ -6,46 +6,10 @@ namespace Neelam.Campaigns.Tests;
 public class CampaignDraftTests
 {
     private static readonly Campaign Target = SampleCampaigns.Corrected();
-
-    /// <summary>A membership-announcement template made from the corrected email's fixed parts.</summary>
-    private static readonly CampaignTemplate Membership = new(
-        Name: "Membership announcement",
-        Greeting: Target.Greeting,
-        Closing: Target.Closing,
-        SignOff: Target.SignOff,
-        Disclaimer: Target.Disclaimer,
-        HasOffer: true,
-        IsRecurring: true);
+    private static readonly CampaignTemplate Membership = DraftFixtures.Membership;
 
     private static ISet<string> Locations(DraftResult r, string rule) =>
         r.Problems.Where(p => p.Rule == rule).Select(p => p.Location).ToHashSet();
-
-    /// <summary>Everything a campaign author types, apart from the tiers.</summary>
-    private static CampaignDraft StartAndFillText()
-    {
-        var d = Membership.Start();
-        d.Subject.Set(Target.Subject);
-        d.Headline.Set(Target.Headline);
-        d.Opening.Set(Target.Opening);
-        d.CallToAction.Set(Target.CallToAction!);
-        var o = d.Offer!;
-        o.Name.Set(Target.Offer!.Name);
-        o.Summary.Set(Target.Offer.Summary);
-        o.TiersNote.Set(Target.Offer.TiersNote!);
-        o.TermsUrl.Set(Target.Offer.TermsUrl!);
-        return d;
-    }
-
-    private static TierDraft AddGold(OfferDraft o)
-    {
-        var gold = o.AddTier();
-        gold.Name.Set("Gold Member");
-        gold.MonthlyPrice.Set(149m);
-        gold.AddBenefit(new BirthdayCredit(25m));
-        gold.AddBenefit(new PercentOff(5, "any qualifying treatments"));
-        gold.AddBenefit(new DiscountedItem(50, "wellness injection", "per visit"));
-        return gold;
-    }
 
     [Fact]
     public void New_draft_from_a_template_asks_for_every_per_campaign_part_and_nothing_else()
@@ -66,7 +30,7 @@ public class CampaignDraftTests
     public void Copied_tier_keeps_benefits_but_not_name_or_price()
     {
         var o = Membership.Start().Offer!;
-        AddGold(o);
+        DraftFixtures.AddGold(o);
 
         var copy = o.CopyTier(0);
 
@@ -84,13 +48,7 @@ public class CampaignDraftTests
     [Fact]
     public void Second_send_replayed_cannot_build_with_an_unnamed_tier_and_unreviewed_benefits()
     {
-        var d = StartAndFillText();
-        AddGold(d.Offer!);
-        var platinum = d.Offer!.CopyTier(0);
-        platinum.MonthlyPrice.Set(299m);
-        platinum.Benefits[0].Set(new BirthdayCredit(75m));   // updated
-        platinum.Benefits[1].Set(new PercentOff(10, "any qualifying treatments"));   // updated
-        // Benefit 3 and the name never touched.
+        var d = DraftFixtures.SecondSendReplayed();
 
         var result = d.Build();
 
@@ -109,8 +67,8 @@ public class CampaignDraftTests
     [Fact]
     public void First_send_replayed_with_every_copy_confirmed_is_still_stopped_by_the_rules()
     {
-        var d = StartAndFillText();
-        AddGold(d.Offer!);
+        var d = DraftFixtures.StartAndFillText();
+        DraftFixtures.AddGold(d.Offer!);
         var platinum = d.Offer!.CopyTier(0);
         platinum.Name.Set("Platinum Member");
         platinum.MonthlyPrice.Set(299m);
@@ -125,15 +83,7 @@ public class CampaignDraftTests
     [Fact]
     public async Task Draft_filled_properly_builds_the_corrected_email_and_passes_the_gate()
     {
-        var d = StartAndFillText();
-        AddGold(d.Offer!);
-        var platinum = d.Offer!.CopyTier(0);
-        platinum.Name.Set("Platinum Member");
-        platinum.MonthlyPrice.Set(299m);
-        platinum.Benefits[0].Set(new BirthdayCredit(75m));
-        platinum.Benefits[1].Set(new PercentOff(10, "any qualifying treatments"));
-        platinum.Benefits[2].Set(new FreeItem(1, "wellness injection", "per visit"));
-        platinum.AddBenefit(new DiscountedItem(50, "wellness injection", "per visit", "any additional"));
+        var d = DraftFixtures.Finished();
 
         var result = d.Build();
 
@@ -145,7 +95,7 @@ public class CampaignDraftTests
     [Fact]
     public void Only_a_copied_value_can_be_confirmed()
     {
-        var gold = AddGold(Membership.Start().Offer!);
+        var gold = DraftFixtures.AddGold(Membership.Start().Offer!);
 
         Assert.Throws<InvalidOperationException>(() => gold.Benefits[0].Confirm());
         Assert.Throws<InvalidOperationException>(() => gold.Name.Confirm());
