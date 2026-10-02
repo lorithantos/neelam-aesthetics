@@ -1,3 +1,41 @@
 {
-  "enabledMcpjsonServers": ["janet", "razorgraph"]
+  "enabledMcpjsonServers": ["janet", "razorgraph"],
+  "permissions": {
+    "allow": [
+      "PowerShell(janet check*)",
+      "PowerShell(janet thread report*)",
+      "PowerShell(janet thread show*)",
+      "PowerShell(janet research query*)",
+      "PowerShell(& \"$env:JanetBase\\scripts\\Invoke-JanetStartup.ps1\"*)",
+      "PowerShell(dotnet build*)",
+      "PowerShell(dotnet test*)",
+      "PowerShell(dotnet restore*)",
+      "PowerShell(dotnet list*)",
+      "PowerShell(dotnet --*)",
+      "PowerShell(git status*)",
+      "PowerShell(git log*)",
+      "PowerShell(git diff*)",
+      "PowerShell(git show*)",
+      "PowerShell(git branch*)",
+      "PowerShell(git fetch*)",
+      "PowerShell(Get-Content*)",
+      "PowerShell(Get-ChildItem*)",
+      "PowerShell(Test-Path*)",
+      "PowerShell(Select-String*)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)"
+    ],
+    "deny": [
+      "PowerShell(git push --force*)",
+      "PowerShell(git push -f*)",
+      "PowerShell(git reset --hard*)",
+      "PowerShell(git clean*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean*)"
+    ]
+  }
 }
