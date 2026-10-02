@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E9247F31-332D-4889-A01E-63A700B54E2F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Neelam.Campaigns", "src\Neelam.Campaigns\Neelam.Campaigns.csproj", "{962667F4-6880-4D19-8DE3-2414E0996114}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{B7F4F3C0-4915-461D-AB4C-5134D6DB4149}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Neelam.Campaigns.Tests", "tests\Neelam.Campaigns.Tests\Neelam.Campaigns.Tests.csproj", "{F85AE484-5C2C-448A-B301-F63403223B9A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{962667F4-6880-4D19-8DE3-2414E0996114}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{962667F4-6880-4D19-8DE3-2414E0996114}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{962667F4-6880-4D19-8DE3-2414E0996114}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{962667F4-6880-4D19-8DE3-2414E0996114}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F85AE484-5C2C-448A-B301-F63403223B9A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F85AE484-5C2C-448A-B301-F63403223B9A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F85AE484-5C2C-448A-B301-F63403223B9A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F85AE484-5C2C-448A-B301-F63403223B9A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{962667F4-6880-4D19-8DE3-2414E0996114} = {E9247F31-332D-4889-A01E-63A700B54E2F}
+		{F85AE484-5C2C-448A-B301-F63403223B9A} = {B7F4F3C0-4915-461D-AB4C-5134D6DB4149}
+	EndGlobalSection
+EndGlobal
