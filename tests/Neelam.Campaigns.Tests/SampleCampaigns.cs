@@ -3,9 +3,9 @@ using Neelam.Campaigns;
 namespace Neelam.Campaigns.Tests;
 
 /// <summary>
-/// The one-year anniversary / Beauty Bank email, as sent and as corrected. "As sent" is the
-/// closest the typed model can come to the original; some of the original's errors (such as
-/// "50% Complimentary") cannot be expressed at all, and the nearest reading is used.
+/// The one-year anniversary / Beauty Bank email: both real sends and a corrected version. The
+/// sends are the closest the typed model can come to the originals; some of their errors (such
+/// as "50% Complimentary") cannot be expressed at all, and the nearest reading is used.
 /// </summary>
 internal static class SampleCampaigns
 {
@@ -37,7 +37,16 @@ internal static class SampleCampaigns
         "Think of the Beauty Bank as your personal beauty savings account. Each month, you contribute " +
         "toward your future treatments while receiving exclusive Beauty Bank benefits along the way.";
 
-    public static Campaign AsSent() => new(
+    /// <summary>First send: both offers identical, name and contents.</summary>
+    public static Campaign FirstSend()
+    {
+        var second = SecondSend();
+        var tier1 = second.Offer!.Tiers[0];
+        return second with { Offer = second.Offer with { Tiers = [tier1, tier1] } };
+    }
+
+    /// <summary>Second send: one offer updated, but both still named "Platinum Member".</summary>
+    public static Campaign SecondSend() => new(
         Subject: "WE’RE TURNING ONE!",
         Headline: "WE’RE TURNING ONE! 🥂✨",
         Greeting: "Hi Beautiful🤍",
@@ -73,16 +82,16 @@ internal static class SampleCampaigns
     /// The same email with every blocker fixed. The offer name is deliberately left as
     /// "Beauty Bank": renaming it is the owner's call, so it stays a warning.
     /// </summary>
-    public static Campaign Corrected() => AsSent() with
+    public static Campaign Corrected() => SecondSend() with
     {
         Greeting = "Hi Beautiful 🤍",
-        Offer = AsSent().Offer! with
+        Offer = SecondSend().Offer! with
         {
             Name = "✨ The Neelam Aesthetics Beauty Bank ✨",
             Tiers =
             [
-                AsSent().Offer!.Tiers[0] with { Name = "Gold Member" },
-                AsSent().Offer!.Tiers[1],
+                SecondSend().Offer!.Tiers[0] with { Name = "Gold Member" },
+                SecondSend().Offer!.Tiers[1],
             ],
             TermsUrl = TermsUrl,
             TiersNote = "Here’s how it works. 100% of your monthly contribution goes toward any " +

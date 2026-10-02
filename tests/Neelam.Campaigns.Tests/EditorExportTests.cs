@@ -4,18 +4,31 @@ namespace Neelam.Campaigns.Tests;
 
 public class EditorExportTests
 {
-    [Fact]
-    public void Blocked_email_has_no_export()
-    {
-        var ex = Assert.Throws<CampaignBlockedException>(() => EditorExport.Blocks(SampleCampaigns.AsSent()));
+    private static async Task<ReviewReport> Passed() =>
+        await CampaignGate.ReviewAsync(SampleCampaigns.Corrected(), FakeProofreader.Clean);
 
+    [Fact]
+    public async Task Blocked_email_has_no_export()
+    {
+        var report = await CampaignGate.ReviewAsync(SampleCampaigns.SecondSend(), FakeProofreader.Clean);
+
+        var ex = Assert.Throws<CampaignBlockedException>(() => EditorExport.Blocks(report));
         Assert.False(ex.Report.CanExport);
     }
 
     [Fact]
-    public void Benefits_are_worded_by_the_model_not_typed_by_hand()
+    public void Unproofread_email_has_no_export()
     {
-        var text = EditorExport.PlainText(SampleCampaigns.Corrected());
+        var rulesOnly = CampaignReview.Check(SampleCampaigns.Corrected());
+
+        var ex = Assert.Throws<CampaignBlockedException>(() => EditorExport.Blocks(rulesOnly));
+        Assert.Contains("not been through the full review", ex.Message);
+    }
+
+    [Fact]
+    public async Task Benefits_are_worded_by_the_model_not_typed_by_hand()
+    {
+        var text = EditorExport.PlainText(await Passed());
 
         Assert.Contains("• 50% off one wellness injection per visit", text);
         Assert.Contains("• 1 complimentary wellness injection per visit", text);
@@ -25,9 +38,9 @@ public class EditorExportTests
     }
 
     [Fact]
-    public void Tiers_are_headed_by_distinct_name_and_price()
+    public async Task Tiers_are_headed_by_distinct_name_and_price()
     {
-        var headings = EditorExport.Blocks(SampleCampaigns.Corrected())
+        var headings = EditorExport.Blocks(await Passed())
             .Where(b => b.Kind == BlockKind.Heading)
             .Select(b => b.Text)
             .ToList();
@@ -37,9 +50,9 @@ public class EditorExportTests
     }
 
     [Fact]
-    public void Export_ends_the_offer_with_a_button()
+    public async Task Export_ends_the_offer_with_a_button()
     {
-        var blocks = EditorExport.Blocks(SampleCampaigns.Corrected());
+        var blocks = EditorExport.Blocks(await Passed());
 
         var button = Assert.Single(blocks, b => b.Kind == BlockKind.Button);
         Assert.Equal("Join the Beauty Bank", button.Text);

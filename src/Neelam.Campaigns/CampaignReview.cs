@@ -4,8 +4,9 @@ using System.Text.RegularExpressions;
 namespace Neelam.Campaigns;
 
 /// <summary>
-/// The safety gate. Run before export; <see cref="ReviewReport.CanExport"/> is false while any
-/// blocker remains. Each rule exists because of a real failure in a sent email — see README.
+/// The rule checks: deterministic, instant, and not dismissable. They are half of the gate;
+/// <see cref="CampaignGate"/> adds the AI proofread. Each rule exists because of a real failure
+/// in a sent email — see README.
 /// </summary>
 public static class CampaignReview
 {
@@ -19,6 +20,7 @@ public static class CampaignReview
         if (campaign.Offer is { } offer)
         {
             findings.AddRange(TierNamesUnique(offer));
+            findings.AddRange(TierContentDistinct(offer));
             findings.AddRange(TierPricesIncrease(offer));
             findings.AddRange(BenefitValuesValid(offer));
             findings.AddRange(TiersParallel(offer));
@@ -30,7 +32,7 @@ public static class CampaignReview
         findings.AddRange(EmojiSpacing(text));
         findings.AddRange(EmojiBudget(text, policy));
 
-        return new ReviewReport(findings);
+        return new ReviewReport(campaign, findings, Proofread: false);
     }
 
     private static IEnumerable<Finding> CallToActionPresent(Campaign c)
@@ -55,6 +57,19 @@ public static class CampaignReview
             .Select(g => new Finding(Severity.Blocker, "tier-names-unique", "Offer",
                 $"Tiers {string.Join(" and ", g.Select(x => x.Index))} share the name " +
                 $"'{offer.Tiers[g.First().Index - 1].Name}'; customers cannot tell them apart."));
+
+    /// <summary>Two tiers offering exactly the same benefits are one offer shown twice.</summary>
+    private static IEnumerable<Finding> TierContentDistinct(Offer offer)
+    {
+        for (var i = 0; i < offer.Tiers.Count; i++)
+        for (var j = i + 1; j < offer.Tiers.Count; j++)
+        {
+            var a = offer.Tiers[i].Benefits.Select(b => b.Describe()).ToHashSet();
+            if (a.SetEquals(offer.Tiers[j].Benefits.Select(b => b.Describe())))
+                yield return new(Severity.Blocker, "tier-content-distinct", $"Offer › Tier {j + 1}",
+                    $"Tiers {i + 1} and {j + 1} offer identical benefits; one of them was not updated.");
+        }
+    }
 
     private static IEnumerable<Finding> TierPricesIncrease(Offer offer)
     {

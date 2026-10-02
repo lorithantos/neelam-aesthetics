@@ -8,20 +8,28 @@ public class CampaignReviewTests
         r.Findings.Where(f => f.Severity == s).Select(f => f.Rule).Distinct().Order().ToArray();
 
     [Fact]
-    public void As_sent_email_is_blocked_for_every_known_failure()
+    public void First_send_is_blocked_for_identical_offers_and_identical_names()
     {
-        var report = CampaignReview.Check(SampleCampaigns.AsSent());
+        var blockers = Rules(CampaignReview.Check(SampleCampaigns.FirstSend()), Severity.Blocker);
 
-        Assert.False(report.CanExport);
+        Assert.Contains("tier-content-distinct", blockers);
+        Assert.Contains("tier-names-unique", blockers);
+    }
+
+    [Fact]
+    public void Second_send_is_blocked_for_every_known_failure()
+    {
+        var report = CampaignReview.Check(SampleCampaigns.SecondSend());
+
         Assert.Equal(
             ["cta-required", "medical-disclaimer", "terms-required", "tier-names-unique"],
             Rules(report, Severity.Blocker));
     }
 
     [Fact]
-    public void As_sent_email_warns_on_wording()
+    public void Second_send_warns_on_wording()
     {
-        var warnings = Rules(CampaignReview.Check(SampleCampaigns.AsSent()), Severity.Warning);
+        var warnings = Rules(CampaignReview.Check(SampleCampaigns.SecondSend()), Severity.Warning);
 
         Assert.Contains("restricted-term", warnings);   // "Bank", "savings account"
         Assert.Contains("emoji-spacing", warnings);     // "Beautiful🤍", "✨The"
@@ -29,10 +37,16 @@ public class CampaignReviewTests
     }
 
     [Fact]
+    public void Rules_alone_never_allow_export()
+    {
+        Assert.False(CampaignReview.Check(SampleCampaigns.Corrected()).CanExport);
+    }
+
+    [Fact]
     public void Duplicate_tier_name_is_reported_once_naming_both_tiers()
     {
         var finding = Assert.Single(
-            CampaignReview.Check(SampleCampaigns.AsSent()).Findings,
+            CampaignReview.Check(SampleCampaigns.SecondSend()).Findings,
             f => f.Rule == "tier-names-unique");
 
         Assert.Contains("Tiers 1 and 2", finding.Message);
@@ -44,7 +58,7 @@ public class CampaignReviewTests
     {
         var report = CampaignReview.Check(SampleCampaigns.Corrected());
 
-        Assert.True(report.CanExport, string.Join("\n", report.Blockers.Select(b => b.Message)));
+        Assert.Empty(report.Blockers);
         Assert.Equal(
             ["restricted-term", "tiers-parallel"],
             Rules(report, Severity.Warning));

@@ -11,15 +11,27 @@ public sealed record EditorBlock(BlockKind Kind, string Text, Uri? Url = null);
 public static class EditorExport
 {
     /// <summary>
-    /// Builds the paste sequence. Refuses while the review has blockers, so an email that failed
-    /// the gate has no export to copy from.
+    /// Builds the paste sequence from a passed review. An email that failed the gate, or that was
+    /// never proofread, has no export to copy from.
     /// </summary>
-    public static IReadOnlyList<EditorBlock> Blocks(Campaign c, CampaignPolicy? policy = null)
+    public static IReadOnlyList<EditorBlock> Blocks(ReviewReport report)
     {
-        var report = CampaignReview.Check(c, policy);
         if (!report.CanExport)
             throw new CampaignBlockedException(report);
+        return Render(report.Campaign);
+    }
 
+    /// <summary>The whole passed email as plain text, for the approver to read top to bottom.</summary>
+    public static string PlainText(ReviewReport report) => ToPlainText(Blocks(report));
+
+    /// <summary>
+    /// The email as it would be sent, ungated. Used to show the proofreader exactly what the
+    /// customer would read; never a source for pasting.
+    /// </summary>
+    public static string Preview(Campaign c) => ToPlainText(Render(c));
+
+    private static List<EditorBlock> Render(Campaign c)
+    {
         var blocks = new List<EditorBlock>
         {
             new(BlockKind.Heading, c.Headline),
@@ -43,7 +55,8 @@ public static class EditorExport
                 blocks.Add(new(BlockKind.Text, $"Full terms: {offer.TermsUrl}", offer.TermsUrl));
         }
 
-        blocks.Add(new(BlockKind.Button, c.CallToAction!.Label, c.CallToAction.Url));
+        if (c.CallToAction is not null)
+            blocks.Add(new(BlockKind.Button, c.CallToAction.Label, c.CallToAction.Url));
         blocks.Add(new(BlockKind.Divider, ""));
         blocks.AddRange(c.Closing.Select(p => new EditorBlock(BlockKind.Text, p)));
 
@@ -54,9 +67,8 @@ public static class EditorExport
         return blocks;
     }
 
-    /// <summary>The whole email as plain text, for the approver to read top to bottom.</summary>
-    public static string PlainText(Campaign c, CampaignPolicy? policy = null) =>
-        string.Join("\n\n", Blocks(c, policy).Select(b => b.Kind switch
+    private static string ToPlainText(IEnumerable<EditorBlock> blocks) =>
+        string.Join("\n\n", blocks.Select(b => b.Kind switch
         {
             BlockKind.Heading => b.Text.ToUpperInvariant(),
             BlockKind.List => string.Join('\n', b.Text.Split('\n').Select(l => $"• {l}")),
@@ -67,9 +79,10 @@ public static class EditorExport
 }
 
 public sealed class CampaignBlockedException(ReviewReport report)
-    : InvalidOperationException(
-        $"Campaign has {report.Blockers.Count()} blocking problem(s): " +
-        string.Join("; ", report.Blockers.Select(b => b.Message)))
+    : InvalidOperationException(report.Proofread
+        ? $"Campaign has {report.Blockers.Count()} blocking problem(s): " +
+          string.Join("; ", report.Blockers.Select(b => b.Message))
+        : "Campaign has not been through the full review (rules and AI proofread).")
 {
     public ReviewReport Report { get; } = report;
 }

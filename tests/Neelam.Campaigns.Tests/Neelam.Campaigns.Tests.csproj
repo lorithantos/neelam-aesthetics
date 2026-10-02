@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Neelam.Campaigns\Neelam.Campaigns.csproj" />
+    <ProjectReference Include="..\..\src\Neelam.Campaigns.Claude\Neelam.Campaigns.Claude.csproj" />
   </ItemGroup>
 
 </Project>
