@@ -9,14 +9,15 @@ public enum Area
     /// <summary>A client's look, at <c>settings/{client}</c>.</summary>
     Look,
 
-    /// <summary>The clients and members tables. Belongs to no one client.</summary>
+    /// <summary>The clients table and onboarding. Belongs to no one client.</summary>
     Administration,
 }
 
 /// <summary>
-/// Who is asking. <paramref name="UserId"/> is the Entra object ID from sign-in;
-/// <paramref name="MemberOf"/> comes from the members table; <paramref name="IsOperator"/> says
-/// this is the person who runs the deployment.
+/// Who is asking, all of it from the Entra sign-in token: <paramref name="UserId"/> is the object
+/// ID, <paramref name="MemberOf"/> the clients whose groups the user is in, and
+/// <paramref name="IsOperator"/> whether they hold the Operator app role, which the operator can
+/// give to anyone helping them.
 /// </summary>
 public sealed record Caller(string UserId, bool IsOperator, IReadOnlyList<ClientName> MemberOf)
 {
@@ -72,7 +73,7 @@ public sealed record AccessDecision(bool Allowed, string Reason)
 /// passed in, so every rule is tested without storage, sign-in or a clock.
 /// <list type="bullet">
 /// <item>A member of a client reaches that client's data and look, and nothing of any other client's.</item>
-/// <item>The operator manages clients and members and reaches every client's look, but reaches a
+/// <item>The operator manages clients and reaches every client's look, but reaches a
 /// client's own data only under an active support grant from that client.</item>
 /// <item>Anyone else reaches nothing.</item>
 /// </list>
@@ -89,8 +90,8 @@ public static class AccessCheck
             if (client is not null)
                 throw new ArgumentException("Administration belongs to no one client.", nameof(client));
             return caller.IsOperator
-                ? AccessDecision.Allow("the operator manages clients and members")
-                : AccessDecision.Deny("only the operator manages clients and members");
+                ? AccessDecision.Allow("the operator manages clients")
+                : AccessDecision.Deny("only the operator manages clients");
         }
 
         if (client is null)

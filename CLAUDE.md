@@ -63,7 +63,7 @@ reachable over HTTP:
   contents cannot be recovered. Telemetry naming a blob is fine: customer data
   does not live in blob names or metadata.
 - **The operator does not read client data.** Clients are kept apart in code
-  by the members table. The operator manages clients, members and each
+  by Entra: a group per client, and Operator as an app role. The operator manages clients and each
   client's look, but reading a client's drafts, templates, catalog or check policy takes a
   support grant that the client gives. Neelam is the one exception until 1.0, as a standing
   grant. Design: README "Clients and access".

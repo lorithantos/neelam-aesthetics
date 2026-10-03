@@ -1,7 +1,7 @@
 // Neelam campaign tool: a Blazor Server app on App Service, saving to Blob Storage.
 //
 // One deployment serves every client. Each client has its own container, laid out the same way;
-// the app keeps clients apart in code, from who is signed in and the members table (README,
+// the app keeps clients apart in code, from the Entra groups and app role in the sign-in token (README,
 // "Clients and access").
 //
 // Access is by managed identity only. The storage account has shared-key access turned off, so
@@ -101,7 +101,7 @@ resource settingsContainer 'Microsoft.Storage/storageAccounts/blobServices/conta
   }
 }
 
-// Metadata: clients, members, support grants, approvals and dismissals. Never an index of saves,
+// Metadata: clients, support grants, approvals and dismissals. Membership is Entra's, not a table's. Never an index of saves,
 // so a deleted save still leaves no record.
 resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
   parent: storage
@@ -110,7 +110,6 @@ resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-0
 
 var tableNames = [
   'clients'
-  'members'
   'supportGrants'
   'approvals'
 ]

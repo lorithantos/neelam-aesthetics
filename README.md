@@ -77,20 +77,23 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients, members, support grants, approvals and dismissals | The app. The operator manages clients and members |
+| Table Storage, same account | Clients (each with its Entra group), support grants, approvals and dismissals | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json` | That client's members and the operator |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, and check policy | The client's members. The operator only under a support grant |
 
-- **Who someone is comes from Entra ID; which client they belong to comes from the members
-  table**, which the operator manages. Nobody on the client side touches Entra. A signed-in user
-  with no member row reaches nothing.
+- **Who someone is, and what they may do, comes from Entra ID.** Each client has an Entra
+  security group, and the sign-in token lists the groups a user is in, so membership is read
+  from the token. The operator manages the groups; nobody on the client side touches Entra.
+  **Operator** is an app role on the app registration, which the operator can give to anyone
+  helping them, with the same limits. Someone in no client's group and without the role
+  reaches nothing. No membership or role is kept in a table or a setting.
 - **Each client has its own container**, named by the client (`ClientName`: 3-63 lowercase
   letters, digits and single hyphens, never a reserved name such as `settings`), laid out the
   same way for every client. The app's one identity can reach every client container, so the
   separation between clients is enforced in code: a request touches only the containers its
   user is a member of.
-- **The operator does not read client data.** The operator role covers clients, members and
-  each client's look, not drafts, templates or the catalog. Looking at a client's own data, which
+- **The operator does not read client data.** The operator role covers clients and each
+  client's look, not drafts, templates or the catalog. Looking at a client's own data, which
   happens only when they ask for help, takes a **support grant**. The client's own user grants it in the app,
   with a reason and an expiry. The app checks it on every read, and the row stays afterwards as
   the record.

@@ -36,7 +36,7 @@ public class AccessCheckTests
         Assert.False(Decide(Stranger, area, area == Area.Administration ? null : Neelam).Allowed);
 
     [Fact]
-    public void Only_the_operator_manages_clients_and_members()
+    public void Only_the_operator_manages_clients()
     {
         Assert.True(Decide(Operator, Area.Administration, null).Allowed);
         Assert.False(Decide(NeelamMember, Area.Administration, null).Allowed);
