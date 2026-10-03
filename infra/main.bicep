@@ -21,6 +21,13 @@ param prefix string = 'neelam'
 @minLength(1)
 param clients string[]
 
+@description('Production holds real client data. Test is the development deployment with made-up clients; only there may the prototype\'s permissive access run (the app refuses it in Production).')
+@allowed([
+  'Production'
+  'Test'
+])
+param environmentName string = 'Production'
+
 param location string = resourceGroup().location
 
 @description('App Service plan SKU. Blazor Server keeps a live connection per user, so Basic or above.')
@@ -192,6 +199,10 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
         {
           name: 'Storage__BlobServiceUri'
           value: storage.properties.primaryEndpoints.blob
+        }
+        {
+          name: 'ASPNETCORE_ENVIRONMENT'
+          value: environmentName
         }
         {
           name: 'Storage__TableServiceUri'

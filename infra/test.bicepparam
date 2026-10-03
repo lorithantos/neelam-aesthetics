@@ -3,6 +3,9 @@ using 'main.bicep'
 
 param prefix = 'neelamtest'
 
+// The only deployment where the prototype's permissive access may run.
+param environmentName = 'Test'
+
 param clients = [
   'test-salon-one'
   'test-salon-two'

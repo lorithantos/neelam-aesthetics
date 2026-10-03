@@ -51,6 +51,17 @@ public class InfrastructureTests
         Assert.Equal(["clientContainers[i]", "settingsContainer", "tables[i]"], dataScopes);
     }
 
+    // Permissive prototype access is refused in Production by the app; this keeps the real
+    // deployment in Production and lets only the test deployment say otherwise.
+    [Fact]
+    public void Only_the_test_deployment_leaves_production()
+    {
+        Assert.Matches(new Regex(@"param environmentName string = 'Production'"), Bicep);
+        Assert.Matches(new Regex(@"name: 'ASPNETCORE_ENVIRONMENT'\s*value: environmentName\s*\}"), Bicep);
+        Assert.DoesNotContain("environmentName", File.ReadAllText(Path.Combine(Root, "infra", "main.bicepparam")));
+        Assert.Contains("param environmentName = 'Test'", File.ReadAllText(Path.Combine(Root, "infra", "test.bicepparam")));
+    }
+
     // Every client a deployment lists must be a name the app will accept: a container name's shape,
     // and never a shared container such as settings.
     [Theory]
