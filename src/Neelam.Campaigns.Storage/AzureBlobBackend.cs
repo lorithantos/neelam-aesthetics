@@ -20,14 +20,19 @@ public sealed class AzureBlobBackend : IBlobBackend
     /// <param name="credential">A managed identity in Azure; a developer's own sign-in locally.</param>
     public AzureBlobBackend(Uri blobServiceUri, ClientName client, TokenCredential credential)
     {
+        EnsureServiceAddress(blobServiceUri);
+        _container = new BlobServiceClient(blobServiceUri, credential).GetBlobContainerClient(client.Value);
+    }
+
+    /// <summary>An absolute https:// address with no query string, so never a SAS.</summary>
+    internal static void EnsureServiceAddress(Uri blobServiceUri)
+    {
         if (!blobServiceUri.IsAbsoluteUri || blobServiceUri.Scheme != Uri.UriSchemeHttps)
             throw new ArgumentException("The blob service address must be an absolute https:// URI.", nameof(blobServiceUri));
         if (!string.IsNullOrEmpty(blobServiceUri.Query))
             throw new ArgumentException(
                 "The blob service address must not carry a query string; SAS tokens are not accepted.",
                 nameof(blobServiceUri));
-
-        _container = new BlobServiceClient(blobServiceUri, credential).GetBlobContainerClient(client.Value);
     }
 
     public async IAsyncEnumerable<BlobEntry> ListAsync(

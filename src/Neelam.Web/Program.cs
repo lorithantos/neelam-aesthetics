@@ -22,13 +22,6 @@ var blobServiceUri = storage["BlobServiceUri"] is { Length: > 0 } uri
     : throw new InvalidOperationException(
         "Storage:BlobServiceUri is not set. In Azure the Bicep deployment sets it; locally, set it to " +
         "the blobServiceUri output of the deployment.");
-// The client's own container. Required, with no default: a second client's deployment that forgot
-// to set it must stop here rather than reach for this client's container.
-var client = storage["Client"] is { Length: > 0 } clientSetting
-    ? new ClientName(clientSetting)
-    : throw new InvalidOperationException(
-        "Storage:Client is not set. It names whose saves these are and the container that holds them. " +
-        "In Azure the Bicep deployment sets it from clientName; locally, set it to the same value.");
 
 // Application Insights, wherever its connection string is set: in Azure an App Service setting the
 // Bicep deployment fills in from the resource, never a file in the repository. Ingestion is
@@ -37,9 +30,10 @@ var client = storage["Client"] is { Length: > 0 } clientSetting
 if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
     builder.Services.AddOpenTelemetry().UseAzureMonitor(monitor => monitor.Credential = credential);
 
+// One deployment serves every client, so a store is opened per request, for a client the access
+// check has already allowed. Nothing is registered for "the" client: there is none.
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<IBlobBackend>(new AzureBlobBackend(blobServiceUri, client, credential));
-builder.Services.AddSingleton<CampaignStore>();
+builder.Services.AddSingleton(new ClientStores(blobServiceUri, credential, TimeProvider.System));
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

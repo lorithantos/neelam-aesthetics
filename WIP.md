@@ -5,7 +5,7 @@ describes the design; this file covers where things stand, what was decided and 
 what is still open. Delete it once the open items have homes elsewhere.
 
 - **Branch:** `main`. This is a single-person repo: work is integrated on `main` locally and pushed, with no PRs (owner, 2026-10-03). The old `claude/email-campaign-safety-system-lr7q1m` branch was fast-forwarded into `main`.
-- **Tests:** `janet check` → 99 passing on `net10.0`, no build warnings
+- **Tests:** `janet check` → 104 passing on `net10.0`, no build warnings
 - **Bicep:** `bicep build` and `bicep lint` clean (CLI 0.47.16)
 
 ## Background
@@ -60,7 +60,7 @@ Treat these as fixed unless the owner reopens them.
 | Draft/template JSON (`CampaignJson`) | `src/Neelam.Campaigns` | Done, tested |
 | Export to editor blocks (`EditorExport`) | `src/Neelam.Campaigns` | Done; block mapping to Square **unverified** |
 | Claude proofreader | `src/Neelam.Campaigns.Claude` | Compiles; parsing tested; **never called live** |
-| Blob store (`CampaignStore`, `AzureBlobBackend`) | `src/Neelam.Campaigns.Storage` | Tested in-memory; checked once by hand against Azurite. Container per client (`ClientName`) is built, but the client still comes from a per-deployment setting (`Storage:Client`, Bicep `clientName`, commit `7141d54`). That is **superseded** by the 2026-10-03 design and is next to rework |
+| Blob store (`CampaignStore`, `AzureBlobBackend`) | `src/Neelam.Campaigns.Storage` | Tested in-memory; checked once by hand against Azurite. Reworked 2026-10-03 (step 1 of the rework). Bicep provisions a container per client from a `clients` list in `infra/main.bicepparam` (and `test.bicepparam`), the `settings` container, and the four tables. The app's identity alone holds data roles, each scoped to a container or table; there is no `developerPrincipalId`. The app opens stores per client through `ClientStores`; `ClientName` refuses `settings`. **Not yet built:** the access check, the table stores, the catalog/policy/look stores |
 | Startup credential guard | `src/Neelam.Campaigns.Storage` | Done, tested |
 | Web host | `src/Neelam.Web` | Skeleton only: wiring + guard, **no campaign pages** |
 | Monitoring | `infra/main.bicep`, `src/Neelam.Web/Program.cs` | Application Insights over a Log Analytics workspace, both with local auth off. The site's identity has Monitoring Metrics Publisher, and Bicep fills `APPLICATIONINSIGHTS_CONNECTION_STRING` from the resource. The app uses the Azure Monitor distro with the same credential as storage, only when that setting is present. Default telemetry, blob dependencies included (decided 2026-10-02). **Never deployed or run live** |

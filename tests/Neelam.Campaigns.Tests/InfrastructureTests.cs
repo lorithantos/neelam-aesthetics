@@ -21,17 +21,49 @@ public class InfrastructureTests
     [InlineData("3913510d-42f4-4e42-8a64-420c390055eb")]   // Monitoring Metrics Publisher for the site
     public void Template_sets(string setting) => Assert.Contains(setting, Bicep);
 
-    // One container per client, named by the client, so each deployment must say whose it is: no
-    // default. Blob access is granted on that container only, never on the account, which is what
-    // keeps one client's identity out of another's saves.
+    // One deployment serves every client: a container per name in the clients list, laid out the
+    // same way, plus the shared settings container. Which client a request reaches is decided in
+    // code, so nothing here names "the" client.
     [Fact]
-    public void Each_client_has_its_own_container_and_access_stops_there()
+    public void Each_listed_client_gets_its_own_container()
     {
-        Assert.Matches(new Regex(@"param clientName string\r?\n"), Bicep);
-        Assert.Matches(new Regex(@"containers@[\d-]+' = \{\s*parent: blobService\s*name: clientName\s"), Bicep);
-        Assert.Matches(new Regex(@"name: 'Storage__Client'\s*value: clientName\s*\}"), Bicep);
-        Assert.Equal(2, Regex.Matches(Bicep, @"roleDefinitionId: blobDataContributor").Count);
-        Assert.Equal(2, Regex.Matches(Bicep, @"scope: container\s*properties: \{\s*roleDefinitionId: blobDataContributor").Count);
+        Assert.Matches(new Regex(@"param clients string\[\]"), Bicep);
+        Assert.Matches(new Regex(@"for client in clients: \{\s*parent: blobService\s*name: client\s"), Bicep);
+        Assert.Matches(new Regex(@"parent: blobService\s*name: 'settings'\s"), Bicep);
+        Assert.DoesNotContain("Storage__Client", Bicep);
+        Assert.DoesNotContain("clientName", Bicep);
+    }
+
+    // Data access belongs to the app's identity alone, scoped to each container and table, never
+    // the account: a container left out of the clients list is out of the app's reach, and no
+    // person holds standing data access (development uses a separate test deployment).
+    [Fact]
+    public void Only_the_app_holds_data_access_and_only_where_listed()
+    {
+        Assert.DoesNotContain("developerPrincipalId", Bicep);
+        Assert.Equal(
+            Regex.Matches(Bicep, @"principalId: ").Count,
+            Regex.Matches(Bicep, @"principalId: site\.identity\.principalId").Count);
+
+        string[] dataScopes = Regex.Matches(Bicep,
+                @"scope: (\S+)\s*properties: \{\s*roleDefinitionId: (?:blobDataContributor|tableDataContributor)")
+            .Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(["clientContainers[i]", "settingsContainer", "tables[i]"], dataScopes);
+    }
+
+    // Every client a deployment lists must be a name the app will accept: a container name's shape,
+    // and never a shared container such as settings.
+    [Theory]
+    [InlineData("main.bicepparam", "neelam-aesthetics")]
+    [InlineData("test.bicepparam", "test-salon-one")]
+    public void Parameter_files_list_valid_clients(string file, string expected)
+    {
+        var text = File.ReadAllText(Path.Combine(Root, "infra", file));
+        var list = Regex.Match(text, @"param clients = \[(.*?)\]", RegexOptions.Singleline).Groups[1].Value;
+        var clients = Regex.Matches(list, @"'([^']*)'").Select(m => m.Groups[1].Value).ToList();
+
+        Assert.Contains(expected, clients);
+        Assert.All(clients, c => Assert.Equal(c, new Neelam.Campaigns.Storage.ClientName(c).Value));
     }
 
     // Filled in from the resource at deploy time, so the value never sits in the repository.

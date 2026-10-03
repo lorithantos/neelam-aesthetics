@@ -3,15 +3,18 @@ using System.Text.RegularExpressions;
 namespace Neelam.Campaigns.Storage;
 
 /// <summary>
-/// Whose saves these are, and the name of the container that holds them: one container per
-/// client, so another business using this tool keeps its saves apart from this one's, and an app
-/// identity granted one client's container cannot read another's. The shape is a container
-/// name's: 3 to 63 lowercase letters, digits and single hyphens, starting and ending with a
-/// letter or digit.
+/// A client of this deployment, and the name of the container that holds that client's own data:
+/// one container per client, laid out the same way for each. Which client a request may reach is
+/// decided in code from who is signed in, not here. The shape is a container name's: 3 to 63
+/// lowercase letters, digits and single hyphens, starting and ending with a letter or digit, and
+/// never the name of a shared container such as <c>settings</c>.
 /// </summary>
 public sealed partial record ClientName
 {
     public string Value { get; }
+
+    /// <summary>Containers that hold no client's data, so no client may be named after them.</summary>
+    public static readonly IReadOnlyList<string> Reserved = ["settings"];
 
     public ClientName(string value)
     {
@@ -19,6 +22,8 @@ public sealed partial record ClientName
             throw new ArgumentException(
                 $"'{value}' is not a client name: use 3-63 lowercase letters, digits and single hyphens, " +
                 "starting and ending with a letter or digit.", nameof(value));
+        if (Reserved.Contains(value))
+            throw new ArgumentException($"'{value}' is reserved for a shared container, not a client.", nameof(value));
         Value = value;
     }
 

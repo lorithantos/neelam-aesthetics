@@ -120,11 +120,16 @@ for them. A client's people only sign in and work on their campaigns.
 
 ## Infrastructure and access
 
-`infra/main.bicep` creates an App Service (Linux, .NET 10) and a storage account.
+`infra/main.bicep` creates an App Service (Linux, .NET 10) and a storage account holding a
+container per client, the `settings` container and the metadata tables. The clients come from a
+parameter file: `infra/main.bicepparam` for production, `infra/test.bicepparam` for the test
+deployment used in development.
 
 - **Managed identity only.** The storage account has shared-key access off, so account keys,
   connection strings and account SAS tokens are refused by the service itself. The web app
-  uses its system-assigned identity with *Storage Blob Data Contributor* on the client's own container.
+  uses its system-assigned identity with *Storage Blob Data Contributor* on each client container
+  and on `settings`, and *Storage Table Data Contributor* on each table. Every role is scoped to
+  its container or table, never the account, and no person holds data access.
 - **No stored credentials in the app either.** `CredentialGuard` stops the app at startup if any
   key, SAS or password is configured. FTP/basic publishing is off; deploy with your Entra sign-in.
 - **No connection string in the repository.** A connection string carrying no secret, such as
@@ -134,16 +139,18 @@ for them. A client's people only sign in and work on their campaigns.
   *Monitoring Metrics Publisher*, and the connection string is set by the deployment. Telemetry
   may name a blob, but it never holds a save's contents. Locally, without the setting, nothing
   is sent.
-- Locally the app signs in as the developer (`az login`). The template still takes
-  `developerPrincipalId`, which grants that person blob access. The design drops it from
-  production in favour of a separate test deployment (see [Clients and access](#clients-and-access)).
+- Locally the app signs in as the developer (`az login`) and points at the **test deployment**,
+  whose made-up clients hold no client data. Data access there is granted by hand to the
+  developer on that resource group; production grants no person data access.
 - `InfrastructureTests` pins these settings so a later edit cannot quietly undo them.
 
 ```
 az group create -n neelam-rg -l westus2
-az deployment group create -g neelam-rg -f infra/main.bicep \
-  -p clientName=neelam-aesthetics \
-  -p developerPrincipalId=$(az ad signed-in-user show --query id -o tsv)
+az deployment group create -g neelam-rg -f infra/main.bicep -p infra/main.bicepparam
+
+# The test deployment, in its own resource group:
+az group create -n neelam-test-rg -l westus2
+az deployment group create -g neelam-test-rg -f infra/main.bicep -p infra/test.bicepparam
 dotnet publish src/Neelam.Web -c Release -o publish && (cd publish && zip -r ../app.zip .)
 az webapp deploy -g neelam-rg -n <siteName output> --src-path app.zip --type zip
 ```

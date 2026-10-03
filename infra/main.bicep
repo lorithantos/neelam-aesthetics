@@ -1,8 +1,13 @@
 // Neelam campaign tool: a Blazor Server app on App Service, saving to Blob Storage.
 //
+// One deployment serves every client. Each client has its own container, laid out the same way;
+// the app keeps clients apart in code, from who is signed in and the members table (README,
+// "Clients and access").
+//
 // Access is by managed identity only. The storage account has shared-key access turned off, so
 // account keys, connection strings and account SAS tokens do not work at all; the web app reaches
-// storage with its system-assigned identity and an RBAC role on its client's own container.
+// storage with its system-assigned identity and RBAC roles on exactly the containers and tables
+// below. Nobody else is granted data access here: development uses a separate test deployment.
 //
 // Saves are date/time-stamped blobs and deleting one must leave no record of it, so blob
 // versioning, soft delete, change feed and point-in-time restore are all off. A delete is final.
@@ -12,18 +17,14 @@
 @maxLength(11)
 param prefix string = 'neelam'
 
-@description('Whose saves these are, e.g. neelam-aesthetics, and the name of their container: one container per client, laid out the same way for every client. No default: each deployment states its client. Lowercase letters, digits and single hyphens.')
-@minLength(3)
-@maxLength(63)
-param clientName string
+@description('The clients this deployment serves. Each name is that client\'s container: 3-63 lowercase letters, digits and single hyphens, never "settings". Onboarding a client is adding its name here and redeploying. Set in a .bicepparam file, not defaulted.')
+@minLength(1)
+param clients string[]
 
 param location string = resourceGroup().location
 
 @description('App Service plan SKU. Blazor Server keeps a live connection per user, so Basic or above.')
 param planSku string = 'B1'
-
-@description('Optional: object ID of a person or group to grant the same blob access for local development with their own sign-in (az login). Leave empty in production.')
-param developerPrincipalId string = ''
 
 var suffix = uniqueString(resourceGroup().id)
 var storageName = take(toLower('${prefix}${suffix}'), 24)
@@ -73,15 +74,53 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   }
 }
 
-// The client's own container. Both role assignments below are scoped to it, not to the account,
-// so an identity given one client's container cannot reach another's.
-resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+// Built-in role: Storage Table Data Contributor (read, write, delete entities; no keys).
+var tableDataContributor = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3'
+)
+
+// One container per client, laid out the same way: drafts/, templates/, catalog/, policy/.
+resource clientContainers 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = [
+  for client in clients: {
+    parent: blobService
+    name: client
+    properties: {
+      publicAccess: 'None'
+    }
+  }
+]
+
+// Each client's look, at settings/{client}/{stamp}.json: kept apart from the client containers so
+// working on a look never needs access to a client's own data.
+resource settingsContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
-  name: clientName
+  name: 'settings'
   properties: {
     publicAccess: 'None'
   }
 }
+
+// Metadata: clients, members, support grants, approvals and dismissals. Never an index of saves,
+// so a deleted save still leaves no record.
+resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
+  parent: storage
+  name: 'default'
+}
+
+var tableNames = [
+  'clients'
+  'members'
+  'supportGrants'
+  'approvals'
+]
+
+resource tables 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = [
+  for name in tableNames: {
+    parent: tableService
+    name: name
+  }
+]
 
 // Built-in role: Monitoring Metrics Publisher (send telemetry; read nothing).
 var metricsPublisher = subscriptionResourceId(
@@ -156,8 +195,8 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
           value: storage.properties.primaryEndpoints.blob
         }
         {
-          name: 'Storage__Client'
-          value: clientName
+          name: 'Storage__TableServiceUri'
+          value: storage.properties.primaryEndpoints.table
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -185,15 +224,42 @@ resource scmPublishing 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2
   }
 }
 
-resource siteBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(container.id, site.id, blobDataContributor)
-  scope: container
+// The app's data access, and nobody else's: blob access on each listed client container and on
+// settings, table access on each table. All scoped to the container or table, never the account,
+// so a container that is not in the clients list is out of the app's reach.
+resource siteClientAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for (client, i) in clients: {
+    name: guid(clientContainers[i].id, site.id, blobDataContributor)
+    scope: clientContainers[i]
+    properties: {
+      roleDefinitionId: blobDataContributor
+      principalId: site.identity.principalId
+      principalType: 'ServicePrincipal'
+    }
+  }
+]
+
+resource siteSettingsAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(settingsContainer.id, site.id, blobDataContributor)
+  scope: settingsContainer
   properties: {
     roleDefinitionId: blobDataContributor
     principalId: site.identity.principalId
     principalType: 'ServicePrincipal'
   }
 }
+
+resource siteTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for (name, i) in tableNames: {
+    name: guid(tables[i].id, site.id, tableDataContributor)
+    scope: tables[i]
+    properties: {
+      roleDefinitionId: tableDataContributor
+      principalId: site.identity.principalId
+      principalType: 'ServicePrincipal'
+    }
+  }
+]
 
 resource siteTelemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(insights.id, site.id, metricsPublisher)
@@ -202,15 +268,6 @@ resource siteTelemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
     roleDefinitionId: metricsPublisher
     principalId: site.identity.principalId
     principalType: 'ServicePrincipal'
-  }
-}
-
-resource developerBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(developerPrincipalId)) {
-  name: guid(container.id, developerPrincipalId, blobDataContributor)
-  scope: container
-  properties: {
-    roleDefinitionId: blobDataContributor
-    principalId: developerPrincipalId
   }
 }
 
@@ -276,4 +333,4 @@ resource auditPublishing 'Microsoft.Authorization/policyAssignments@2024-04-01' 
 output siteName string = site.name
 output siteUrl string = 'https://${site.properties.defaultHostName}'
 output blobServiceUri string = storage.properties.primaryEndpoints.blob
-output clientName string = clientName
+output tableServiceUri string = storage.properties.primaryEndpoints.table
