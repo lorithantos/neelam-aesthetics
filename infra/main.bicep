@@ -34,6 +34,10 @@ param location string = resourceGroup().location
 param planSku string = 'B1'
 
 var suffix = uniqueString(resourceGroup().id)
+
+// The one client the prototype works as, on the test deployment only; empty everywhere else.
+// The app refuses prototype access in Production anyway.
+var prototypeClient = environmentName == 'Test' ? clients[0] : ''
 var storageName = take(toLower('${prefix}${suffix}'), 24)
 
 // Built-in role: Storage Blob Data Contributor (read, write, delete blobs; no keys, no account control).
@@ -195,8 +199,7 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
       alwaysOn: true
       // Addresses only. No keys, SAS or passwords: the app refuses to start if it finds one. The
       // Application Insights connection string carries none, since ingestion is Entra-only.
-      // Only the test deployment names a prototype client: the prototype works as that one client,
-      // and the app refuses prototype access in Production anyway.
+      // Only the test deployment names a prototype client (see prototypeClient).
       appSettings: concat([
         {
           name: 'Storage__BlobServiceUri'
@@ -214,12 +217,12 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: insights.properties.ConnectionString
         }
-      ], environmentName == 'Test' ? [
+      ], empty(prototypeClient) ? [] : [
         {
           name: 'Prototype__Client'
-          value: clients[0]
+          value: prototypeClient
         }
-      ] : [])
+      ])
     }
   }
 }
@@ -351,3 +354,6 @@ output siteName string = site.name
 output siteUrl string = 'https://${site.properties.defaultHostName}'
 output blobServiceUri string = storage.properties.primaryEndpoints.blob
 output tableServiceUri string = storage.properties.primaryEndpoints.table
+
+@description('The client the prototype works as, written to the site as Prototype__Client; empty outside the test deployment.')
+output prototypeClient string = prototypeClient
