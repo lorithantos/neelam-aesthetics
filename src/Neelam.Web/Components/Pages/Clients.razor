@@ -1,0 +1,166 @@
+@page "/clients"
+@* Onboarding and describing clients: the operator's, and belongs to no one client. *@
+@attribute [Authorize(Policy = Features.Operator)]
+@rendermode InteractiveServer
+@inject IClientDirectory Directory
+@inject ICallerSource Callers
+@inject TimeProvider Clock
+
+<PageTitle>Clients</PageTitle>
+
+<h1>Clients</h1>
+
+@if (_denied is not null)
+{
+    <p>@_denied</p>
+}
+else
+{
+    <p class="muted">
+        A client's people sign in through its Entra security group. Adding a client here is half of
+        onboarding: its storage comes from the deployment's <code>clients</code> list in Bicep, so the
+        client's name goes there too, followed by a redeploy.
+    </p>
+
+    @if (_clients is null)
+    {
+        <p>Loading clients…</p>
+    }
+    else if (_clients.Count == 0)
+    {
+        <p>No clients yet.</p>
+    }
+    else
+    {
+        @foreach (var client in _clients)
+        {
+            <section class="card" aria-label="@client.DisplayName">
+                @if (_editing == client.Name && _edit is not null)
+                {
+                    <h2>@client.Name</h2>
+                    <p class="muted">Entra group @client.GroupId. The name and group are who the client is, so they do not change here.</p>
+                    <div class="field">
+                        <label for="edit-display">Display name</label>
+                        <input id="edit-display" @bind="_edit.DisplayName" />
+                    </div>
+                    <div class="field">
+                        <label for="edit-description">Description of the business</label>
+                        <textarea id="edit-description" @bind="_edit.Description"></textarea>
+                        <span class="field-help">Given to the AI proofread as background about who is sending the email.</span>
+                    </div>
+                    <Problems Messages="_editErrors" />
+                    <button class="button primary" @onclick="SaveEditAsync">Save</button>
+                    <button class="button" @onclick="CancelEdit">Cancel</button>
+                }
+                else
+                {
+                    <h2>@client.DisplayName</h2>
+                    <p class="muted">@client.Name · Entra group @client.GroupId</p>
+                    <p>@(client.Description ?? "No description yet.")</p>
+                    <button class="button" @onclick="() => StartEdit(client)">Edit</button>
+                }
+            </section>
+        }
+    }
+
+    <h2>Add a client</h2>
+    <section class="card">
+        <div class="field">
+            <label for="new-name">Name</label>
+            <input id="new-name" @bind="_new.Name" />
+            <span class="field-help">Also its storage container's name: lowercase letters, digits and single hyphens, such as neelam-aesthetics.</span>
+        </div>
+        <div class="field">
+            <label for="new-group">Entra group ID</label>
+            <input id="new-group" @bind="_new.GroupId" />
+            <span class="field-help">The Object ID of the security group whose members are the client's people.</span>
+        </div>
+        <div class="field">
+            <label for="new-display">Display name</label>
+            <input id="new-display" @bind="_new.DisplayName" />
+        </div>
+        <div class="field">
+            <label for="new-description">Description of the business</label>
+            <textarea id="new-description" @bind="_new.Description"></textarea>
+            <span class="field-help">Given to the AI proofread as background about who is sending the email.</span>
+        </div>
+        <Problems Messages="_newErrors" />
+        <button class="button primary" @onclick="AddAsync">Add client</button>
+    </section>
+}
+
+@code {
+    private string? _denied;
+    private IReadOnlyList<ClientRecord>? _clients;
+    private ClientForm _new = new();
+    private IReadOnlyList<string> _newErrors = [];
+    private ClientName? _editing;
+    private ClientForm? _edit;
+    private IReadOnlyList<string> _editErrors = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (caller, reason) = await Callers.CurrentAsync();
+        var decision = caller is null
+            ? AccessDecision.Deny(reason)
+            : AccessCheck.Decide(caller, Area.Administration, null, [], Clock.GetUtcNow());
+        if (!decision.Allowed)
+        {
+            _denied = $"You cannot manage clients: {decision.Reason}.";
+            return;
+        }
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync() =>
+        _clients = (await Directory.ListAsync()).OrderBy(c => c.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    private async Task AddAsync()
+    {
+        var (client, errors) = _new.ToRecord();
+        _newErrors = errors;
+        if (client is null) return;
+        try
+        {
+            await Directory.AddAsync(client);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _newErrors = [ex.Message];
+            return;
+        }
+        _new = new();
+        await LoadAsync();
+    }
+
+    private void StartEdit(ClientRecord client)
+    {
+        _editing = client.Name;
+        _edit = ClientForm.Of(client);
+        _editErrors = [];
+    }
+
+    private void CancelEdit()
+    {
+        _editing = null;
+        _edit = null;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        var (client, errors) = _edit!.ToRecord();
+        _editErrors = errors;
+        if (client is null) return;
+        try
+        {
+            await Directory.UpdateAsync(client);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            _editErrors = [ex.Message];
+            return;
+        }
+        CancelEdit();
+        await LoadAsync();
+    }
+}

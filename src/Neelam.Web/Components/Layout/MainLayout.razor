@@ -1,6 +1,18 @@
 ﻿@inherits LayoutComponentBase
 
-@Body
+<header class="site-header">
+    <div class="site-header-inner">
+        <a class="site-name" href="/">Campaign safety</a>
+        <nav class="site-nav" aria-label="Main">
+            <NavLink href="templates">Templates</NavLink>
+            <NavLink href="clients">Clients</NavLink>
+        </nav>
+    </div>
+</header>
+
+<main class="site-main">
+    @Body
+</main>
 
 <div id="blazor-error-ui">
     An unhandled error has occurred.
