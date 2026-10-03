@@ -30,41 +30,45 @@ public static class EditorExport
     /// </summary>
     public static string Preview(Campaign c) => ToPlainText(Render(c));
 
+    // One pass over the template's blocks, in its order: the email's layout is the template's,
+    // never this method's.
     private static List<EditorBlock> Render(Campaign c)
     {
-        var blocks = new List<EditorBlock>
+        var blocks = new List<EditorBlock>();
+        foreach (var block in c.Blocks)
         {
-            new(BlockKind.Heading, c.Headline),
-            new(BlockKind.Text, c.Greeting),
-        };
-        blocks.AddRange(c.Opening.Select(p => new EditorBlock(BlockKind.Text, p)));
-
-        if (c.Offer is { } offer)
-        {
-            blocks.Add(new(BlockKind.Heading, offer.Name));
-            blocks.Add(new(BlockKind.Text, offer.Summary));
-            if (offer.TiersNote is not null) blocks.Add(new(BlockKind.Text, offer.TiersNote));
-            foreach (var tier in offer.Tiers)
+            switch (block)
             {
-                var price = tier.MonthlyPrice % 1 == 0 ? $"${tier.MonthlyPrice:0}" : $"${tier.MonthlyPrice:0.00}";
-                var cadence = offer.IsRecurring ? "/month" : "";
-                blocks.Add(new(BlockKind.Heading, $"{tier.Name} — {price}{cadence}"));
-                blocks.Add(new(BlockKind.List, string.Join('\n', tier.Benefits.Select(b => b.Describe()))));
+                case HeadingBlock h: blocks.Add(new(BlockKind.Heading, h.Text)); break;
+                case GreetingBlock g: blocks.Add(new(BlockKind.Text, g.Text)); break;
+                case ParagraphsBlock p: blocks.AddRange(p.Paragraphs.Select(t => new EditorBlock(BlockKind.Text, t))); break;
+                case FinePrintBlock f: blocks.Add(new(BlockKind.Text, f.Text)); break;
+                case ButtonBlock b: blocks.Add(new(BlockKind.Button, b.Action.Label, b.Action.Url)); break;
+                case SignOffBlock s:
+                    var signOff = $"{s.SignOff.Valediction}\n{s.SignOff.From}";
+                    if (s.SignOff.Tagline is not null) signOff += $"\n\n{s.SignOff.Tagline}";
+                    blocks.Add(new(BlockKind.Text, signOff));
+                    break;
+                case OfferBlock o: blocks.AddRange(RenderOffer(o.Offer)); break;
             }
-            if (offer.TermsUrl is not null)
-                blocks.Add(new(BlockKind.Text, $"Full terms: {offer.TermsUrl}", offer.TermsUrl));
         }
-
-        if (c.CallToAction is not null)
-            blocks.Add(new(BlockKind.Button, c.CallToAction.Label, c.CallToAction.Url));
-        blocks.Add(new(BlockKind.Divider, ""));
-        blocks.AddRange(c.Closing.Select(p => new EditorBlock(BlockKind.Text, p)));
-
-        var signOff = $"{c.SignOff.Valediction}\n{c.SignOff.From}";
-        if (c.SignOff.Tagline is not null) signOff += $"\n\n{c.SignOff.Tagline}";
-        blocks.Add(new(BlockKind.Text, signOff));
-        if (c.Disclaimer is not null) blocks.Add(new(BlockKind.Text, c.Disclaimer));
         return blocks;
+    }
+
+    private static IEnumerable<EditorBlock> RenderOffer(Offer offer)
+    {
+        yield return new(BlockKind.Heading, offer.Name);
+        yield return new(BlockKind.Text, offer.Summary);
+        if (offer.TiersNote is not null) yield return new(BlockKind.Text, offer.TiersNote);
+        foreach (var tier in offer.Tiers)
+        {
+            var price = tier.MonthlyPrice % 1 == 0 ? $"${tier.MonthlyPrice:0}" : $"${tier.MonthlyPrice:0.00}";
+            var cadence = offer.IsRecurring ? "/month" : "";
+            yield return new(BlockKind.Heading, $"{tier.Name} — {price}{cadence}");
+            yield return new(BlockKind.List, string.Join('\n', tier.Benefits.Select(b => b.Describe())));
+        }
+        if (offer.TermsUrl is not null)
+            yield return new(BlockKind.Text, $"Full terms: {offer.TermsUrl}", offer.TermsUrl);
     }
 
     private static string ToPlainText(IEnumerable<EditorBlock> blocks) =>

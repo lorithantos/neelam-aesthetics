@@ -71,11 +71,12 @@ public sealed class ClaudeProofreader(AnthropicClient client, string model = "cl
 
     private static string UserPrompt(Campaign c, string preview)
     {
-        var tiers = c.Offer is null
+        var offers = c.BlocksOf<OfferBlock>().ToList();
+        var tiers = offers.Count == 0
             ? "(no tiered offer)"
-            : string.Join("\n", c.Offer.Tiers.Select((t, i) =>
-                $"Tier {i + 1}: name \"{t.Name}\", ${t.MonthlyPrice}/month; benefits: " +
-                string.Join("; ", t.Benefits.Select(b => b.Describe()))));
+            : string.Join("\n", offers.SelectMany(o => o.Offer.Tiers.Select((t, i) =>
+                $"{o.Label}, tier {i + 1}: name \"{t.Name}\", ${t.MonthlyPrice}{(o.Offer.IsRecurring ? "/month" : "")}; benefits: " +
+                string.Join("; ", t.Benefits.Select(b => b.Describe())))));
 
         return $"""
             Subject line: {c.Subject}
@@ -92,11 +93,11 @@ public sealed class ClaudeProofreader(AnthropicClient client, string model = "cl
     }
 
     private const string SystemPrompt = """
-        You proofread marketing emails for a small, family-run medical aesthetics clinic before they
-        go to customers. Your job is to catch mistakes that would embarrass the business or mislead
-        a customer, the kind a careful human editor would catch on a final read. You are not
-        restyling the email: its warm voice and emoji are deliberate, so leave tone, emoji, length
-        and word choice alone unless something is actually wrong.
+        You proofread marketing emails for a small business before they go to its customers. Your
+        job is to catch mistakes that would embarrass the business or mislead a customer, the kind
+        a careful human editor would catch on a final read. You are not restyling the email: its
+        voice and any emoji are the business's choice, so leave tone, emoji, length and word
+        choice alone unless something is actually wrong.
 
         Report as "error":
         - spelling mistakes, wrong or missing words, grammar that changes or obscures meaning

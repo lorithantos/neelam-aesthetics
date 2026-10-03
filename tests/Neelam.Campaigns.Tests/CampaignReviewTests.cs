@@ -67,11 +67,10 @@ public class CampaignReviewTests
     [Fact]
     public void Repeated_sentence_across_sections_is_flagged()
     {
-        var c = SampleCampaigns.Corrected() with
-        {
-            Opening = [.. SampleCampaigns.Corrected().Opening,
-                "100% of your monthly contribution goes toward any treatments you choose."],
-        };
+        var corrected = SampleCampaigns.Corrected();
+        var c = corrected.With(new ParagraphsBlock("Opening",
+            [.. corrected.Block<ParagraphsBlock>("Opening").Paragraphs,
+                "100% of your monthly contribution goes toward any treatments you choose."]));
 
         var finding = Assert.Single(CampaignReview.Check(c).Findings, f => f.Rule == "repeated-phrase");
         Assert.Equal("Offer › Tiers note", finding.Location);
@@ -91,11 +90,8 @@ public class CampaignReviewTests
     [Fact]
     public void Tier_cheaper_than_the_one_before_is_blocked()
     {
-        var offer = SampleCampaigns.Corrected().Offer!;
-        var c = SampleCampaigns.Corrected() with
-        {
-            Offer = offer with { Tiers = [offer.Tiers[1], offer.Tiers[0]] },
-        };
+        var offer = SampleCampaigns.Corrected().OfferOf();
+        var c = SampleCampaigns.Corrected().With(new OfferBlock("Offer", offer with { Tiers = [offer.Tiers[1], offer.Tiers[0]] }));
 
         Assert.Contains(CampaignReview.Check(c).Blockers, f => f.Rule == "tier-prices-increase");
     }
@@ -103,10 +99,8 @@ public class CampaignReviewTests
     [Fact]
     public void Non_https_call_to_action_is_blocked()
     {
-        var c = SampleCampaigns.Corrected() with
-        {
-            CallToAction = new CallToAction("Join", new Uri("http://example.com/join")),
-        };
+        var c = SampleCampaigns.Corrected().With(
+            new ButtonBlock("Call to action", new CallToAction("Join", new Uri("http://example.com/join"))));
 
         Assert.Contains(CampaignReview.Check(c).Blockers, f => f.Rule == "cta-https");
     }
@@ -114,7 +108,7 @@ public class CampaignReviewTests
     [Fact]
     public void Too_many_emoji_is_a_warning()
     {
-        var c = SampleCampaigns.Corrected() with { Headline = "WE’RE TURNING ONE! 🥂✨🎉🎂💖🤍🤍🤍" };
+        var c = SampleCampaigns.Corrected().With(new HeadingBlock("Headline", "WE’RE TURNING ONE! 🥂✨🎉🎂💖🤍🤍🤍"));
 
         Assert.Contains(CampaignReview.Check(c).Warnings, f => f.Rule == "emoji-budget");
     }
@@ -122,8 +116,8 @@ public class CampaignReviewTests
     private static Campaign WithTier1Benefit(Benefit benefit)
     {
         var c = SampleCampaigns.Corrected();
-        var tiers = c.Offer!.Tiers.ToList();
+        var tiers = c.OfferOf().Tiers.ToList();
         tiers[0] = tiers[0] with { Benefits = [.. tiers[0].Benefits, benefit] };
-        return c with { Offer = c.Offer with { Tiers = tiers } };
+        return c.With(new OfferBlock("Offer", c.OfferOf() with { Tiers = tiers }));
     }
 }

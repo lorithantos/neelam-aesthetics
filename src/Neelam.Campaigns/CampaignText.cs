@@ -5,37 +5,44 @@ public sealed record TextFragment(string Location, string Text);
 
 public static class CampaignText
 {
-    /// <summary>Every piece of text the reader will see, benefits included as rendered.</summary>
+    /// <summary>
+    /// Every piece of text the reader will see, in the order they read it, benefits included as
+    /// rendered. Locations come from the template's block labels, e.g. "Opening ¶2".
+    /// </summary>
     public static IReadOnlyList<TextFragment> Fragments(Campaign c)
     {
-        var list = new List<TextFragment>
-        {
-            new("Subject", c.Subject),
-            new("Headline", c.Headline),
-            new("Greeting", c.Greeting),
-        };
+        var list = new List<TextFragment> { new("Subject", c.Subject) };
         if (c.Preheader is not null) list.Add(new("Preheader", c.Preheader));
-        list.AddRange(c.Opening.Select((p, i) => new TextFragment($"Opening ¶{i + 1}", p)));
 
-        if (c.Offer is { } offer)
+        foreach (var block in c.Blocks)
         {
-            list.Add(new("Offer › Name", offer.Name));
-            list.Add(new("Offer › Summary", offer.Summary));
-            if (offer.TiersNote is not null) list.Add(new("Offer › Tiers note", offer.TiersNote));
-            for (var t = 0; t < offer.Tiers.Count; t++)
+            switch (block)
             {
-                var tier = offer.Tiers[t];
-                var where = $"Offer › Tier {t + 1}";
-                list.Add(new(where, tier.Name));
-                list.AddRange(tier.Benefits.Select(b => new TextFragment($"{where} › Benefit", b.Describe())));
+                case HeadingBlock h: list.Add(new(h.Label, h.Text)); break;
+                case GreetingBlock g: list.Add(new(g.Label, g.Text)); break;
+                case FinePrintBlock f: list.Add(new(f.Label, f.Text)); break;
+                case ParagraphsBlock p:
+                    list.AddRange(p.Paragraphs.Select((text, i) => new TextFragment($"{p.Label} ¶{i + 1}", text)));
+                    break;
+                case ButtonBlock b: list.Add(new(b.Label, b.Action.Label)); break;
+                case SignOffBlock s:
+                    list.Add(new(s.Label, $"{s.SignOff.Valediction} {s.SignOff.From}"));
+                    if (s.SignOff.Tagline is not null) list.Add(new($"{s.Label} › Tagline", s.SignOff.Tagline));
+                    break;
+                case OfferBlock o:
+                    var offer = o.Offer;
+                    list.Add(new($"{o.Label} › Name", offer.Name));
+                    list.Add(new($"{o.Label} › Summary", offer.Summary));
+                    if (offer.TiersNote is not null) list.Add(new($"{o.Label} › Tiers note", offer.TiersNote));
+                    for (var t = 0; t < offer.Tiers.Count; t++)
+                    {
+                        var where = $"{o.Label} › Tier {t + 1}";
+                        list.Add(new(where, offer.Tiers[t].Name));
+                        list.AddRange(offer.Tiers[t].Benefits.Select(b => new TextFragment($"{where} › Benefit", b.Describe())));
+                    }
+                    break;
             }
         }
-
-        list.AddRange(c.Closing.Select((p, i) => new TextFragment($"Closing ¶{i + 1}", p)));
-        list.Add(new("Sign-off", $"{c.SignOff.Valediction} {c.SignOff.From}"));
-        if (c.SignOff.Tagline is not null) list.Add(new("Sign-off › Tagline", c.SignOff.Tagline));
-        if (c.CallToAction is not null) list.Add(new("Call to action", c.CallToAction.Label));
-        if (c.Disclaimer is not null) list.Add(new("Disclaimer", c.Disclaimer));
         return list;
     }
 }

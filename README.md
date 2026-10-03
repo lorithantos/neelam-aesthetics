@@ -27,8 +27,27 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 
 ## Templates and drafts
 
-Campaigns are written as a `CampaignDraft`, usually started from a `CampaignTemplate`. Every
-value in a draft is a `Slot` that remembers where it came from:
+**A template defines a campaign's structure, as data.** A `CampaignTemplate` is an ordered
+list of blocks, each with a label, a type, whether a campaign must fill it, and optionally
+content the template fixes. A new kind of email is a new template, not a code change, and
+templates are the client's own data: clients can build their own, and the operator breaks a
+new kind of email down into one on request.
+
+| Block type | Holds | Its checks |
+|---|---|---|
+| Heading, Greeting | A line of text | Text checks |
+| Paragraphs | Body text, one entry per paragraph | Text checks |
+| Offer | A tiered offer with typed benefits | Tier names, distinct tiers, prices, benefit values, parallel tiers, terms for a recurring charge; an offer needs a button |
+| Button | A label and an https link | https only |
+| Sign-off | Valediction, sender, tagline | Text checks |
+| Fine print | Disclaimers and terms | Answers the medical-disclaimer rule |
+
+The block types were derived from the one real email the tool has seen, the Beauty Bank
+announcement, and grow from the next real ones rather than from guesses ("data over dogma").
+The text checks (restricted terms, repetition, emoji) run over every block's text.
+
+Campaigns are written as a `CampaignDraft`, started from a template. Every value in a draft is
+a `Slot` that remembers where it came from:
 
 | Origin | Meaning | Ready to build? |
 |---|---|---|
@@ -37,8 +56,8 @@ value in a draft is a `Slot` that remembers where it came from:
 | `Copied` | Copied and not yet looked at | **No** — edit it or `Confirm()` it |
 | `Empty` | Not filled in | No, if required |
 
-- A **template** fills only the parts that stay the same. Subject, headline, opening, offer and
-  call to action always start empty, never as last time's text.
+- A **template** fills only the parts that stay the same. Everything else starts empty, never
+  as last time's text, and an offer can never be fixed by a template.
 - **Copying a tier** (`OfferDraft.CopyTier`) copies its benefit list for convenience, but marks
   each benefit `Copied`, and does **not** copy the name or price — those are what make it a
   different tier. The draft will not build until every copied benefit is edited or confirmed
@@ -185,7 +204,8 @@ a business and legal call, not one for the tool to make.
 
 ## Layout
 
-- `src/Neelam.Campaigns` — the model (`Campaign`, `Offer`, `Tier`, `Benefit`), the rules
+- `src/Neelam.Campaigns` — the model (`Campaign` as template-defined blocks; `Offer`, `Tier`,
+  `Benefit` inside the offer block), templates and drafts, the rules
   (`CampaignReview`, tunable via `CampaignPolicy`), the gate (`CampaignGate`, `IProofreader`)
   and the export (`EditorExport`). No web, storage, hosting or AI dependency.
 - `src/Neelam.Campaigns.Claude` — `ClaudeProofreader`, the `IProofreader` backed by Claude

@@ -1,20 +1,95 @@
+using System.Text.Json.Serialization;
+
 namespace Neelam.Campaigns;
 
 /// <summary>
-/// One marketing email, as structured data. Every section of the email is a slot here, so the
-/// checks in <see cref="CampaignReview"/> can reason about it instead of about free text.
+/// One marketing email, as structured data: a subject, a preheader, and the blocks its template
+/// laid out, in order. The structure is the template's, so a new kind of email is a new template,
+/// not a code change. Each block's type carries the checks that type needs, so
+/// <see cref="CampaignReview"/> reasons about blocks instead of about free text.
 /// </summary>
-public sealed record Campaign(
-    string Subject,
-    string Headline,
-    string Greeting,
-    IReadOnlyList<string> Opening,
-    Offer? Offer,
-    IReadOnlyList<string> Closing,
-    SignOff SignOff,
-    CallToAction? CallToAction,
-    string? Disclaimer = null,
-    string? Preheader = null);
+public sealed record Campaign(string Subject, IReadOnlyList<Block> Blocks, string? Preheader = null)
+{
+    /// <summary>Every block of one type, in order.</summary>
+    public IEnumerable<T> BlocksOf<T>() where T : Block => Blocks.OfType<T>();
+}
+
+/// <summary>
+/// The kinds of block an email can be built from. Derived from the one real email the tool has
+/// seen (the Beauty Bank announcement), and meant to grow from the next ones, not from guesses.
+/// </summary>
+public enum BlockType
+{
+    Heading,
+    Greeting,
+    Paragraphs,
+    Offer,
+    Button,
+    SignOff,
+    FinePrint,
+}
+
+/// <summary>
+/// One part of an email. <see cref="Label"/> is the template's name for it, e.g. "Opening", and is
+/// how findings say where they are.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "block")]
+[JsonDerivedType(typeof(HeadingBlock), "heading")]
+[JsonDerivedType(typeof(GreetingBlock), "greeting")]
+[JsonDerivedType(typeof(ParagraphsBlock), "paragraphs")]
+[JsonDerivedType(typeof(OfferBlock), "offer")]
+[JsonDerivedType(typeof(ButtonBlock), "button")]
+[JsonDerivedType(typeof(SignOffBlock), "sign-off")]
+[JsonDerivedType(typeof(FinePrintBlock), "fine-print")]
+public abstract record Block(string Label)
+{
+    [JsonIgnore]
+    public abstract BlockType Type { get; }
+}
+
+/// <summary>A line set as a heading, such as the email's headline.</summary>
+public sealed record HeadingBlock(string Label, string Text) : Block(Label)
+{
+    public override BlockType Type => BlockType.Heading;
+}
+
+/// <summary>How the email addresses the reader.</summary>
+public sealed record GreetingBlock(string Label, string Text) : Block(Label)
+{
+    public override BlockType Type => BlockType.Greeting;
+}
+
+/// <summary>Body text, one entry per paragraph.</summary>
+public sealed record ParagraphsBlock(string Label, IReadOnlyList<string> Paragraphs) : Block(Label)
+{
+    public override BlockType Type => BlockType.Paragraphs;
+}
+
+/// <summary>
+/// A tiered offer, such as a membership. Its benefits are typed, so wording the business can be
+/// held to is generated, never typed; the offer checks belong to this block.
+/// </summary>
+public sealed record OfferBlock(string Label, Offer Offer) : Block(Label)
+{
+    public override BlockType Type => BlockType.Offer;
+}
+
+/// <summary>A button: what the reader should do next, and where.</summary>
+public sealed record ButtonBlock(string Label, CallToAction Action) : Block(Label)
+{
+    public override BlockType Type => BlockType.Button;
+}
+
+public sealed record SignOffBlock(string Label, SignOff SignOff) : Block(Label)
+{
+    public override BlockType Type => BlockType.SignOff;
+}
+
+/// <summary>Terms, disclaimers and other small print.</summary>
+public sealed record FinePrintBlock(string Label, string Text) : Block(Label)
+{
+    public override BlockType Type => BlockType.FinePrint;
+}
 
 public sealed record SignOff(string Valediction, string From, string? Tagline = null);
 

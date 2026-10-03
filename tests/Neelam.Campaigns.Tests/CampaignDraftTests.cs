@@ -8,8 +8,11 @@ public class CampaignDraftTests
     private static readonly Campaign Target = SampleCampaigns.Corrected();
     private static readonly CampaignTemplate Membership = DraftFixtures.Membership;
 
-    private static ISet<string> Locations(DraftResult r, string rule) =>
-        r.Problems.Where(p => p.Rule == rule).Select(p => p.Location).ToHashSet();
+    // Sorted, because xunit 2.4 compares sets in order (WIP.md).
+    private static string[] Locations(DraftResult r, string rule) =>
+        r.Problems.Where(p => p.Rule == rule).Select(p => p.Location).Order(StringComparer.Ordinal).ToArray();
+
+    private static string[] Sorted(params string[] locations) => locations.Order(StringComparer.Ordinal).ToArray();
 
     [Fact]
     public void New_draft_from_a_template_asks_for_every_per_campaign_part_and_nothing_else()
@@ -18,18 +21,15 @@ public class CampaignDraftTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(
-            new HashSet<string>
-            {
-                "Subject", "Headline", "Opening", "Call to action",
-                "Offer › Name", "Offer › Summary", "Offer › Terms link", "Offer › Tiers",
-            },
+            Sorted("Subject", "Headline", "Opening", "Call to action",
+                "Offer › Name", "Offer › Summary", "Offer › Terms link", "Offer › Tiers"),
             Locations(result, "draft-missing"));
     }
 
     [Fact]
     public void Copied_tier_keeps_benefits_but_not_name_or_price()
     {
-        var o = Membership.Start().Offer!;
+        var o = Membership.Start().Offer("Offer");
         DraftFixtures.AddGold(o);
 
         var copy = o.CopyTier(0);
@@ -53,7 +53,7 @@ public class CampaignDraftTests
         var result = d.Build();
 
         Assert.False(result.Succeeded);
-        Assert.Equal(new HashSet<string> { "Offer › Tier 2 › Name" }, Locations(result, "draft-missing"));
+        Assert.Equal(["Offer › Tier 2 › Name"], Locations(result, "draft-missing"));
         var unreviewed = Assert.Single(result.Problems, p => p.Rule == "draft-unreviewed-copy");
         Assert.Equal("Offer › Tier 2 › Benefit 3", unreviewed.Location);
         Assert.Contains("copied from Tier 1", unreviewed.Message);
@@ -68,8 +68,8 @@ public class CampaignDraftTests
     public void First_send_replayed_with_every_copy_confirmed_is_still_stopped_by_the_rules()
     {
         var d = DraftFixtures.StartAndFillText();
-        DraftFixtures.AddGold(d.Offer!);
-        var platinum = d.Offer!.CopyTier(0);
+        DraftFixtures.AddGold(d.Offer("Offer"));
+        var platinum = d.Offer("Offer").CopyTier(0);
         platinum.Name.Set("Platinum Member");
         platinum.MonthlyPrice.Set(299m);
         foreach (var b in platinum.Benefits) b.Confirm();
@@ -95,7 +95,7 @@ public class CampaignDraftTests
     [Fact]
     public void Only_a_copied_value_can_be_confirmed()
     {
-        var gold = DraftFixtures.AddGold(Membership.Start().Offer!);
+        var gold = DraftFixtures.AddGold(Membership.Start().Offer("Offer"));
 
         Assert.Throws<InvalidOperationException>(() => gold.Benefits[0].Confirm());
         Assert.Throws<InvalidOperationException>(() => gold.Name.Confirm());

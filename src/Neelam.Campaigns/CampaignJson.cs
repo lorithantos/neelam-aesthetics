@@ -9,8 +9,11 @@ namespace Neelam.Campaigns;
 /// </summary>
 public static class CampaignJson
 {
-    /// <summary>Written into every document so older saves can still be read after a change.</summary>
-    public const int SchemaVersion = 1;
+    /// <summary>
+    /// Written into every document so older saves can still be read after a change. 2 since
+    /// campaigns became template-defined blocks (2026-10-03); nothing had been saved as 1.
+    /// </summary>
+    public const int SchemaVersion = 2;
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -22,11 +25,8 @@ public static class CampaignJson
 
     public static string SerializeDraft(CampaignDraft d) =>
         JsonSerializer.Serialize(new DraftDocument(
-            SchemaVersion,
-            d.TemplateName,
-            Save(d.Subject), Save(d.Preheader), Save(d.Headline), Save(d.Greeting), Save(d.Opening),
-            d.Offer is null ? null : Save(d.Offer),
-            Save(d.Closing), Save(d.SignOff), Save(d.CallToAction), Save(d.Disclaimer)), Options);
+            SchemaVersion, d.TemplateName, Save(d.Subject), Save(d.Preheader),
+            d.Blocks.Select(Save).ToList()), Options);
 
     public static CampaignDraft DeserializeDraft(string json)
     {
@@ -34,36 +34,53 @@ public static class CampaignJson
                   ?? throw new InvalidDataException("Empty draft document.");
         CheckVersion(doc.Schema);
 
-        var d = new CampaignDraft
-        {
-            TemplateName = doc.TemplateName,
-            Offer = doc.Offer is null ? null : new OfferDraft { IsRecurring = doc.Offer.IsRecurring },
-        };
+        // Each block is rebuilt empty, the way its template would start it, and then every slot is
+        // put back with its origin, so a copy nobody reviewed is still unreviewed.
+        var blocks = doc.Blocks.Select(Restore).ToList();
+        var d = new CampaignDraft(doc.TemplateName, blocks);
         Restore(d.Subject, doc.Subject);
         Restore(d.Preheader, doc.Preheader);
-        Restore(d.Headline, doc.Headline);
-        Restore(d.Greeting, doc.Greeting);
-        Restore(d.Opening, doc.Opening);
-        Restore(d.Closing, doc.Closing);
-        Restore(d.SignOff, doc.SignOff);
-        Restore(d.CallToAction, doc.CallToAction);
-        Restore(d.Disclaimer, doc.Disclaimer);
-
-        if (doc.Offer is { } o)
-        {
-            Restore(d.Offer!.Name, o.Name);
-            Restore(d.Offer.Summary, o.Summary);
-            Restore(d.Offer.TiersNote, o.TiersNote);
-            Restore(d.Offer.TermsUrl, o.TermsUrl);
-            foreach (var t in o.Tiers)
-            {
-                var tier = d.Offer.AddTier();
-                Restore(tier.Name, t.Name);
-                Restore(tier.MonthlyPrice, t.MonthlyPrice);
-                foreach (var b in t.Benefits) Restore(tier.AddEmptyBenefit(), b);
-            }
-        }
         return d;
+    }
+
+    private static BlockDocument Save(BlockDraft b) => b switch
+    {
+        ValueBlockDraft<string> v => new(b.Label, b.Type, b.Required, Text: Save(v.Value)),
+        ValueBlockDraft<IReadOnlyList<string>> v => new(b.Label, b.Type, b.Required, Paragraphs: Save(v.Value)),
+        ValueBlockDraft<CallToAction> v => new(b.Label, b.Type, b.Required, Action: Save(v.Value)),
+        ValueBlockDraft<SignOff> v => new(b.Label, b.Type, b.Required, SignOff: Save(v.Value)),
+        OfferBlockDraft o => new(b.Label, b.Type, b.Required, Offer: Save(o.Offer)),
+        _ => throw new InvalidOperationException($"No saved form for a {b.Type} block."),
+    };
+
+    private static BlockDraft Restore(BlockDocument doc)
+    {
+        var block = BlockDraft.From(new TemplateBlock(doc.Label, doc.Type, doc.Required));
+        switch (block)
+        {
+            case ValueBlockDraft<string> v: Restore(v.Value, doc.Text); break;
+            case ValueBlockDraft<IReadOnlyList<string>> v: Restore(v.Value, doc.Paragraphs); break;
+            case ValueBlockDraft<CallToAction> v: Restore(v.Value, doc.Action); break;
+            case ValueBlockDraft<SignOff> v: Restore(v.Value, doc.SignOff); break;
+            case OfferBlockDraft o when doc.Offer is { } saved: Restore(o.Offer, saved); break;
+        }
+        return block;
+    }
+
+    private static void Restore(OfferDraft offer, OfferDocument o)
+    {
+        offer.IsRecurring = o.IsRecurring;
+        Restore(offer.Name, o.Name);
+        Restore(offer.Summary, o.Summary);
+        Restore(offer.TiersNote, o.TiersNote);
+        Restore(offer.TermsUrl, o.TermsUrl);
+        foreach (var t in o.Tiers)
+        {
+            var tier = offer.AddTier();
+            Restore(tier.Name, t.Name);
+            Restore(tier.MonthlyPrice, t.MonthlyPrice);
+            foreach (var b in t.Benefits) Restore(tier.AddEmptyBenefit(), b);
+        }
     }
 
     public static string SerializeTemplate(CampaignTemplate t) =>
@@ -139,14 +156,18 @@ public static class CampaignJson
         string? TemplateName,
         SlotDocument<string> Subject,
         SlotDocument<string> Preheader,
-        SlotDocument<string> Headline,
-        SlotDocument<string> Greeting,
-        SlotDocument<IReadOnlyList<string>> Opening,
-        OfferDocument? Offer,
-        SlotDocument<IReadOnlyList<string>> Closing,
-        SlotDocument<SignOff> SignOff,
-        SlotDocument<CallToAction> CallToAction,
-        SlotDocument<string> Disclaimer);
+        IReadOnlyList<BlockDocument> Blocks);
+
+    // One saved block: which of the value fields is set follows from its type.
+    private sealed record BlockDocument(
+        string Label,
+        BlockType Type,
+        bool Required,
+        SlotDocument<string>? Text = null,
+        SlotDocument<IReadOnlyList<string>>? Paragraphs = null,
+        SlotDocument<CallToAction>? Action = null,
+        SlotDocument<SignOff>? SignOff = null,
+        OfferDocument? Offer = null);
 
     private sealed record OfferDocument(
         SlotDocument<string> Name,

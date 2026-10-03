@@ -13,7 +13,7 @@ public class CampaignJsonTests
         var reopened = CampaignJson.DeserializeDraft(CampaignJson.SerializeDraft(draft));
 
         Assert.Equal(before, reopened.Build().Problems.Select(p => (p.Rule, p.Location, p.Message)).ToList());
-        Assert.Equal("Tier 1", reopened.Offer!.Tiers[1].Benefits[2].CopiedFrom);
+        Assert.Equal("Tier 1", reopened.Offer("Offer").Tiers[1].Benefits[2].CopiedFrom);
     }
 
     [Fact]
@@ -33,11 +33,15 @@ public class CampaignJsonTests
     {
         var reopened = CampaignJson.DeserializeDraft(CampaignJson.SerializeDraft(DraftFixtures.Finished()));
 
-        Assert.Equal(Origin.Template, reopened.SignOff.Origin);
-        Assert.Equal(Origin.Entered, reopened.Headline.Origin);
+        Assert.Equal(Origin.Template, reopened.SignOff("Sign-off").Origin);
+        Assert.Equal(Origin.Entered, reopened.Text("Headline").Origin);
         Assert.Equal(Origin.Empty, reopened.Preheader.Origin);
+        Assert.Equal(["Headline", "Greeting", "Opening", "Offer", "Call to action", "Closing", "Sign-off", "Disclaimer"],
+            reopened.Blocks.Select(b => b.Label));
+        Assert.True(reopened.Offer("Offer").IsRecurring);
     }
 
+    // A template is data: its blocks, their order, what is fixed and what is required all survive.
     [Fact]
     public void Template_round_trips()
     {
@@ -46,14 +50,19 @@ public class CampaignJsonTests
         var t = CampaignJson.DeserializeTemplate(json);
 
         Assert.Equal(DraftFixtures.Membership.Name, t.Name);
-        Assert.Equal(DraftFixtures.Membership.Closing, t.Closing);
-        Assert.Equal(DraftFixtures.Membership.SignOff, t.SignOff);
+        Assert.Equal(DraftFixtures.Membership.Blocks.Select(b => (b.Label, b.Type, b.Required, b.Recurring)),
+            t.Blocks.Select(b => (b.Label, b.Type, b.Required, b.Recurring)));
+        // The fixed content too: the same campaign written through either template reads the same.
+        Assert.Equal(
+            EditorExport.Preview(DraftFixtures.Finished(DraftFixtures.Membership).Build().Campaign!),
+            EditorExport.Preview(DraftFixtures.Finished(t).Build().Campaign!));
     }
 
     [Fact]
     public void Unknown_schema_version_is_refused_rather_than_misread()
     {
-        var json = CampaignJson.SerializeDraft(DraftFixtures.Finished()).Replace("\"schema\": 1", "\"schema\": 99");
+        var json = CampaignJson.SerializeDraft(DraftFixtures.Finished())
+            .Replace($"\"schema\": {CampaignJson.SchemaVersion}", "\"schema\": 99");
 
         Assert.Throws<InvalidDataException>(() => CampaignJson.DeserializeDraft(json));
     }

@@ -16,15 +16,19 @@ public static class CampaignReview
         var text = CampaignText.Fragments(campaign);
         var findings = new List<Finding>();
 
-        findings.AddRange(CallToActionPresent(campaign));
-        if (campaign.Offer is { } offer)
+        // Each block type brings its own checks; an email only gets the checks its blocks need.
+        findings.AddRange(OfferHasAButton(campaign));
+        foreach (var button in campaign.BlocksOf<ButtonBlock>())
+            findings.AddRange(ButtonLinkIsHttps(button));
+        foreach (var block in campaign.BlocksOf<OfferBlock>())
         {
-            findings.AddRange(TierNamesUnique(offer));
-            findings.AddRange(TierContentDistinct(offer));
-            findings.AddRange(TierPricesIncrease(offer));
-            findings.AddRange(BenefitValuesValid(offer));
-            findings.AddRange(TiersParallel(offer));
-            findings.AddRange(TermsForRecurring(offer));
+            var (label, offer) = (block.Label, block.Offer);
+            findings.AddRange(TierNamesUnique(label, offer));
+            findings.AddRange(TierContentDistinct(label, offer));
+            findings.AddRange(TierPricesIncrease(label, offer));
+            findings.AddRange(BenefitValuesValid(label, offer));
+            findings.AddRange(TiersParallel(label, offer));
+            findings.AddRange(TermsForRecurring(label, offer));
         }
         findings.AddRange(MedicalDisclaimer(campaign, text, policy));
         findings.AddRange(RestrictedTerms(text, policy));
@@ -35,61 +39,67 @@ public static class CampaignReview
         return new ReviewReport(campaign, findings, Proofread: false);
     }
 
-    private static IEnumerable<Finding> CallToActionPresent(Campaign c)
+    /// <summary>
+    /// An offer with no button gives the reader no way to take it up: the Beauty Bank email went
+    /// out that way. Emails without an offer decide in their template whether a button is required.
+    /// </summary>
+    private static IEnumerable<Finding> OfferHasAButton(Campaign c)
     {
-        if (c.CallToAction is null)
-        {
-            yield return new(Severity.Blocker, "cta-required", "Call to action",
-                "The email has no way to act on it: add a button with a link (book, join, reply).");
-        }
-        else if (!c.CallToAction.Url.IsAbsoluteUri || c.CallToAction.Url.Scheme != Uri.UriSchemeHttps)
-        {
-            yield return new(Severity.Blocker, "cta-https", "Call to action",
-                $"The link must be an absolute https:// address, not '{c.CallToAction.Url}'.");
-        }
+        var offer = c.BlocksOf<OfferBlock>().FirstOrDefault();
+        if (offer is not null && !c.BlocksOf<ButtonBlock>().Any())
+            yield return new(Severity.Blocker, "cta-required", offer.Label,
+                "The email has an offer and no way to act on it: add a button with a link (book, join, reply).");
     }
 
-    private static IEnumerable<Finding> TierNamesUnique(Offer offer) =>
+    private static IEnumerable<Finding> ButtonLinkIsHttps(ButtonBlock button)
+    {
+        var url = button.Action.Url;
+        if (!url.IsAbsoluteUri || url.Scheme != Uri.UriSchemeHttps)
+            yield return new(Severity.Blocker, "cta-https", button.Label,
+                $"The link must be an absolute https:// address, not '{url}'.");
+    }
+
+    private static IEnumerable<Finding> TierNamesUnique(string label, Offer offer) =>
         offer.Tiers
             .Select((t, i) => (Key: t.Name.Trim().ToLowerInvariant(), Index: i + 1))
             .GroupBy(x => x.Key)
             .Where(g => g.Count() > 1)
-            .Select(g => new Finding(Severity.Blocker, "tier-names-unique", "Offer",
+            .Select(g => new Finding(Severity.Blocker, "tier-names-unique", label,
                 $"Tiers {string.Join(" and ", g.Select(x => x.Index))} share the name " +
                 $"'{offer.Tiers[g.First().Index - 1].Name}'; customers cannot tell them apart."));
 
     /// <summary>Two tiers offering exactly the same benefits are one offer shown twice.</summary>
-    private static IEnumerable<Finding> TierContentDistinct(Offer offer)
+    private static IEnumerable<Finding> TierContentDistinct(string label, Offer offer)
     {
         for (var i = 0; i < offer.Tiers.Count; i++)
         for (var j = i + 1; j < offer.Tiers.Count; j++)
         {
             var a = offer.Tiers[i].Benefits.Select(b => b.Describe()).ToHashSet();
             if (a.SetEquals(offer.Tiers[j].Benefits.Select(b => b.Describe())))
-                yield return new(Severity.Blocker, "tier-content-distinct", $"Offer › Tier {j + 1}",
+                yield return new(Severity.Blocker, "tier-content-distinct", $"{label} › Tier {j + 1}",
                     $"Tiers {i + 1} and {j + 1} offer identical benefits; one of them was not updated.");
         }
     }
 
-    private static IEnumerable<Finding> TierPricesIncrease(Offer offer)
+    private static IEnumerable<Finding> TierPricesIncrease(string label, Offer offer)
     {
         for (var i = 0; i < offer.Tiers.Count; i++)
         {
             var tier = offer.Tiers[i];
             if (tier.MonthlyPrice <= 0)
-                yield return new(Severity.Blocker, "tier-price-positive", $"Offer › Tier {i + 1}",
+                yield return new(Severity.Blocker, "tier-price-positive", $"{label} › Tier {i + 1}",
                     $"'{tier.Name}' has no price.");
             if (i > 0 && tier.MonthlyPrice <= offer.Tiers[i - 1].MonthlyPrice)
-                yield return new(Severity.Blocker, "tier-prices-increase", $"Offer › Tier {i + 1}",
+                yield return new(Severity.Blocker, "tier-prices-increase", $"{label} › Tier {i + 1}",
                     $"'{tier.Name}' costs no more than the tier before it; list tiers cheapest first.");
         }
     }
 
-    private static IEnumerable<Finding> BenefitValuesValid(Offer offer)
+    private static IEnumerable<Finding> BenefitValuesValid(string label, Offer offer)
     {
         for (var i = 0; i < offer.Tiers.Count; i++)
         {
-            var where = $"Offer › Tier {i + 1}";
+            var where = $"{label} › Tier {i + 1}";
             foreach (var b in offer.Tiers[i].Benefits)
             {
                 var problem = b switch
@@ -116,7 +126,7 @@ public static class CampaignReview
     /// Readers compare tiers line by line. A higher tier can be more generous, but if it offers a
     /// kind of benefit the lower tier lacks (or vice versa), the comparison has to be spelled out.
     /// </summary>
-    private static IEnumerable<Finding> TiersParallel(Offer offer)
+    private static IEnumerable<Finding> TiersParallel(string label, Offer offer)
     {
         if (offer.Tiers.Count < 2) yield break;
         var baseline = offer.Tiers[0].Benefits.Select(b => b.Kind).ToHashSet();
@@ -130,22 +140,23 @@ public static class CampaignReview
             var parts = new List<string>();
             if (onlyHere.Count > 0) parts.Add($"has {string.Join(", ", onlyHere)} that tier 1 lacks");
             if (missing.Count > 0) parts.Add($"lacks {string.Join(", ", missing)} that tier 1 has");
-            yield return new(Severity.Warning, "tiers-parallel", $"Offer › Tier {i + 1}",
+            yield return new(Severity.Warning, "tiers-parallel", $"{label} › Tier {i + 1}",
                 $"'{offer.Tiers[i].Name}' {string.Join(" and ", parts)}; check the tiers read side by side.");
         }
     }
 
-    private static IEnumerable<Finding> TermsForRecurring(Offer offer)
+    private static IEnumerable<Finding> TermsForRecurring(string label, Offer offer)
     {
         if (offer.IsRecurring && offer.TermsUrl is null)
-            yield return new(Severity.Blocker, "terms-required", "Offer",
+            yield return new(Severity.Blocker, "terms-required", label,
                 "A recurring charge needs a terms link covering cancellation, rollover, expiry and refunds.");
     }
 
     private static IEnumerable<Finding> MedicalDisclaimer(
         Campaign c, IReadOnlyList<TextFragment> text, CampaignPolicy policy)
     {
-        if (!string.IsNullOrWhiteSpace(c.Disclaimer)) yield break;
+        // Any fine-print block with text counts: what it must say is the proofread's to judge.
+        if (c.BlocksOf<FinePrintBlock>().Any(f => !string.IsNullOrWhiteSpace(f.Text))) yield break;
         var hit = text
             .SelectMany(f => policy.MedicalTerms
                 .Where(term => WordPrefix(term).IsMatch(f.Text))
@@ -153,7 +164,7 @@ public static class CampaignReview
             .FirstOrDefault();
         if (hit != default)
             yield return new(Severity.Blocker, "medical-disclaimer", hit.Location,
-                $"Promotes a medical service ('{hit.term}') without a disclaimer.");
+                $"Promotes a medical service ('{hit.term}') without a disclaimer: add one in a fine-print block.");
     }
 
     private static IEnumerable<Finding> RestrictedTerms(IReadOnlyList<TextFragment> text, CampaignPolicy policy)

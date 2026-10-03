@@ -7,29 +7,36 @@ internal static class DraftFixtures
 {
     private static readonly Campaign Target = SampleCampaigns.Corrected();
 
-    /// <summary>A membership-announcement template made from the corrected email's fixed parts.</summary>
-    public static readonly CampaignTemplate Membership = new(
-        Name: "Membership announcement",
-        Greeting: Target.Greeting,
-        Closing: Target.Closing,
-        SignOff: Target.SignOff,
-        Disclaimer: Target.Disclaimer,
-        HasOffer: true,
-        IsRecurring: true);
+    /// <summary>
+    /// Neelam's membership-announcement template, as data: the corrected email's blocks, with the
+    /// parts that stay the same from send to send fixed and everything else left to fill.
+    /// </summary>
+    public static readonly CampaignTemplate Membership = new("Membership announcement",
+    [
+        new TemplateBlock("Headline", BlockType.Heading),
+        new TemplateBlock("Greeting", BlockType.Greeting, Fixed: Target.Block<GreetingBlock>("Greeting")),
+        new TemplateBlock("Opening", BlockType.Paragraphs),
+        new TemplateBlock("Offer", BlockType.Offer, Recurring: true),
+        new TemplateBlock("Call to action", BlockType.Button),
+        new TemplateBlock("Closing", BlockType.Paragraphs, Fixed: Target.Block<ParagraphsBlock>("Closing")),
+        new TemplateBlock("Sign-off", BlockType.SignOff, Fixed: Target.Block<SignOffBlock>("Sign-off")),
+        new TemplateBlock("Disclaimer", BlockType.FinePrint, Required: false, Fixed: Target.Block<FinePrintBlock>("Disclaimer")),
+    ]);
 
     /// <summary>Everything a campaign author types, apart from the tiers.</summary>
-    public static CampaignDraft StartAndFillText()
+    public static CampaignDraft StartAndFillText(CampaignTemplate? template = null)
     {
-        var d = Membership.Start();
+        var d = (template ?? Membership).Start();
         d.Subject.Set(Target.Subject);
-        d.Headline.Set(Target.Headline);
-        d.Opening.Set(Target.Opening);
-        d.CallToAction.Set(Target.CallToAction!);
-        var o = d.Offer!;
-        o.Name.Set(Target.Offer!.Name);
-        o.Summary.Set(Target.Offer.Summary);
-        o.TiersNote.Set(Target.Offer.TiersNote!);
-        o.TermsUrl.Set(Target.Offer.TermsUrl!);
+        d.Text("Headline").Set(Target.Block<HeadingBlock>("Headline").Text);
+        d.Paragraphs("Opening").Set(Target.Block<ParagraphsBlock>("Opening").Paragraphs);
+        d.Button("Call to action").Set(Target.Block<ButtonBlock>("Call to action").Action);
+        var o = d.Offer("Offer");
+        var offer = Target.OfferOf();
+        o.Name.Set(offer.Name);
+        o.Summary.Set(offer.Summary);
+        o.TiersNote.Set(offer.TiersNote!);
+        o.TermsUrl.Set(offer.TermsUrl!);
         return d;
     }
 
@@ -48,8 +55,9 @@ internal static class DraftFixtures
     public static CampaignDraft SecondSendReplayed()
     {
         var d = StartAndFillText();
-        AddGold(d.Offer!);
-        var platinum = d.Offer!.CopyTier(0);
+        var o = d.Offer("Offer");
+        AddGold(o);
+        var platinum = o.CopyTier(0);
         platinum.MonthlyPrice.Set(299m);
         platinum.Benefits[0].Set(new BirthdayCredit(75m));
         platinum.Benefits[1].Set(new PercentOff(10, "any qualifying treatments"));
@@ -57,11 +65,12 @@ internal static class DraftFixtures
     }
 
     /// <summary>The corrected email, written properly through the draft.</summary>
-    public static CampaignDraft Finished()
+    public static CampaignDraft Finished(CampaignTemplate? template = null)
     {
-        var d = StartAndFillText();
-        AddGold(d.Offer!);
-        var platinum = d.Offer!.CopyTier(0);
+        var d = StartAndFillText(template);
+        var o = d.Offer("Offer");
+        AddGold(o);
+        var platinum = o.CopyTier(0);
         platinum.Name.Set("Platinum Member");
         platinum.MonthlyPrice.Set(299m);
         platinum.Benefits[0].Set(new BirthdayCredit(75m));
