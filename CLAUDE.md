@@ -69,6 +69,10 @@ reachable over HTTP:
   grant. Design: README "Clients and access".
 - **Security settings in `infra/main.bicep` are pinned by
   `InfrastructureTests`.** Changing one means changing its test, deliberately.
+- **Data over dogma.** Structure lives in data (templates, policy, catalog,
+  look), not in code shaped after one client's email; and design follows
+  evidence, such as the emails clients actually send, rather than assumed
+  lists. Code keeps what a block type guarantees, such as typed benefits.
 - **Design calls belong to the owner.** The open decisions in `WIP.md` are
   theirs: bring options with a recommendation, do not settle them.
 
