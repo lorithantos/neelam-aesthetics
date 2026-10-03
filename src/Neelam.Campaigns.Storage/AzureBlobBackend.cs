@@ -7,18 +7,25 @@ using Janet.Azure.Storage;
 namespace Neelam.Campaigns.Storage;
 
 /// <summary>
-/// One client's container in Azure Blob Storage, reached through the app's
-/// <see cref="StorageClients"/>: an Entra ID token only, the app's retry budget, and no way in for
-/// a connection string, account key or SAS.
+/// One container in Azure Blob Storage, a client's own or the shared settings container, reached
+/// through the app's <see cref="StorageClients"/>: an Entra ID token only, the app's retry budget,
+/// and no way in for a connection string, account key or SAS.
 /// </summary>
 public sealed class AzureBlobBackend : IBlobBackend
 {
     private readonly BlobContainerClient _container;
 
     /// <param name="storage">The app's storage clients, built once at startup.</param>
-    /// <param name="client">Whose saves: the client's own container, and the only one this reaches.</param>
-    public AzureBlobBackend(StorageClients storage, ClientName client) =>
-        _container = storage.Blobs.GetBlobContainerClient(client.Value);
+    /// <param name="client">Whose data: the client's own container, and the only one this reaches.</param>
+    public AzureBlobBackend(StorageClients storage, ClientName client)
+        : this(storage, client.Value)
+    {
+    }
+
+    // For the shared settings container, which is no client's. Internal so that outside this
+    // assembly a container can only be named through a ClientName.
+    internal AzureBlobBackend(StorageClients storage, string container) =>
+        _container = storage.Blobs.GetBlobContainerClient(container);
 
     public async IAsyncEnumerable<BlobEntry> ListAsync(
         string prefix, [EnumeratorCancellation] CancellationToken cancellationToken = default)

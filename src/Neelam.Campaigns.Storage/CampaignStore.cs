@@ -19,9 +19,7 @@ public sealed record SaveRef(DocumentKind Kind, Guid Id, DateTimeOffset SavedAt,
 /// </summary>
 public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock)
 {
-    private const string StampFormat = "yyyyMMdd'T'HHmmss'.'fffffff'Z'";
     private const string TitleKey = "title";
-    private const int MaxNameAttempts = 5;
 
     public Task<SaveRef> SaveDraftAsync(Guid id, string title, CampaignDraft draft, CancellationToken ct = default) =>
         SaveAsync(DocumentKind.Draft, id, title, CampaignJson.SerializeDraft(draft), ct);
@@ -53,18 +51,10 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock)
 
     private async Task<SaveRef> SaveAsync(DocumentKind kind, Guid id, string title, string json, CancellationToken ct)
     {
-        var at = clock.GetUtcNow();
         var metadata = new Dictionary<string, string> { [TitleKey] = Uri.EscapeDataString(title) };
-
-        // Two saves in the same 100ns tick would share a name; the later one moves on a tick
-        // rather than replacing the earlier one.
-        for (var attempt = 0; attempt < MaxNameAttempts; attempt++, at = at.AddTicks(1))
-        {
-            var name = BlobName(kind, id, at);
-            if (await blobs.TryCreateAsync(name, json, metadata, ct))
-                return new SaveRef(kind, id, at, title, name);
-        }
-        throw new IOException($"Could not find a free name for a save of {id:N} after {MaxNameAttempts} attempts.");
+        var (name, at) = await SaveStamp.CreateAsync(
+            blobs, stamp => BlobName(kind, id, stamp), json, metadata, clock.GetUtcNow(), ct);
+        return new SaveRef(kind, id, at, title, name);
     }
 
     private async Task<List<SaveRef>> ListPrefixAsync(DocumentKind kind, string prefix, CancellationToken ct)
@@ -85,23 +75,22 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock)
     };
 
     internal static string BlobName(DocumentKind kind, Guid id, DateTimeOffset at) =>
-        $"{Prefix(kind)}/{id:N}/{at.UtcDateTime.ToString(StampFormat, CultureInfo.InvariantCulture)}.json";
+        $"{Prefix(kind)}/{id:N}/{SaveStamp.Of(at)}.json";
 
     // Blobs that do not follow the naming scheme are ignored rather than guessed at.
     private static bool TryParse(DocumentKind kind, BlobEntry blob, out SaveRef save)
     {
         save = null!;
         var parts = blob.Name.Split('/');
-        if (parts.Length != 3 || parts[0] != Prefix(kind) || !parts[2].EndsWith(".json", StringComparison.Ordinal))
+        if (parts.Length != 3 || parts[0] != Prefix(kind))
             return false;
         if (!Guid.TryParseExact(parts[1], "N", out var id))
             return false;
-        if (!DateTime.TryParseExact(parts[2][..^".json".Length], StampFormat, CultureInfo.InvariantCulture,
-                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var at))
+        if (!SaveStamp.TryRead(parts[2], out var at))
             return false;
 
         var title = blob.Metadata.TryGetValue(TitleKey, out var t) ? Uri.UnescapeDataString(t) : "(untitled)";
-        save = new SaveRef(kind, id, new DateTimeOffset(at, TimeSpan.Zero), title, blob.Name);
+        save = new SaveRef(kind, id, at, title, blob.Name);
         return true;
     }
 

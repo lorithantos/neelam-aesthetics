@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Neelam.Campaigns;
 
 /// <summary>
-/// Saves drafts and templates as JSON. A draft round-trips with every slot's origin, so a copied
+/// Saves drafts, templates and each client's catalog, check policy and look as JSON. A draft round-trips with every slot's origin, so a copied
 /// benefit nobody has reviewed is still unreviewed after it is saved and opened again.
 /// </summary>
 public static class CampaignJson
@@ -77,6 +77,39 @@ public static class CampaignJson
         return doc.Template;
     }
 
+    public static string SerializeCatalog(ClientCatalog c) =>
+        JsonSerializer.Serialize(new CatalogDocument(SchemaVersion, c.Entries), Options);
+
+    public static ClientCatalog DeserializeCatalog(string json)
+    {
+        var doc = JsonSerializer.Deserialize<CatalogDocument>(json, Options)
+                  ?? throw new InvalidDataException("Empty catalog document.");
+        CheckVersion(doc.Schema);
+        return new ClientCatalog(doc.Entries);
+    }
+
+    public static string SerializePolicy(CampaignPolicy p) =>
+        JsonSerializer.Serialize(new PolicyDocument(SchemaVersion, p), Options);
+
+    public static CampaignPolicy DeserializePolicy(string json)
+    {
+        var doc = JsonSerializer.Deserialize<PolicyDocument>(json, Options)
+                  ?? throw new InvalidDataException("Empty policy document.");
+        CheckVersion(doc.Schema);
+        return doc.Policy;
+    }
+
+    public static string SerializeLook(ClientLook l) =>
+        JsonSerializer.Serialize(new LookDocument(SchemaVersion, l.AccentColour), Options);
+
+    public static ClientLook DeserializeLook(string json)
+    {
+        var doc = JsonSerializer.Deserialize<LookDocument>(json, Options)
+                  ?? throw new InvalidDataException("Empty look document.");
+        CheckVersion(doc.Schema);
+        return new ClientLook(doc.AccentColour);
+    }
+
     private static void CheckVersion(int schema)
     {
         if (schema != SchemaVersion)
@@ -129,4 +162,10 @@ public static class CampaignJson
         IReadOnlyList<SlotDocument<Benefit>> Benefits);
 
     private sealed record TemplateDocument(int Schema, CampaignTemplate Template);
+
+    private sealed record CatalogDocument(int Schema, IReadOnlyList<CatalogEntry> Entries);
+
+    private sealed record PolicyDocument(int Schema, CampaignPolicy Policy);
+
+    private sealed record LookDocument(int Schema, string? AccentColour);
 }

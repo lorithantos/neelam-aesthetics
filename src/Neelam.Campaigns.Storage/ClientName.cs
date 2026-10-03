@@ -14,7 +14,7 @@ public sealed partial record ClientName
     public string Value { get; }
 
     /// <summary>Containers that hold no client's data, so no client may be named after them.</summary>
-    public static readonly IReadOnlyList<string> Reserved = ["settings"];
+    public static readonly IReadOnlyList<string> Reserved = [ClientStores.SettingsContainer];
 
     public ClientName(string value)
     {
