@@ -52,8 +52,9 @@ builder.Services.AddSingleton<ISupportGrantStore>(metadata);
 
 // THE ROLLOUT SWITCH. Every page and endpoint already names its policy; Prototype lets everyone
 // through (and refuses to start in Production), Enforced requires the Entra app role. Moving to
-// Enforced also needs sign-in wired in, which is the rest of the rollout.
-builder.Services.AddFeatureAccess(AccessMode.Prototype, builder.Environment);
+// Enforced also needs sign-in wired in, which is the rest of the rollout. The mode also decides who
+// pages think is asking: Prototype's fixed caller (Prototype:Client), or the Entra sign-in.
+builder.Services.AddFeatureAccess(AccessMode.Prototype, builder.Environment, builder.Configuration);
 builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddRazorComponents()

@@ -195,7 +195,9 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
       alwaysOn: true
       // Addresses only. No keys, SAS or passwords: the app refuses to start if it finds one. The
       // Application Insights connection string carries none, since ingestion is Entra-only.
-      appSettings: [
+      // Only the test deployment names a prototype client: the prototype works as that one client,
+      // and the app refuses prototype access in Production anyway.
+      appSettings: concat([
         {
           name: 'Storage__BlobServiceUri'
           value: storage.properties.primaryEndpoints.blob
@@ -212,7 +214,12 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: insights.properties.ConnectionString
         }
-      ]
+      ], environmentName == 'Test' ? [
+        {
+          name: 'Prototype__Client'
+          value: clients[0]
+        }
+      ] : [])
     }
   }
 }

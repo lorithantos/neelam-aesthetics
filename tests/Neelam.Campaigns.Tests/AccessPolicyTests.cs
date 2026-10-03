@@ -23,7 +23,8 @@ public sealed class EnforcedApp : WebApplicationFactory<Program>
         builder.UseSetting("Storage:BlobServiceUri", "https://test.blob.core.windows.net/");
         builder.UseSetting("Storage:TableServiceUri", "https://test.table.core.windows.net/");
         builder.ConfigureTestServices(services =>
-            services.AddFeatureAccess(AccessMode.Enforced, new NamedEnvironment(Environments.Development)));
+            services.AddFeatureAccess(
+                AccessMode.Enforced, new NamedEnvironment(Environments.Development), CallerSourceTests.Settings()));
     }
 }
 
@@ -95,13 +96,15 @@ public class AccessPolicyTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     [Fact]
     public void Prototype_access_refuses_to_run_in_production() =>
         Assert.Throws<InvalidOperationException>(() =>
-            new ServiceCollection().AddFeatureAccess(AccessMode.Prototype, new NamedEnvironment(Environments.Production)));
+            new ServiceCollection().AddFeatureAccess(AccessMode.Prototype, new NamedEnvironment(Environments.Production),
+                CallerSourceTests.Settings(("Prototype:Client", "test-salon-one"))));
 
     [Fact]
     public async Task Prototype_access_lets_everyone_through_where_it_may_run()
     {
         var services = new ServiceCollection().AddLogging()
-            .AddFeatureAccess(AccessMode.Prototype, new NamedEnvironment("Test"))
+            .AddFeatureAccess(AccessMode.Prototype, new NamedEnvironment("Test"),
+                CallerSourceTests.Settings(("Prototype:Client", "test-salon-one")))
             .BuildServiceProvider();
 
         var result = await services.GetRequiredService<IAuthorizationService>()

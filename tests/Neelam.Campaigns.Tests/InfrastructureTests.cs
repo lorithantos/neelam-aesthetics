@@ -62,6 +62,15 @@ public class InfrastructureTests
         Assert.Contains("param environmentName = 'Test'", File.ReadAllText(Path.Combine(Root, "infra", "test.bicepparam")));
     }
 
+    // The prototype's fixed caller exists only where prototype access may run: the setting naming
+    // its client is written on the test deployment alone, and nowhere else.
+    [Fact]
+    public void Only_the_test_deployment_names_a_prototype_client()
+    {
+        Assert.Matches(new Regex(@"environmentName == 'Test' \? \[\s*\{\s*name: 'Prototype__Client'\s*value: clients\[0\]\s*\}\s*\] : \[\]"), Bicep);
+        Assert.Single(Regex.Matches(Bicep, "Prototype__Client"));
+    }
+
     // Every client a deployment lists must be a name the app will accept: a container name's shape,
     // and never a shared container such as settings.
     [Theory]

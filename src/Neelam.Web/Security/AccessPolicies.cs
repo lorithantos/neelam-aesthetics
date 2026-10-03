@@ -1,5 +1,6 @@
 using Janet.Entra;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neelam.Campaigns.Storage;
 
 namespace Neelam.Web.Security;
@@ -17,6 +18,13 @@ public static class Features
     /// <summary>Run the checks and the proofread, see the findings, export.</summary>
     public const string Review = "Campaigns.Review";
 
+    /// <summary>
+    /// Create and change a client's templates, the layouts campaigns are written from. Apart from
+    /// <see cref="Campaigns"/>, so writing campaigns and changing their layouts can be granted
+    /// separately.
+    /// </summary>
+    public const string Templates = "Campaigns.Templates";
+
     /// <summary>A client's catalog of procedures and medications, and its check policy.</summary>
     public const string ClientSettings = "Client.Settings";
 
@@ -26,7 +34,7 @@ public static class Features
     /// <summary>Clients and onboarding; the person who runs the deployment, and their helpers.</summary>
     public const string Operator = CallerClaims.OperatorRole;
 
-    public static IReadOnlyList<string> All { get; } = [Campaigns, Review, ClientSettings, Look, Operator];
+    public static IReadOnlyList<string> All { get; } = [Campaigns, Review, Templates, ClientSettings, Look, Operator];
 }
 
 /// <summary>How the feature policies behave.</summary>
@@ -43,18 +51,29 @@ public enum AccessMode
 }
 
 /// <summary>
-/// The one place the feature policies are registered. The pages carry their real attributes from
-/// the start; going from <see cref="AccessMode.Prototype"/> to <see cref="AccessMode.Enforced"/>
-/// is changing the mode <c>Program</c> passes here, and every attribute takes effect at once.
+/// The one place the feature policies and the <see cref="ICallerSource"/> are registered. The pages
+/// carry their real attributes from the start; going from <see cref="AccessMode.Prototype"/> to
+/// <see cref="AccessMode.Enforced"/> is changing the mode <c>Program</c> passes here, and every
+/// attribute, and who the pages think is asking, changes at once.
 /// </summary>
 public static class AccessPolicies
 {
-    public static IServiceCollection AddFeatureAccess(this IServiceCollection services, AccessMode mode, IHostEnvironment environment)
+    /// <param name="configuration">Read only in Prototype mode, for <c>Prototype:Client</c>.</param>
+    public static IServiceCollection AddFeatureAccess(
+        this IServiceCollection services, AccessMode mode, IHostEnvironment environment, IConfiguration configuration)
     {
         if (mode == AccessMode.Prototype && environment.IsProduction())
             throw new InvalidOperationException(
                 "Prototype access lets everyone through, so it is refused in Production, where real client " +
                 "data lives. Run the prototype locally or on the test deployment, or switch to Enforced.");
+
+        // Whichever mode registered last is the one pages get, so the tests' switch to Enforced
+        // replaces the app's prototype caller as well as its policies.
+        services.RemoveAll<ICallerSource>();
+        if (mode == AccessMode.Prototype)
+            services.AddSingleton<ICallerSource>(new PrototypeCallerSource(PrototypeClient(configuration)));
+        else
+            services.AddScoped<ICallerSource, SignInCallerSource>();
 
         services.AddAuthorization(options =>
         {
@@ -72,4 +91,12 @@ public static class AccessPolicies
         });
         return services;
     }
+
+    // Checked at startup, so a prototype without its client fails before the first page does.
+    private static ClientName PrototypeClient(IConfiguration configuration) =>
+        configuration[PrototypeCallerSource.ClientSetting] is { Length: > 0 } name
+            ? new ClientName(name)
+            : throw new InvalidOperationException(
+                $"{PrototypeCallerSource.ClientSetting} is not set. The prototype works as one client: " +
+                "appsettings.Development.json names it locally, and the test deployment's Bicep sets it.");
 }
