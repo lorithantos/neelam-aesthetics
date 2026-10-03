@@ -51,9 +51,15 @@ value in a draft is a `Slot` that remembers where it came from:
 Drafts and templates are saved to Azure Blob Storage by `CampaignStore`, one blob per save:
 
 ```
-campaigns/drafts/{campaign id}/20261002T143000.0000000Z.json
-campaigns/templates/{template id}/20261002T150512.1234567Z.json
+{client}/drafts/{campaign id}/20261002T143000.0000000Z.json
+{client}/templates/{template id}/20261002T150512.1234567Z.json
 ```
+
+- **Each client has its own container**, named by the client (e.g. `neelam-aesthetics`), with
+  the same layout inside for every client. The app's blob role is granted on that container, not
+  the account, so another business using this tool cannot reach these saves even through a bug.
+  The name comes from the `Storage:Client` setting, which has no default: the deployment's
+  `clientName` sets it, and the app refuses to start without one.
 
 - **Every save is a new blob.** Nothing is overwritten; two saves in the same instant get
   different names.
@@ -71,7 +77,7 @@ campaigns/templates/{template id}/20261002T150512.1234567Z.json
 
 - **Managed identity only.** The storage account has shared-key access off, so account keys,
   connection strings and account SAS tokens are refused by the service itself. The web app
-  uses its system-assigned identity with *Storage Blob Data Contributor* on the one container.
+  uses its system-assigned identity with *Storage Blob Data Contributor* on the client's own container.
 - **No stored credentials in the app either.** `CredentialGuard` stops the app at startup if any
   key, SAS or password is configured. FTP/basic publishing is off; deploy with your Entra sign-in.
 - **No connection string in the repository.** A connection string carrying no secret, such as
@@ -88,6 +94,7 @@ campaigns/templates/{template id}/20261002T150512.1234567Z.json
 ```
 az group create -n neelam-rg -l westus2
 az deployment group create -g neelam-rg -f infra/main.bicep \
+  -p clientName=neelam-aesthetics \
   -p developerPrincipalId=$(az ad signed-in-user show --query id -o tsv)
 dotnet publish src/Neelam.Web -c Release -o publish && (cd publish && zip -r ../app.zip .)
 az webapp deploy -g neelam-rg -n <siteName output> --src-path app.zip --type zip

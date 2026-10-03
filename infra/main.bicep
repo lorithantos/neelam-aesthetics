@@ -2,7 +2,7 @@
 //
 // Access is by managed identity only. The storage account has shared-key access turned off, so
 // account keys, connection strings and account SAS tokens do not work at all; the web app reaches
-// storage with its system-assigned identity and an RBAC role on one container.
+// storage with its system-assigned identity and an RBAC role on its client's own container.
 //
 // Saves are date/time-stamped blobs and deleting one must leave no record of it, so blob
 // versioning, soft delete, change feed and point-in-time restore are all off. A delete is final.
@@ -11,6 +11,11 @@
 @minLength(3)
 @maxLength(11)
 param prefix string = 'neelam'
+
+@description('Whose saves these are, e.g. neelam-aesthetics, and the name of their container: one container per client, laid out the same way for every client. No default: each deployment states its client. Lowercase letters, digits and single hyphens.')
+@minLength(3)
+@maxLength(63)
+param clientName string
 
 param location string = resourceGroup().location
 
@@ -22,7 +27,6 @@ param developerPrincipalId string = ''
 
 var suffix = uniqueString(resourceGroup().id)
 var storageName = take(toLower('${prefix}${suffix}'), 24)
-var containerName = 'campaigns'
 
 // Built-in role: Storage Blob Data Contributor (read, write, delete blobs; no keys, no account control).
 var blobDataContributor = subscriptionResourceId(
@@ -69,9 +73,11 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   }
 }
 
+// The client's own container. Both role assignments below are scoped to it, not to the account,
+// so an identity given one client's container cannot reach another's.
 resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
-  name: containerName
+  name: clientName
   properties: {
     publicAccess: 'None'
   }
@@ -150,8 +156,8 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
           value: storage.properties.primaryEndpoints.blob
         }
         {
-          name: 'Storage__Container'
-          value: containerName
+          name: 'Storage__Client'
+          value: clientName
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -270,4 +276,4 @@ resource auditPublishing 'Microsoft.Authorization/policyAssignments@2024-04-01' 
 output siteName string = site.name
 output siteUrl string = 'https://${site.properties.defaultHostName}'
 output blobServiceUri string = storage.properties.primaryEndpoints.blob
-output containerName string = containerName
+output clientName string = clientName

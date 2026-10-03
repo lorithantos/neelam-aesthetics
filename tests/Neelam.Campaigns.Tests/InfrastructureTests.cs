@@ -21,6 +21,19 @@ public class InfrastructureTests
     [InlineData("3913510d-42f4-4e42-8a64-420c390055eb")]   // Monitoring Metrics Publisher for the site
     public void Template_sets(string setting) => Assert.Contains(setting, Bicep);
 
+    // One container per client, named by the client, so each deployment must say whose it is: no
+    // default. Blob access is granted on that container only, never on the account, which is what
+    // keeps one client's identity out of another's saves.
+    [Fact]
+    public void Each_client_has_its_own_container_and_access_stops_there()
+    {
+        Assert.Matches(new Regex(@"param clientName string\r?\n"), Bicep);
+        Assert.Matches(new Regex(@"containers@[\d-]+' = \{\s*parent: blobService\s*name: clientName\s"), Bicep);
+        Assert.Matches(new Regex(@"name: 'Storage__Client'\s*value: clientName\s*\}"), Bicep);
+        Assert.Equal(2, Regex.Matches(Bicep, @"roleDefinitionId: blobDataContributor").Count);
+        Assert.Equal(2, Regex.Matches(Bicep, @"scope: container\s*properties: \{\s*roleDefinitionId: blobDataContributor").Count);
+    }
+
     // Filled in from the resource at deploy time, so the value never sits in the repository.
     [Fact]
     public void Monitoring_connection_string_comes_from_the_resource() =>

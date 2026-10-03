@@ -16,8 +16,9 @@ public sealed class AzureBlobBackend : IBlobBackend
     private readonly BlobContainerClient _container;
 
     /// <param name="blobServiceUri">e.g. https://account.blob.core.windows.net/ — no query string.</param>
+    /// <param name="client">Whose saves: the client's own container, and the only one this reaches.</param>
     /// <param name="credential">A managed identity in Azure; a developer's own sign-in locally.</param>
-    public AzureBlobBackend(Uri blobServiceUri, string containerName, TokenCredential credential)
+    public AzureBlobBackend(Uri blobServiceUri, ClientName client, TokenCredential credential)
     {
         if (!blobServiceUri.IsAbsoluteUri || blobServiceUri.Scheme != Uri.UriSchemeHttps)
             throw new ArgumentException("The blob service address must be an absolute https:// URI.", nameof(blobServiceUri));
@@ -26,7 +27,7 @@ public sealed class AzureBlobBackend : IBlobBackend
                 "The blob service address must not carry a query string; SAS tokens are not accepted.",
                 nameof(blobServiceUri));
 
-        _container = new BlobServiceClient(blobServiceUri, credential).GetBlobContainerClient(containerName);
+        _container = new BlobServiceClient(blobServiceUri, credential).GetBlobContainerClient(client.Value);
     }
 
     public async IAsyncEnumerable<BlobEntry> ListAsync(

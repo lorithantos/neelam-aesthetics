@@ -6,7 +6,7 @@ what is still open. Delete it once the PR is merged and the open items have home
 
 - **Branch:** `claude/email-campaign-safety-system-lr7q1m`
 - **PR:** #1 (open, not merged; `main` holds only the initial commit)
-- **Tests:** `janet check` → 85 passing on `net10.0`, no build warnings
+- **Tests:** `janet check` → 99 passing on `net10.0`, no build warnings
 - **Bicep:** `bicep build` and `bicep lint` clean (CLI 0.47.16)
 
 ## Background
@@ -51,7 +51,7 @@ Treat these as fixed unless the owner reopens them.
 | Draft/template JSON (`CampaignJson`) | `src/Neelam.Campaigns` | Done, tested |
 | Export to editor blocks (`EditorExport`) | `src/Neelam.Campaigns` | Done; block mapping to Square **unverified** |
 | Claude proofreader | `src/Neelam.Campaigns.Claude` | Compiles; parsing tested; **never called live** |
-| Blob store (`CampaignStore`, `AzureBlobBackend`) | `src/Neelam.Campaigns.Storage` | Tested in-memory; checked once by hand against Azurite |
+| Blob store (`CampaignStore`, `AzureBlobBackend`) | `src/Neelam.Campaigns.Storage` | Tested in-memory; checked once by hand against Azurite. Since 2026-10-02 (owner's call) each client has its own container named by the client, with the same `drafts/` and `templates/` layout in every one, and the blob role is scoped to it. `Storage:Client` / Bicep `clientName` is required, with no default |
 | Startup credential guard | `src/Neelam.Campaigns.Storage` | Done, tested |
 | Web host | `src/Neelam.Web` | Skeleton only: wiring + guard, **no campaign pages** |
 | Monitoring | `infra/main.bicep`, `src/Neelam.Web/Program.cs` | Application Insights over a Log Analytics workspace, both with local auth off. The site's identity has Monitoring Metrics Publisher, and Bicep fills `APPLICATIONINSIGHTS_CONNECTION_STRING` from the resource. The app uses the Azure Monitor distro with the same credential as storage, only when that setting is present. Default telemetry, blob dependencies included (decided 2026-10-02). **Never deployed or run live** |

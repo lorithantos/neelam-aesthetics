@@ -12,7 +12,7 @@ public class CredentialGuardTests
     public void Plain_addresses_are_allowed()
     {
         Check(("Storage:BlobServiceUri", "https://neelamabc.blob.core.windows.net/"),
-              ("Storage:Container", "campaigns"),
+              ("Storage:Client", "neelam-aesthetics"),
               ("Logging:LogLevel:Default", "Information"),
               ("AllowedHosts", "*"));
     }
@@ -62,7 +62,8 @@ public class CredentialGuardTests
     public void Blob_backend_refuses_a_sas_address()
     {
         Assert.Throws<ArgumentException>(() => new AzureBlobBackend(
-            new Uri("https://x.blob.core.windows.net/?sv=2024-01-01&sig=abc"), "campaigns", new NoCredential()));
+            new Uri("https://x.blob.core.windows.net/?sv=2024-01-01&sig=abc"), new ClientName("neelam-aesthetics"),
+            new NoCredential()));
     }
 
     private sealed class NoCredential : Azure.Core.TokenCredential
