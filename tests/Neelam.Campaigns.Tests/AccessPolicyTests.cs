@@ -10,34 +10,6 @@ using Neelam.Web.Security;
 
 namespace Neelam.Campaigns.Tests;
 
-/// <summary>
-/// The app as it will be at rollout: hosted in-process with the ENFORCING policies, whatever mode
-/// Program runs in today, so every page's attribute is proven before the switch rather than on the
-/// day of it. No network: storage clients are built but never called.
-/// </summary>
-public sealed class EnforcedApp : WebApplicationFactory<Program>
-{
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        builder.UseEnvironment("Development");
-        builder.UseSetting("Storage:BlobServiceUri", "https://test.blob.core.windows.net/");
-        builder.UseSetting("Storage:TableServiceUri", "https://test.table.core.windows.net/");
-        builder.ConfigureTestServices(services =>
-            services.AddFeatureAccess(
-                AccessMode.Enforced, new NamedEnvironment(Environments.Development), CallerSourceTests.Settings()));
-    }
-}
-
-/// <summary>An environment that is only a name, for registering policies outside a host.</summary>
-internal sealed class NamedEnvironment(string name) : IHostEnvironment
-{
-    public string EnvironmentName { get; set; } = name;
-    public string ApplicationName { get; set; } = "Neelam.Web";
-    public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
-    public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } =
-        new Microsoft.Extensions.FileProviders.NullFileProvider();
-}
-
 public class AccessPolicyTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 {
     private static ClaimsPrincipal SignedIn(params string[] roles) =>

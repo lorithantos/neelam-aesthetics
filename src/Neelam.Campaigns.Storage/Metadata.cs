@@ -19,6 +19,28 @@ public interface IClientDirectory
 
     /// <summary>Adds a client; refuses a name or group that is already taken.</summary>
     Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Changes a client's display name and description. Its name and Entra group are who it is,
+    /// so an update naming an unknown client, or a different group, is refused.
+    /// </summary>
+    Task UpdateAsync(ClientRecord client, CancellationToken cancellationToken = default);
+}
+
+/// <summary>The clients table's rules, the same for every implementation of it.</summary>
+public static class ClientDirectoryRules
+{
+    /// <summary>Refuses an update that would change who a client is rather than how it is described.</summary>
+    public static void CheckUpdate(IEnumerable<ClientRecord> clients, ClientRecord updated)
+    {
+        var existing = clients.FirstOrDefault(c => c.Name == updated.Name)
+                       ?? throw new InvalidOperationException($"{updated.Name} is not a client.");
+        if (existing.GroupId != updated.GroupId)
+            throw new InvalidOperationException(
+                $"{updated.Name}'s Entra group is part of who it is, so it is not changed by an update.");
+        if (string.IsNullOrWhiteSpace(updated.DisplayName))
+            throw new ArgumentException("A client needs a display name.", nameof(updated));
+    }
 }
 
 /// <summary>

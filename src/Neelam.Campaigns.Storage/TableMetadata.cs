@@ -50,6 +50,13 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore
         }
     }
 
+    public async Task UpdateAsync(ClientRecord client, CancellationToken cancellationToken = default)
+    {
+        ClientDirectoryRules.CheckUpdate(await ListAsync(cancellationToken), client);
+        // Replace, not merge, so clearing the description removes it rather than keeping the old one.
+        await _clients.UpdateEntityAsync(FromClient(client), ETag.All, TableUpdateMode.Replace, cancellationToken);
+    }
+
     public async Task<IReadOnlyList<SupportGrant>> ForClientAsync(ClientName client, CancellationToken cancellationToken = default)
     {
         var grants = new List<SupportGrant>();

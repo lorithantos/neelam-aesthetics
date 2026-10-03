@@ -14,7 +14,7 @@ namespace Neelam.Campaigns.Storage;
 /// <c>settings</c> container at <c>settings/{client}/</c>, so working on a look never needs access
 /// to the client's data.
 /// </remarks>
-public sealed class ClientStores(StorageClients storage, TimeProvider clock)
+public sealed class ClientStores
 {
     /// <summary>The container holding every client's look; no client may take this name.</summary>
     internal const string SettingsContainer = "settings";
@@ -22,23 +22,37 @@ public sealed class ClientStores(StorageClients storage, TimeProvider clock)
     internal const string CatalogPrefix = "catalog";
     internal const string PolicyPrefix = "policy";
 
+    private readonly Func<string, IBlobBackend> _container;
+    private readonly TimeProvider _clock;
+
+    /// <param name="storage">The app's storage clients, built once at startup.</param>
+    public ClientStores(StorageClients storage, TimeProvider clock)
+        : this(container => new AzureBlobBackend(storage, container), clock)
+    {
+    }
+
+    // Any backend per container name, so the layout, and the pages above it, are tested without
+    // Azure. Internal: outside this assembly a client's container is reached only through Azure.
+    internal ClientStores(Func<string, IBlobBackend> container, TimeProvider clock)
+    {
+        _container = container;
+        _clock = clock;
+    }
+
     /// <summary>The client's drafts and templates.</summary>
-    public CampaignStore Campaigns(ClientName client) => new(new AzureBlobBackend(storage, client), clock);
+    public CampaignStore Campaigns(ClientName client) => new(_container(client.Value), _clock);
 
     /// <summary>The procedures and medications the client offers.</summary>
-    public DocumentStore<ClientCatalog> Catalog(ClientName client) =>
-        CatalogIn(new AzureBlobBackend(storage, client), clock);
+    public DocumentStore<ClientCatalog> Catalog(ClientName client) => CatalogIn(_container(client.Value), _clock);
 
     /// <summary>The client's own check policy: restricted terms, medical terms, emoji limit.</summary>
-    public DocumentStore<CampaignPolicy> Policy(ClientName client) =>
-        PolicyIn(new AzureBlobBackend(storage, client), clock);
+    public DocumentStore<CampaignPolicy> Policy(ClientName client) => PolicyIn(_container(client.Value), _clock);
 
     /// <summary>The client's photos, for blocks to choose from.</summary>
-    public ImageLibrary Images(ClientName client) => new(new AzureBlobBackend(storage, client), clock);
+    public ImageLibrary Images(ClientName client) => new(_container(client.Value), _clock);
 
     /// <summary>How the site looks for the client's people.</summary>
-    public DocumentStore<ClientLook> Look(ClientName client) =>
-        LookIn(new AzureBlobBackend(storage, SettingsContainer), client, clock);
+    public DocumentStore<ClientLook> Look(ClientName client) => LookIn(_container(SettingsContainer), client, _clock);
 
     /// <summary>
     /// The policy the checks run with for this client: its own once it has saved one, the starting
