@@ -7,11 +7,17 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Storage.Blobs" Version="12.30.0" />
+    <!-- The Azure SDKs come through Janet.Azure.Storage, so there is one version of each. -->
+    <PackageReference Include="Janet.Azure.Storage" Version="0.4.0" />
+    <PackageReference Include="Janet.Entra" Version="0.4.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Neelam.Campaigns\Neelam.Campaigns.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Neelam.Campaigns.Tests" />
   </ItemGroup>
 
 </Project>

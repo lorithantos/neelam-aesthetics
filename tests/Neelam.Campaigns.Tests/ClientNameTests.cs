@@ -30,21 +30,6 @@ public class ClientNameTests
     public void A_shared_container_name_is_refused() =>
         Assert.Throws<ArgumentException>(() => new ClientName("settings"));
 
-    // Opening stores checks the service address once, at startup, rather than on a first request.
-    [Fact]
-    public void Client_stores_refuse_a_sas_address() =>
-        Assert.Throws<ArgumentException>(() => new ClientStores(
-            new Uri("https://x.blob.core.windows.net/?sv=2024-01-01&sig=abc"), new NoCredential(), TimeProvider.System));
-
-    private sealed class NoCredential : Azure.Core.TokenCredential
-    {
-        public override Azure.Core.AccessToken GetToken(Azure.Core.TokenRequestContext r, CancellationToken c) =>
-            throw new NotSupportedException();
-
-        public override ValueTask<Azure.Core.AccessToken> GetTokenAsync(Azure.Core.TokenRequestContext r, CancellationToken c) =>
-            throw new NotSupportedException();
-    }
-
     [Fact]
     public void A_name_over_63_characters_is_refused() =>
         Assert.Throws<ArgumentException>(() => new ClientName(new string('a', 64)));

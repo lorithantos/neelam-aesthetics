@@ -1,6 +1,7 @@
 using Azure.Core;
 using Azure.Identity;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
+using Janet.Azure.Storage;
 using Neelam.Campaigns.Storage;
 using Neelam.Web.Components;
 
@@ -17,11 +18,20 @@ TokenCredential credential = builder.Environment.IsDevelopment()
     : new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned);
 
 var storage = builder.Configuration.GetSection("Storage");
-var blobServiceUri = storage["BlobServiceUri"] is { Length: > 0 } uri
-    ? new Uri(uri)
-    : throw new InvalidOperationException(
-        "Storage:BlobServiceUri is not set. In Azure the Bicep deployment sets it; locally, set it to " +
-        "the blobServiceUri output of the deployment.");
+Uri RequiredEndpoint(string setting, string output) =>
+    storage[setting] is { Length: > 0 } value
+        ? new Uri(value)
+        : throw new InvalidOperationException(
+            $"Storage:{setting} is not set. In Azure the Bicep deployment sets it; locally, set it to " +
+            $"the {output} output of the test deployment.");
+
+// Built once: every client's container and the metadata tables share these clients, the app's
+// credential and the shared retry budget. Each endpoint is checked here, at startup.
+var storageClients = new StorageClients(
+    new StorageEndpoints(
+        Blob: RequiredEndpoint("BlobServiceUri", "blobServiceUri"),
+        Table: RequiredEndpoint("TableServiceUri", "tableServiceUri")),
+    credential);
 
 // Application Insights, wherever its connection string is set: in Azure an App Service setting the
 // Bicep deployment fills in from the resource, never a file in the repository. Ingestion is
@@ -33,7 +43,11 @@ if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_
 // One deployment serves every client, so a store is opened per request, for a client the access
 // check has already allowed. Nothing is registered for "the" client: there is none.
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton(new ClientStores(blobServiceUri, credential, TimeProvider.System));
+builder.Services.AddSingleton(storageClients);
+builder.Services.AddSingleton(new ClientStores(storageClients, TimeProvider.System));
+var metadata = new TableMetadata(storageClients);
+builder.Services.AddSingleton<IClientDirectory>(metadata);
+builder.Services.AddSingleton<ISupportGrantStore>(metadata);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

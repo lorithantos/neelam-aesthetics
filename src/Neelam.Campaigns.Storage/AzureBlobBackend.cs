@@ -1,39 +1,24 @@
 using System.Runtime.CompilerServices;
 using Azure;
-using Azure.Core;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
+using Janet.Azure.Storage;
 
 namespace Neelam.Campaigns.Storage;
 
 /// <summary>
-/// Azure Blob Storage, reached with an Entra ID token only. There is no constructor that takes a
-/// connection string, account key or SAS: the storage account has shared-key access turned off,
-/// so those would not work anyway, and this keeps them out of the code as well.
+/// One client's container in Azure Blob Storage, reached through the app's
+/// <see cref="StorageClients"/>: an Entra ID token only, the app's retry budget, and no way in for
+/// a connection string, account key or SAS.
 /// </summary>
 public sealed class AzureBlobBackend : IBlobBackend
 {
     private readonly BlobContainerClient _container;
 
-    /// <param name="blobServiceUri">e.g. https://account.blob.core.windows.net/ — no query string.</param>
+    /// <param name="storage">The app's storage clients, built once at startup.</param>
     /// <param name="client">Whose saves: the client's own container, and the only one this reaches.</param>
-    /// <param name="credential">A managed identity in Azure; a developer's own sign-in locally.</param>
-    public AzureBlobBackend(Uri blobServiceUri, ClientName client, TokenCredential credential)
-    {
-        EnsureServiceAddress(blobServiceUri);
-        _container = new BlobServiceClient(blobServiceUri, credential).GetBlobContainerClient(client.Value);
-    }
-
-    /// <summary>An absolute https:// address with no query string, so never a SAS.</summary>
-    internal static void EnsureServiceAddress(Uri blobServiceUri)
-    {
-        if (!blobServiceUri.IsAbsoluteUri || blobServiceUri.Scheme != Uri.UriSchemeHttps)
-            throw new ArgumentException("The blob service address must be an absolute https:// URI.", nameof(blobServiceUri));
-        if (!string.IsNullOrEmpty(blobServiceUri.Query))
-            throw new ArgumentException(
-                "The blob service address must not carry a query string; SAS tokens are not accepted.",
-                nameof(blobServiceUri));
-    }
+    public AzureBlobBackend(StorageClients storage, ClientName client) =>
+        _container = storage.Blobs.GetBlobContainerClient(client.Value);
 
     public async IAsyncEnumerable<BlobEntry> ListAsync(
         string prefix, [EnumeratorCancellation] CancellationToken cancellationToken = default)

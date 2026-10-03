@@ -58,13 +58,14 @@ public class CredentialGuardTests
         Assert.DoesNotContain("TOPSECRET", ex.Message);
     }
 
-    [Fact]
-    public void Blob_backend_refuses_a_sas_address()
-    {
-        Assert.Throws<ArgumentException>(() => new AzureBlobBackend(
-            new Uri("https://x.blob.core.windows.net/?sv=2024-01-01&sig=abc"), new ClientName("neelam-aesthetics"),
-            new NoCredential()));
-    }
+    // Every store the app opens goes through one StorageClients built at startup, so a SAS on
+    // either endpoint stops the app there, before any request.
+    [Theory]
+    [InlineData("https://x.blob.core.windows.net/?sv=2024-01-01&sig=abc", "https://x.table.core.windows.net/")]
+    [InlineData("https://x.blob.core.windows.net/", "https://x.table.core.windows.net/?sv=2024-01-01&sig=abc")]
+    public void The_app_s_storage_refuses_a_sas_address(string blob, string table) =>
+        Assert.Throws<ArgumentException>(() => new Janet.Azure.Storage.StorageClients(
+            new Janet.Azure.Storage.StorageEndpoints(Blob: new Uri(blob), Table: new Uri(table)), new NoCredential()));
 
     private sealed class NoCredential : Azure.Core.TokenCredential
     {

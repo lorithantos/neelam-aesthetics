@@ -1,4 +1,4 @@
-using Azure.Core;
+using Janet.Azure.Storage;
 
 namespace Neelam.Campaigns.Storage;
 
@@ -8,22 +8,8 @@ namespace Neelam.Campaigns.Storage;
 /// client is decided before this is called, by the access check; this only turns a
 /// <see cref="ClientName"/> into that client's container.
 /// </summary>
-public sealed class ClientStores
+public sealed class ClientStores(StorageClients storage, TimeProvider clock)
 {
-    private readonly Uri _blobServiceUri;
-    private readonly TokenCredential _credential;
-    private readonly TimeProvider _clock;
-
-    public ClientStores(Uri blobServiceUri, TokenCredential credential, TimeProvider clock)
-    {
-        // Checked here, at startup, rather than on the first request that opens a store.
-        AzureBlobBackend.EnsureServiceAddress(blobServiceUri);
-        _blobServiceUri = blobServiceUri;
-        _credential = credential;
-        _clock = clock;
-    }
-
     /// <summary>The client's drafts and templates.</summary>
-    public CampaignStore Campaigns(ClientName client) =>
-        new(new AzureBlobBackend(_blobServiceUri, client, _credential), _clock);
+    public CampaignStore Campaigns(ClientName client) => new(new AzureBlobBackend(storage, client), clock);
 }

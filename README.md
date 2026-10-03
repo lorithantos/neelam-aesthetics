@@ -190,8 +190,11 @@ a business and legal call, not one for the tool to make.
   and the export (`EditorExport`). No web, storage, hosting or AI dependency.
 - `src/Neelam.Campaigns.Claude` — `ClaudeProofreader`, the `IProofreader` backed by Claude
   (Anthropic C# SDK, structured JSON output). Reads `ANTHROPIC_API_KEY` by default.
-- `src/Neelam.Campaigns.Storage` — `CampaignStore` (timestamped blob saves), `AzureBlobBackend`
-  (token credential only) and `CredentialGuard`.
+- `src/Neelam.Campaigns.Storage` — `CampaignStore` (timestamped blob saves), `AzureBlobBackend`,
+  `ClientStores`, the metadata tables (`TableMetadata`), the access check (`AccessCheck`,
+  `SupportGrant`), the caller from the sign-in (`CallerClaims`) and `CredentialGuard`. Storage
+  clients come from **Janet.Azure.Storage** and sign-in reading from **Janet.Entra**, both from
+  the sibling `Janet.Shared` repo through the local feed in `nuget.config`.
 - `src/Neelam.Web` — the Blazor Server host. It wires up storage and the credential guard; it
   shows no campaign pages until sign-in exists.
 - `infra/main.bicep` — App Service, storage account, container, Application Insights and role
