@@ -40,10 +40,10 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock)
         (await ListAsync(kind, ct)).GroupBy(s => s.Id).Select(g => g.First()).ToList();
 
     public async Task<CampaignDraft> LoadDraftAsync(SaveRef save, CancellationToken ct = default) =>
-        CampaignJson.DeserializeDraft(await blobs.ReadAsync(Expect(save, DocumentKind.Draft), ct));
+        CampaignJson.DeserializeDraft(await blobs.ReadTextAsync(Expect(save, DocumentKind.Draft), ct));
 
     public async Task<CampaignTemplate> LoadTemplateAsync(SaveRef save, CancellationToken ct = default) =>
-        CampaignJson.DeserializeTemplate(await blobs.ReadAsync(Expect(save, DocumentKind.Template), ct));
+        CampaignJson.DeserializeTemplate(await blobs.ReadTextAsync(Expect(save, DocumentKind.Template), ct));
 
     /// <summary>Permanently deletes one save. There is no recycle bin.</summary>
     public Task<bool> DeleteAsync(SaveRef save, CancellationToken ct = default) =>

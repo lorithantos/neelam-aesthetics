@@ -50,7 +50,7 @@ public class CampaignStoreTests
 
         Assert.Equal(older, Assert.Single(await Store.LatestAsync(DocumentKind.Draft)));
         var remaining = Assert.Single(_blobs.Blobs);
-        Assert.DoesNotContain(newer.BlobName, remaining.Value.Content);
+        Assert.DoesNotContain(newer.BlobName, remaining.Value.Blob.Content.ToString());
         Assert.DoesNotContain(remaining.Value.Metadata.Values, v => v.Contains("143500"));
     }
 
@@ -104,8 +104,8 @@ public class CampaignStoreTests
     [Fact]
     public async Task Blobs_outside_the_naming_scheme_are_ignored()
     {
-        _blobs.Blobs["drafts/readme.txt"] = ("", new Dictionary<string, string>());
-        _blobs.Blobs["drafts/not-a-guid/20261002T143000.0000000Z.json"] = ("", new Dictionary<string, string>());
+        _blobs.Put("drafts/readme.txt", "");
+        _blobs.Put("drafts/not-a-guid/20261002T143000.0000000Z.json", "");
 
         Assert.Empty(await Store.ListAsync(DocumentKind.Draft));
     }

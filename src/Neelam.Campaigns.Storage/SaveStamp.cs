@@ -39,7 +39,7 @@ internal static class SaveStamp
         for (var attempt = 0; attempt < MaxNameAttempts; attempt++, at = at.AddTicks(1))
         {
             var name = nameFor(at);
-            if (await blobs.TryCreateAsync(name, json, metadata, ct))
+            if (await blobs.TryCreateTextAsync(name, json, metadata, ct))
                 return (name, at);
         }
         throw new IOException($"Could not find a free name for a save after {MaxNameAttempts} attempts.");

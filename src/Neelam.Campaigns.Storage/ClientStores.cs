@@ -33,6 +33,9 @@ public sealed class ClientStores(StorageClients storage, TimeProvider clock)
     public DocumentStore<CampaignPolicy> Policy(ClientName client) =>
         PolicyIn(new AzureBlobBackend(storage, client), clock);
 
+    /// <summary>The client's photos, for blocks to choose from.</summary>
+    public ImageLibrary Images(ClientName client) => new(new AzureBlobBackend(storage, client), clock);
+
     /// <summary>How the site looks for the client's people.</summary>
     public DocumentStore<ClientLook> Look(ClientName client) =>
         LookIn(new AzureBlobBackend(storage, SettingsContainer), client, clock);

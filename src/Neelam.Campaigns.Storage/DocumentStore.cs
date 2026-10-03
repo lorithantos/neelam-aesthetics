@@ -59,7 +59,7 @@ public sealed class DocumentStore<T> where T : class
     }
 
     public async Task<T> LoadAsync(DocumentVersion version, CancellationToken ct = default) =>
-        _deserialize(await _blobs.ReadAsync(Expect(version), ct));
+        _deserialize(await _blobs.ReadTextAsync(Expect(version), ct));
 
     /// <summary>Permanently deletes one version. Deleting the newest puts the one before back in force.</summary>
     public Task<bool> DeleteAsync(DocumentVersion version, CancellationToken ct = default) =>

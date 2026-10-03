@@ -1,13 +1,22 @@
 using System.Runtime.CompilerServices;
+using Janet.Azure.Storage;
 using Neelam.Campaigns.Storage;
 
 namespace Neelam.Campaigns.Tests;
 
-/// <summary>Behaves like the container for the store's purposes: create-if-absent, list, read, delete.</summary>
+/// <summary>Behaves like the container for the stores' purposes: create-if-absent, list, read, delete.</summary>
 internal sealed class InMemoryBlobBackend : IBlobBackend
 {
-    public SortedDictionary<string, (string Content, IReadOnlyDictionary<string, string> Metadata)> Blobs { get; } =
+    public SortedDictionary<string, (BlobContent Blob, IReadOnlyDictionary<string, string> Metadata)> Blobs { get; } =
         new(StringComparer.Ordinal);
+
+    /// <summary>Puts a blob straight in, as something outside the stores might have.</summary>
+    public void Put(string name, string json, IReadOnlyDictionary<string, string>? metadata = null) =>
+        Blobs[name] = (new BlobContent(BinaryData.FromString(json), BlobText.JsonContentType),
+            metadata ?? new Dictionary<string, string>());
+
+    /// <summary>A stored blob's content as text.</summary>
+    public string Text(string name) => Blobs[name].Blob.Content.ToString();
 
     public async IAsyncEnumerable<BlobEntry> ListAsync(
         string prefix, [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -20,12 +29,12 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
     }
 
     public Task<bool> TryCreateAsync(
-        string name, string content, IReadOnlyDictionary<string, string> metadata,
+        string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata,
         CancellationToken cancellationToken = default) =>
-        Task.FromResult(Blobs.TryAdd(name, (content, metadata)));
+        Task.FromResult(Blobs.TryAdd(name, (new BlobContent(content, contentType), metadata)));
 
-    public Task<string> ReadAsync(string name, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Blobs[name].Content);
+    public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Blobs[name].Blob);
 
     public Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default) =>
         Task.FromResult(Blobs.Remove(name));

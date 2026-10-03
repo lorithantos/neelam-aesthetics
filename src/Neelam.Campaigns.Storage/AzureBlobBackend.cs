@@ -1,5 +1,4 @@
 using System.Runtime.CompilerServices;
-using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Janet.Azure.Storage;
@@ -37,32 +36,15 @@ public sealed class AzureBlobBackend : IBlobBackend
         }
     }
 
-    public async Task<bool> TryCreateAsync(
-        string name, string content, IReadOnlyDictionary<string, string> metadata,
-        CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            await _container.GetBlobClient(name).UploadAsync(BinaryData.FromString(content), new BlobUploadOptions
-            {
-                // Never overwrite: a save is a new blob, and an existing one is left exactly as it was.
-                Conditions = new BlobRequestConditions { IfNoneMatch = ETag.All },
-                Metadata = metadata.ToDictionary(kv => kv.Key, kv => kv.Value),
-                HttpHeaders = new BlobHttpHeaders { ContentType = "application/json; charset=utf-8" },
-            }, cancellationToken);
-            return true;
-        }
-        catch (RequestFailedException ex) when (ex.Status == 409)
-        {
-            return false;
-        }
-    }
+    // Never overwrite: a save is a new blob, and an existing one is left exactly as it was. The
+    // create-only upload is Janet.Azure.Storage's, shared with the other apps.
+    public Task<bool> TryCreateAsync(
+        string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata,
+        CancellationToken cancellationToken = default) =>
+        _container.TryCreateAsync(name, content, contentType, metadata, cancellationToken);
 
-    public async Task<string> ReadAsync(string name, CancellationToken cancellationToken = default)
-    {
-        var result = await _container.GetBlobClient(name).DownloadContentAsync(cancellationToken);
-        return result.Value.Content.ToString();
-    }
+    public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
+        _container.ReadContentAsync(name, cancellationToken);
 
     public async Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default)
     {

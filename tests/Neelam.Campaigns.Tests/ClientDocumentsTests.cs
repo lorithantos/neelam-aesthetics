@@ -61,9 +61,9 @@ public class ClientDocumentsTests
     [Fact]
     public async Task Other_blobs_under_a_prefix_are_ignored_not_guessed_at()
     {
-        _clientContainer.Blobs["catalog/readme.txt"] = ("", new Dictionary<string, string>());
-        _clientContainer.Blobs["catalog/old/20261003T090000.0000000Z.json"] = ("{}", new Dictionary<string, string>());
-        _clientContainer.Blobs["drafts/6b1f0c1e9a354c2e8e570d3c9c1a2b44/20261003T090000.0000000Z.json"] = ("{}", new Dictionary<string, string>());
+        _clientContainer.Put("catalog/readme.txt", "");
+        _clientContainer.Put("catalog/old/20261003T090000.0000000Z.json", "{}");
+        _clientContainer.Put("drafts/6b1f0c1e9a354c2e8e570d3c9c1a2b44/20261003T090000.0000000Z.json", "{}");
 
         Assert.Empty(await ClientStores.CatalogIn(_clientContainer, _clock).HistoryAsync());
     }
