@@ -5,8 +5,6 @@ describes the design; this file covers where things stand, what was decided and 
 what is still open. Delete it once the open items have homes elsewhere.
 
 - **Branch:** `main`. This is a single-person repo: work is integrated on `main` locally and pushed, with no PRs (owner, 2026-10-03). The old `claude/email-campaign-safety-system-lr7q1m` branch was fast-forwarded into `main`.
-- **Tests:** `janet check` → 104 passing on `net10.0`, no build warnings
-- **Bicep:** `bicep build` and `bicep lint` clean (CLI 0.47.16)
 
 ## Background
 
