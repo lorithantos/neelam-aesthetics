@@ -62,17 +62,23 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore
     public Task RecordAsync(SupportGrant grant, CancellationToken cancellationToken = default) =>
         _grants.AddEntityAsync(FromGrant(grant, Guid.NewGuid()), cancellationToken);
 
-    internal static TableEntity FromClient(ClientRecord client) =>
-        new(ClientPartition, client.Name.Value)
+    internal static TableEntity FromClient(ClientRecord client)
+    {
+        var row = new TableEntity(ClientPartition, client.Name.Value)
         {
             ["GroupId"] = client.GroupId,
             ["DisplayName"] = client.DisplayName,
         };
+        // Left out rather than stored as null, like a standing grant's expiry.
+        if (client.Description is { } description) row["Description"] = description;
+        return row;
+    }
 
     internal static ClientRecord ToClient(TableEntity row) =>
         new(new ClientName(row.RowKey),
             row.GetGuid("GroupId") ?? throw new InvalidDataException($"Client {row.RowKey} has no Entra group."),
-            row.GetString("DisplayName") ?? row.RowKey);
+            row.GetString("DisplayName") ?? row.RowKey,
+            row.GetString("Description"));
 
     // One partition per client; rows sort by when the grant was given, and the id keeps two grants
     // in the same instant apart.

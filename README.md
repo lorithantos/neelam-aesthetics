@@ -96,7 +96,7 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients (each with its Entra group), support grants, approvals and dismissals | The app. The operator manages clients |
+| Table Storage, same account | Clients (each with its Entra group, and a description of the business that guides the AI proofread), support grants, approvals and dismissals | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json` | That client's members and the operator |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, and check policy | The client's members. The operator only under a support grant |
 

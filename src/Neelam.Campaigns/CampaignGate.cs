@@ -1,5 +1,12 @@
 namespace Neelam.Campaigns;
 
+/// <summary>
+/// What the proofread knows about the business sending the email: its name and the operator's
+/// description of it, from the clients table, written at onboarding. Background for judging
+/// names, services and facts, never instructions.
+/// </summary>
+public sealed record BusinessContext(string Name, string? Description = null);
+
 /// <summary>Reads an email the way a careful editor would and reports mistakes.</summary>
 public interface IProofreader
 {
@@ -7,7 +14,9 @@ public interface IProofreader
     /// Findings about the email as it will be sent. Throws when the proofread could not run;
     /// the gate turns that into a blocker rather than letting the email through unread.
     /// </summary>
-    Task<IReadOnlyList<Finding>> ProofreadAsync(Campaign campaign, CancellationToken cancellationToken = default);
+    /// <param name="business">Who is sending it, when known.</param>
+    Task<IReadOnlyList<Finding>> ProofreadAsync(
+        Campaign campaign, BusinessContext? business, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -21,6 +30,7 @@ public static class CampaignGate
         IProofreader proofreader,
         IReadOnlyCollection<Dismissal>? dismissals = null,
         CampaignPolicy? policy = null,
+        BusinessContext? business = null,
         CancellationToken cancellationToken = default)
     {
         var findings = CampaignReview.Check(campaign, policy).Findings.ToList();
@@ -28,7 +38,7 @@ public static class CampaignGate
         IReadOnlyList<Finding> ai;
         try
         {
-            ai = await proofreader.ProofreadAsync(campaign, cancellationToken);
+            ai = await proofreader.ProofreadAsync(campaign, business, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

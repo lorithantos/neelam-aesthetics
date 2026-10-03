@@ -2,10 +2,15 @@ namespace Neelam.Campaigns.Storage;
 
 /// <summary>
 /// A client of this deployment: its name (also its container's), the Entra security group whose
-/// members are its people, and the name shown to them. Which users are in the group is Entra's
+/// members are its people, the name shown to them, and the operator's description of the business,
+/// written at onboarding to guide the AI proofread. Which users are in the group is Entra's
 /// business, never this table's.
 /// </summary>
-public sealed record ClientRecord(ClientName Name, Guid GroupId, string DisplayName);
+public sealed record ClientRecord(ClientName Name, Guid GroupId, string DisplayName, string? Description = null)
+{
+    /// <summary>What the proofread is told about who is sending the email.</summary>
+    public BusinessContext Business => new(DisplayName, Description);
+}
 
 /// <summary>The clients table. The operator adds a client here when onboarding it.</summary>
 public interface IClientDirectory

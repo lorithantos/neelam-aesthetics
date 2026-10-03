@@ -14,4 +14,9 @@
     <ProjectReference Include="..\Neelam.Campaigns\Neelam.Campaigns.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The request is built by an internal method, so the tests can pin what Claude is told. -->
+    <InternalsVisibleTo Include="Neelam.Campaigns.Tests" />
+  </ItemGroup>
+
 </Project>
