@@ -8,8 +8,8 @@
 
   <ItemGroup>
     <!-- The Azure SDKs come through Janet.Azure.Storage, so there is one version of each. -->
-    <PackageReference Include="Janet.Azure.Storage" Version="0.5.0" />
-    <PackageReference Include="Janet.Entra" Version="0.5.0" />
+    <PackageReference Include="Janet.Azure.Storage" Version="0.6.0" />
+    <PackageReference Include="Janet.Entra" Version="0.6.0" />
   </ItemGroup>
 
   <ItemGroup>

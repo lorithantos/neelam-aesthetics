@@ -12,7 +12,7 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
 
     /// <summary>Puts a blob straight in, as something outside the stores might have.</summary>
     public void Put(string name, string json, IReadOnlyDictionary<string, string>? metadata = null) =>
-        Blobs[name] = (new BlobContent(BinaryData.FromString(json), BlobText.JsonContentType),
+        Blobs[name] = (new BlobContent(BinaryData.FromString(json), BlobContent.JsonContentType),
             metadata ?? new Dictionary<string, string>());
 
     /// <summary>A stored blob's content as text.</summary>

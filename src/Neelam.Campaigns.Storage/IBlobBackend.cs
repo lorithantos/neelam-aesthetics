@@ -26,15 +26,16 @@ public interface IBlobBackend
     Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default);
 }
 
-/// <summary>JSON documents over the byte-level backend.</summary>
+/// <summary>
+/// JSON documents over the byte-level backend, as text: <see cref="CampaignJson"/> owns the
+/// mapping and the schema check, so the stores hand it strings rather than typed values.
+/// </summary>
 public static class BlobText
 {
-    public const string JsonContentType = "application/json; charset=utf-8";
-
     public static Task<bool> TryCreateTextAsync(
         this IBlobBackend blobs, string name, string json, IReadOnlyDictionary<string, string> metadata,
         CancellationToken cancellationToken = default) =>
-        blobs.TryCreateAsync(name, BinaryData.FromString(json), JsonContentType, metadata, cancellationToken);
+        blobs.TryCreateAsync(name, BinaryData.FromString(json), BlobContent.JsonContentType, metadata, cancellationToken);
 
     public static async Task<string> ReadTextAsync(
         this IBlobBackend blobs, string name, CancellationToken cancellationToken = default) =>
