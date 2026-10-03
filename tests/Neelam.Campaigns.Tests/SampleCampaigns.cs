@@ -11,9 +11,16 @@ namespace Neelam.Campaigns.Tests;
 /// </summary>
 internal static class SampleCampaigns
 {
-    // Placeholders: the real booking page and terms page are not known yet.
+    // The real sends' button went to the clinic's Square site. The corrected version's join and
+    // terms pages are placeholders: no page for joining existed.
+    private static readonly CallToAction ComeVisit = new("Come visit 🤍", new Uri("https://neelamaesthetics.square.site/"));
     private static readonly Uri JoinUrl = new("https://example.com/beauty-bank/join");
     private static readonly Uri TermsUrl = new("https://example.com/beauty-bank/terms");
+
+    // Two different photos of the clinic's principals: one behind the header, one above the button.
+    // In the real sends both had empty alt text.
+    private static readonly ImageRef HeaderPhoto = new("Principals toasting");
+    private static readonly ImageRef BodyPhoto = new("Principals seated");
 
     private static readonly string[] Opening =
     [
@@ -65,16 +72,20 @@ internal static class SampleCampaigns
         TermsUrl: null,
         TiersNote: "Here’s how it works, 100% of your money goes to any treatments you would like:");
 
-    /// <summary>First send: both offers identical, name and contents.</summary>
+    /// <summary>First send: both options were the $299 tier, name and contents.</summary>
     public static Campaign FirstSend()
     {
         var second = SecondSend();
         var offer = second.OfferOf();
-        return second.With(new OfferBlock("Offer", offer with { Tiers = [offer.Tiers[0], offer.Tiers[0]] }));
+        return second.WithOffer(offer with { Tiers = [offer.Tiers[1], offer.Tiers[1]] });
     }
 
-    /// <summary>Second send: one offer updated, but both still named "Platinum Member"; no button, no disclaimer.</summary>
-    public static Campaign SecondSend() => Email(SentOffer, "Hi Beautiful🤍", button: null, disclaimer: null);
+    /// <summary>
+    /// Second send, 38 minutes later: option 1 became the $149 tier, but both were still named
+    /// "Platinum Member". It had a button, "Come visit", to the clinic's site; nothing let a reader
+    /// join the Beauty Bank, and there was no disclaimer or terms link.
+    /// </summary>
+    public static Campaign SecondSend() => Email(SentOffer, "Hi Beautiful🤍", ComeVisit, disclaimer: null);
 
     /// <summary>
     /// The same email with every blocker fixed. The offer name is deliberately left as
@@ -94,19 +105,25 @@ internal static class SampleCampaigns
         "Wellness injections are provided after consultation with a licensed provider " +
         "and are subject to eligibility.");
 
-    private static Campaign Email(Offer offer, string greeting, CallToAction? button, string? disclaimer)
+    // In the order Square rendered the real sends: header photo with the business name, a spacer,
+    // the headline, the greeting and opening, the offer through to the sign-off, then a photo and
+    // the button.
+    private static Campaign Email(Offer offer, string greeting, CallToAction button, string? disclaimer)
     {
         var blocks = new List<Block>
         {
+            new HeaderBlock("Header", "Neelam Aesthetics", HeaderPhoto),
+            new SpacerBlock("Spacer"),
             new HeadingBlock("Headline", "WE’RE TURNING ONE! 🥂✨"),
             new GreetingBlock("Greeting", greeting),
             new ParagraphsBlock("Opening", Opening),
-            new OfferBlock("Offer", offer),
+            new OfferBlock("Offer", offer, "🤍"),
+            new ParagraphsBlock("Closing", Closing),
+            new SignOffBlock("Sign-off", SignOff),
         };
-        if (button is not null) blocks.Add(new ButtonBlock("Call to action", button));
-        blocks.Add(new ParagraphsBlock("Closing", Closing));
-        blocks.Add(new SignOffBlock("Sign-off", SignOff));
         if (disclaimer is not null) blocks.Add(new FinePrintBlock("Disclaimer", disclaimer));
+        blocks.Add(new ImageBlock("Photo", BodyPhoto));
+        blocks.Add(new ButtonBlock("Call to action", button));
         return new Campaign("WE’RE TURNING ONE!", blocks);
     }
 }
@@ -118,6 +135,10 @@ internal static class CampaignEdits
         c.Blocks.OfType<T>().Single(b => b.Label == label);
 
     public static Offer OfferOf(this Campaign c) => c.Block<OfferBlock>("Offer").Offer;
+
+    /// <summary>The campaign with its offer's content replaced, keeping the offer's label and marker.</summary>
+    public static Campaign WithOffer(this Campaign c, Offer offer) =>
+        c.With(c.Block<OfferBlock>("Offer") with { Offer = offer });
 
     /// <summary>The campaign with the block of the same label replaced, or added at the end.</summary>
     public static Campaign With(this Campaign c, Block block)

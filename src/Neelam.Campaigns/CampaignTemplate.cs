@@ -6,8 +6,10 @@ namespace Neelam.Campaigns;
 /// disclaimer) arrives filled; every other block starts empty.
 /// </summary>
 /// <param name="Recurring">For an offer block: whether the customer is charged repeatedly.</param>
+/// <param name="Marker">For an offer block: what starts each benefit line, e.g. "🤍".</param>
 public sealed record TemplateBlock(
-    string Label, BlockType Type, bool Required = true, Block? Fixed = null, bool Recurring = false);
+    string Label, BlockType Type, bool Required = true, Block? Fixed = null, bool Recurring = false,
+    string? Marker = null);
 
 /// <summary>
 /// A reusable layout for a kind of campaign, e.g. "membership announcement": the blocks the email

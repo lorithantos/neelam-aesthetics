@@ -49,19 +49,24 @@ public static class CampaignJson
         ValueBlockDraft<IReadOnlyList<string>> v => new(b.Label, b.Type, b.Required, Paragraphs: Save(v.Value)),
         ValueBlockDraft<CallToAction> v => new(b.Label, b.Type, b.Required, Action: Save(v.Value)),
         ValueBlockDraft<SignOff> v => new(b.Label, b.Type, b.Required, SignOff: Save(v.Value)),
-        OfferBlockDraft o => new(b.Label, b.Type, b.Required, Offer: Save(o.Offer)),
+        ValueBlockDraft<HeaderContent> v => new(b.Label, b.Type, b.Required, Header: Save(v.Value)),
+        ValueBlockDraft<ImageRef> v => new(b.Label, b.Type, b.Required, Image: Save(v.Value)),
+        SpacerBlockDraft => new(b.Label, b.Type, b.Required),
+        OfferBlockDraft o => new(b.Label, b.Type, b.Required, Offer: Save(o.Offer), Marker: o.Marker),
         _ => throw new InvalidOperationException($"No saved form for a {b.Type} block."),
     };
 
     private static BlockDraft Restore(BlockDocument doc)
     {
-        var block = BlockDraft.From(new TemplateBlock(doc.Label, doc.Type, doc.Required));
+        var block = BlockDraft.From(new TemplateBlock(doc.Label, doc.Type, doc.Required, Marker: doc.Marker));
         switch (block)
         {
             case ValueBlockDraft<string> v: Restore(v.Value, doc.Text); break;
             case ValueBlockDraft<IReadOnlyList<string>> v: Restore(v.Value, doc.Paragraphs); break;
             case ValueBlockDraft<CallToAction> v: Restore(v.Value, doc.Action); break;
             case ValueBlockDraft<SignOff> v: Restore(v.Value, doc.SignOff); break;
+            case ValueBlockDraft<HeaderContent> v: Restore(v.Value, doc.Header); break;
+            case ValueBlockDraft<ImageRef> v: Restore(v.Value, doc.Image); break;
             case OfferBlockDraft o when doc.Offer is { } saved: Restore(o.Offer, saved); break;
         }
         return block;
@@ -167,7 +172,10 @@ public static class CampaignJson
         SlotDocument<IReadOnlyList<string>>? Paragraphs = null,
         SlotDocument<CallToAction>? Action = null,
         SlotDocument<SignOff>? SignOff = null,
-        OfferDocument? Offer = null);
+        OfferDocument? Offer = null,
+        SlotDocument<HeaderContent>? Header = null,
+        SlotDocument<ImageRef>? Image = null,
+        string? Marker = null);
 
     private sealed record OfferDocument(
         SlotDocument<string> Name,

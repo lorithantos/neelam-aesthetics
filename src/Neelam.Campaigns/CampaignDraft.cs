@@ -37,6 +37,10 @@ public sealed class CampaignDraft
 
     public Slot<SignOff> SignOff(string label) => Value<SignOff>(label);
 
+    public Slot<HeaderContent> Header(string label) => Value<HeaderContent>(label);
+
+    public Slot<ImageRef> Image(string label) => Value<ImageRef>(label);
+
     public OfferDraft Offer(string label) =>
         this[label] is OfferBlockDraft o ? o.Offer : throw new InvalidOperationException($"\"{label}\" is not an offer block.");
 
@@ -89,7 +93,14 @@ public abstract class BlockDraft(string label, BlockType type, bool required)
         BlockType.Paragraphs => new ValueBlockDraft<IReadOnlyList<string>>(t, (l, v) => new ParagraphsBlock(l, v), (t.Fixed as ParagraphsBlock)?.Paragraphs),
         BlockType.Button => new ValueBlockDraft<CallToAction>(t, (l, v) => new ButtonBlock(l, v), (t.Fixed as ButtonBlock)?.Action),
         BlockType.SignOff => new ValueBlockDraft<SignOff>(t, (l, v) => new SignOffBlock(l, v), (t.Fixed as SignOffBlock)?.SignOff),
-        BlockType.Offer => new OfferBlockDraft(t.Label, t.Required) { Offer = { IsRecurring = t.Recurring } },
+        BlockType.Header => new ValueBlockDraft<HeaderContent>(t, (l, v) => new HeaderBlock(l, v.Text, v.Photo),
+            t.Fixed is HeaderBlock h ? new HeaderContent(h.Text, h.Photo) : null),
+        BlockType.Image => new ValueBlockDraft<ImageRef>(t, (l, v) => new ImageBlock(l, v), (t.Fixed as ImageBlock)?.Image),
+        BlockType.Spacer => new SpacerBlockDraft(t.Label),
+        BlockType.Offer => new OfferBlockDraft(t.Label, t.Required, t.Marker ?? OfferBlock.DefaultMarker)
+        {
+            Offer = { IsRecurring = t.Recurring },
+        },
         _ => throw new ArgumentOutOfRangeException(nameof(t), $"Unknown block type {t.Type}."),
     };
 }
@@ -123,9 +134,12 @@ public sealed class ValueBlockDraft<T> : BlockDraft
 }
 
 /// <summary>A tiered offer being written.</summary>
-public sealed class OfferBlockDraft(string label, bool required) : BlockDraft(label, BlockType.Offer, required)
+public sealed class OfferBlockDraft(string label, bool required, string marker) : BlockDraft(label, BlockType.Offer, required)
 {
     public OfferDraft Offer { get; } = new();
+
+    /// <summary>What starts each benefit line; the template's choice.</summary>
+    public string Marker { get; } = marker;
 
     internal override void Check(DraftProblems problems)
     {
@@ -134,7 +148,18 @@ public sealed class OfferBlockDraft(string label, bool required) : BlockDraft(la
         Offer.Check(problems, Label);
     }
 
-    internal override Block? ToBlock() => !Required && Offer.IsUntouched ? null : new OfferBlock(Label, Offer.ToOffer());
+    internal override Block? ToBlock() =>
+        !Required && Offer.IsUntouched ? null : new OfferBlock(Label, Offer.ToOffer(), Marker);
+}
+
+/// <summary>Space between blocks: nothing to fill, so always ready.</summary>
+public sealed class SpacerBlockDraft(string label) : BlockDraft(label, BlockType.Spacer, required: false)
+{
+    internal override void Check(DraftProblems problems)
+    {
+    }
+
+    internal override Block? ToBlock() => new SpacerBlock(Label);
 }
 
 public sealed class OfferDraft

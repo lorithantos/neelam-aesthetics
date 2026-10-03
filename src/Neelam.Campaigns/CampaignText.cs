@@ -21,6 +21,12 @@ public static class CampaignText
                 case HeadingBlock h: list.Add(new(h.Label, h.Text)); break;
                 case GreetingBlock g: list.Add(new(g.Label, g.Text)); break;
                 case FinePrintBlock f: list.Add(new(f.Label, f.Text)); break;
+                case HeaderBlock h:
+                    list.Add(new(h.Label, h.Text));
+                    if (h.Photo?.AltText is { } headerAlt) list.Add(new($"{h.Label} › Photo text", headerAlt));
+                    break;
+                // Alt text is what a reader gets when images do not load, so it is checked like any text.
+                case ImageBlock i when i.Image.AltText is { } alt: list.Add(new($"{i.Label} › Photo text", alt)); break;
                 case ParagraphsBlock p:
                     list.AddRange(p.Paragraphs.Select((text, i) => new TextFragment($"{p.Label} ¶{i + 1}", text)));
                     break;

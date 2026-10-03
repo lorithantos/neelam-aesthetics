@@ -41,9 +41,18 @@ new kind of email down into one on request.
 | Button | A label and an https link | https only |
 | Sign-off | Valediction, sender, tagline | Text checks |
 | Fine print | Disclaimers and terms | Answers the medical-disclaimer rule |
+| Header | The business's name, over an optional photo | Text checks |
+| Image | A photo from the client's image library, by name, with alt text | Alt text gets the text checks |
+| Spacer | Nothing | — |
+
+The export pastes into Square the way the real emails are built: Square's header, heading-style
+text, and paragraph-style text where one block holds many paragraphs, so consecutive text
+(greeting and opening; an offer's details through the sign-off) becomes one Square text block.
+An offer's tiers are each a name line, then one line per item starting with the template's
+marker (🤍 for Neelam), price first.
 
 The block types were derived from the one real email the tool has seen, the Beauty Bank
-announcement, and grow from the next real ones rather than from guesses ("data over dogma").
+announcement, read from both real sends as Square rendered them, and grow from the next real ones rather than from guesses ("data over dogma").
 The text checks (restricted terms, repetition, emoji) run over every block's text.
 
 Campaigns are written as a `CampaignDraft`, started from a template. Every value in a draft is
@@ -187,10 +196,10 @@ both, and the tests pin which rules each trips.
 
 | Problem in the sent email | Rule | Severity |
 |---|---|---|
-| First send: both offers identical | Tier copy marks every benefit unreviewed; `tier-content-distinct` | Blocker |
-| Second send: one offer fixed, both still named "Platinum Member" | Tier copy doesn't copy the name; `tier-names-unique` | Blocker |
+| First send: both options the same $299 tier, name and contents | Tier copy marks every benefit unreviewed; `tier-content-distinct` | Blocker |
+| Second send, 38 minutes later: option 1 fixed to the $149 tier, both still named "Platinum Member" | Tier copy doesn't copy the name; `tier-names-unique` | Blocker |
 | "50% Complimentary Wellness Injections" — free or half off? | Not expressible: benefits are typed (`FreeItem` / `DiscountedItem`) and worded by the model; `benefit-value` rejects 100%-off | Blocker |
-| No link or button to join | `cta-required`, `cta-https` | Blocker |
+| A button ("Come visit", to the clinic's site), but nothing to join the offer with | The proofread: a button that does not match the offer. `cta-required` blocks an offer with no button at all; `cta-https` a button without https | Proofread; blockers |
 | Monthly charge with no cancellation / rollover / refund terms | `terms-required` | Blocker |
 | Promotes wellness injections with no disclaimer | `medical-disclaimer` | Blocker |
 | "Bank", "savings account" for a prepaid service plan | `restricted-term` — needs sign-off, possibly counsel | Warning |

@@ -15,8 +15,9 @@ public sealed record Campaign(string Subject, IReadOnlyList<Block> Blocks, strin
 }
 
 /// <summary>
-/// The kinds of block an email can be built from. Derived from the one real email the tool has
-/// seen (the Beauty Bank announcement), and meant to grow from the next ones, not from guesses.
+/// The kinds of block an email can be built from. Derived from the real emails the tool has seen
+/// (the Beauty Bank announcement, both sends, as Square rendered them), and meant to grow from the
+/// next ones, not from guesses.
 /// </summary>
 public enum BlockType
 {
@@ -27,7 +28,20 @@ public enum BlockType
     Button,
     SignOff,
     FinePrint,
+    Header,
+    Image,
+    Spacer,
 }
+
+/// <summary>
+/// A photo in the client's image library, by its name there, with the text a reader gets when
+/// images do not load. The library is the client's own data; Square has no API, so the export
+/// says which photo goes where for a person to place.
+/// </summary>
+public sealed record ImageRef(string Name, string? AltText = null);
+
+/// <summary>What a header holds: the business's name, over an optional photo.</summary>
+public sealed record HeaderContent(string Text, ImageRef? Photo = null);
 
 /// <summary>
 /// One part of an email. <see cref="Label"/> is the template's name for it, e.g. "Opening", and is
@@ -41,6 +55,9 @@ public enum BlockType
 [JsonDerivedType(typeof(ButtonBlock), "button")]
 [JsonDerivedType(typeof(SignOffBlock), "sign-off")]
 [JsonDerivedType(typeof(FinePrintBlock), "fine-print")]
+[JsonDerivedType(typeof(HeaderBlock), "header")]
+[JsonDerivedType(typeof(ImageBlock), "image")]
+[JsonDerivedType(typeof(SpacerBlock), "spacer")]
 public abstract record Block(string Label)
 {
     [JsonIgnore]
@@ -69,9 +86,30 @@ public sealed record ParagraphsBlock(string Label, IReadOnlyList<string> Paragra
 /// A tiered offer, such as a membership. Its benefits are typed, so wording the business can be
 /// held to is generated, never typed; the offer checks belong to this block.
 /// </summary>
-public sealed record OfferBlock(string Label, Offer Offer) : Block(Label)
+/// <param name="Marker">What starts each benefit line, e.g. "🤍": the business's own, from its template.</param>
+public sealed record OfferBlock(string Label, Offer Offer, string Marker = OfferBlock.DefaultMarker) : Block(Label)
 {
+    public const string DefaultMarker = "•";
+
     public override BlockType Type => BlockType.Offer;
+}
+
+/// <summary>The top of the email: the business's name, over an optional photo.</summary>
+public sealed record HeaderBlock(string Label, string Text, ImageRef? Photo = null) : Block(Label)
+{
+    public override BlockType Type => BlockType.Header;
+}
+
+/// <summary>A photo from the client's image library.</summary>
+public sealed record ImageBlock(string Label, ImageRef Image) : Block(Label)
+{
+    public override BlockType Type => BlockType.Image;
+}
+
+/// <summary>Space between blocks; it holds nothing.</summary>
+public sealed record SpacerBlock(string Label) : Block(Label)
+{
+    public override BlockType Type => BlockType.Spacer;
 }
 
 /// <summary>A button: what the reader should do next, and where.</summary>

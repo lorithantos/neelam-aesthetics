@@ -73,9 +73,11 @@ Treat these as fixed unless the owner reopens them.
 
 Do not settle these on the owner's behalf. Bring options with a recommendation.
 
-1. **Square editor details.** The owner does not know yet:
-   - whether Square offers a first-name placeholder, and its exact form
-   - whether bullet lists survive pasting into a text block. If they don't, export each benefit as its own line with 🤍 in front.
+1. **Square editor details.** Partly answered on 2026-10-03 by the two real sends (`.eml` files the owner keeps outside the repo, and phone screenshots):
+   - Neelam does not use bullet lists: each benefit is its own line starting with 🤍, and the export now does that with each template's own marker.
+   - Neelam's greeting is a fixed "Hi Beautiful🤍"; no first-name placeholder was used. Whether Square offers one is still unknown.
+   - Square's blocks seen: header (business name over a photo), spacer, text in heading or paragraph style (one text block holds many paragraphs), image, button. Square adds a reply banner at the top and the footer (address, unsubscribe) itself.
+   - **Next:** the client's image library (photos stored as blobs in the client's container under `images/`, for blocks to choose from); the storage interface needs binary reads and writes first. Neelam's colours from the email (button bronze #997c61, header green #225E3E) are look data, to enter through the look settings, not code.
 2. **Sign-in.** The app must not show or change campaigns until Entra ID sign-in exists, or anyone with the URL could read and delete saves.
    - Staying secret-free means a federated credential on the app's identity instead of a client secret.
    - Open: App Service built-in auth or Microsoft.Identity.Web? Either can put the group and app-role claims in the token.

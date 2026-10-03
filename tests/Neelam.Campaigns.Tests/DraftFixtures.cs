@@ -13,14 +13,17 @@ internal static class DraftFixtures
     /// </summary>
     public static readonly CampaignTemplate Membership = new("Membership announcement",
     [
+        new TemplateBlock("Header", BlockType.Header, Fixed: Target.Block<HeaderBlock>("Header")),
+        new TemplateBlock("Spacer", BlockType.Spacer),
         new TemplateBlock("Headline", BlockType.Heading),
         new TemplateBlock("Greeting", BlockType.Greeting, Fixed: Target.Block<GreetingBlock>("Greeting")),
         new TemplateBlock("Opening", BlockType.Paragraphs),
-        new TemplateBlock("Offer", BlockType.Offer, Recurring: true),
-        new TemplateBlock("Call to action", BlockType.Button),
+        new TemplateBlock("Offer", BlockType.Offer, Recurring: true, Marker: "🤍"),
         new TemplateBlock("Closing", BlockType.Paragraphs, Fixed: Target.Block<ParagraphsBlock>("Closing")),
         new TemplateBlock("Sign-off", BlockType.SignOff, Fixed: Target.Block<SignOffBlock>("Sign-off")),
         new TemplateBlock("Disclaimer", BlockType.FinePrint, Required: false, Fixed: Target.Block<FinePrintBlock>("Disclaimer")),
+        new TemplateBlock("Photo", BlockType.Image, Required: false),
+        new TemplateBlock("Call to action", BlockType.Button),
     ]);
 
     /// <summary>Everything a campaign author types, apart from the tiers.</summary>
@@ -31,6 +34,7 @@ internal static class DraftFixtures
         d.Text("Headline").Set(Target.Block<HeadingBlock>("Headline").Text);
         d.Paragraphs("Opening").Set(Target.Block<ParagraphsBlock>("Opening").Paragraphs);
         d.Button("Call to action").Set(Target.Block<ButtonBlock>("Call to action").Action);
+        d.Image("Photo").Set(Target.Block<ImageBlock>("Photo").Image);
         var o = d.Offer("Offer");
         var offer = Target.OfferOf();
         o.Name.Set(offer.Name);

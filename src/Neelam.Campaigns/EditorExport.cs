@@ -1,12 +1,29 @@
 namespace Neelam.Campaigns;
 
-public enum BlockKind { Heading, Text, List, Button, Divider }
+/// <summary>Square's block kinds, as the real emails use them.</summary>
+public enum BlockKind
+{
+    /// <summary>The header: the business's name over an optional photo.</summary>
+    Header,
+
+    /// <summary>A text block in a heading style.</summary>
+    Heading,
+
+    /// <summary>A text block in the paragraph style; one block holds many paragraphs.</summary>
+    Text,
+
+    Image,
+    Button,
+    Spacer,
+}
 
 /// <summary>
 /// One block to paste into the email editor. The editor has no API, so export is a sequence of
-/// blocks a person copies in order; each block maps to one editor block of the same kind.
+/// blocks a person copies in order; each maps to one Square block of the same kind. Text runs
+/// together the way the real emails do it: one text block holds the greeting and the opening, and
+/// one holds an offer's details through to the sign-off.
 /// </summary>
-public sealed record EditorBlock(BlockKind Kind, string Text, Uri? Url = null);
+public sealed record EditorBlock(BlockKind Kind, string Text, Uri? Url = null, ImageRef? Image = null);
 
 public static class EditorExport
 {
@@ -30,54 +47,75 @@ public static class EditorExport
     /// </summary>
     public static string Preview(Campaign c) => ToPlainText(Render(c));
 
-    // One pass over the template's blocks, in its order: the email's layout is the template's,
-    // never this method's.
+    // The template's blocks, in its order, as Square blocks; consecutive text becomes one block.
     private static List<EditorBlock> Render(Campaign c)
     {
         var blocks = new List<EditorBlock>();
+        var text = new List<string>();
+
+        void Flush()
+        {
+            if (text.Count == 0) return;
+            blocks.Add(new(BlockKind.Text, string.Join("\n\n", text)));
+            text.Clear();
+        }
+
+        void Add(EditorBlock block)
+        {
+            Flush();
+            blocks.Add(block);
+        }
+
         foreach (var block in c.Blocks)
         {
             switch (block)
             {
-                case HeadingBlock h: blocks.Add(new(BlockKind.Heading, h.Text)); break;
-                case GreetingBlock g: blocks.Add(new(BlockKind.Text, g.Text)); break;
-                case ParagraphsBlock p: blocks.AddRange(p.Paragraphs.Select(t => new EditorBlock(BlockKind.Text, t))); break;
-                case FinePrintBlock f: blocks.Add(new(BlockKind.Text, f.Text)); break;
-                case ButtonBlock b: blocks.Add(new(BlockKind.Button, b.Action.Label, b.Action.Url)); break;
+                case HeaderBlock h: Add(new(BlockKind.Header, h.Text, Image: h.Photo)); break;
+                case HeadingBlock h: Add(new(BlockKind.Heading, h.Text)); break;
+                case ImageBlock i: Add(new(BlockKind.Image, i.Image.AltText ?? "", Image: i.Image)); break;
+                case ButtonBlock b: Add(new(BlockKind.Button, b.Action.Label, b.Action.Url)); break;
+                case SpacerBlock: Add(new(BlockKind.Spacer, "")); break;
+                case GreetingBlock g: text.Add(g.Text); break;
+                case ParagraphsBlock p: text.AddRange(p.Paragraphs); break;
+                case FinePrintBlock f: text.Add(f.Text); break;
                 case SignOffBlock s:
-                    var signOff = $"{s.SignOff.Valediction}\n{s.SignOff.From}";
-                    if (s.SignOff.Tagline is not null) signOff += $"\n\n{s.SignOff.Tagline}";
-                    blocks.Add(new(BlockKind.Text, signOff));
+                    text.Add(s.SignOff.Valediction);
+                    text.Add(s.SignOff.From);
+                    if (s.SignOff.Tagline is not null) text.Add(s.SignOff.Tagline);
                     break;
-                case OfferBlock o: blocks.AddRange(RenderOffer(o.Offer)); break;
+                case OfferBlock o:
+                    Add(new(BlockKind.Heading, o.Offer.Name));
+                    text.AddRange(OfferText(o.Offer, o.Marker));
+                    break;
             }
         }
+        Flush();
         return blocks;
     }
 
-    private static IEnumerable<EditorBlock> RenderOffer(Offer offer)
+    // Each tier is its name, then one marked line per item, the price first: how the Beauty Bank
+    // email laid its options out, worded by the model rather than typed.
+    private static IEnumerable<string> OfferText(Offer offer, string marker)
     {
-        yield return new(BlockKind.Heading, offer.Name);
-        yield return new(BlockKind.Text, offer.Summary);
-        if (offer.TiersNote is not null) yield return new(BlockKind.Text, offer.TiersNote);
+        yield return offer.Summary;
+        if (offer.TiersNote is not null) yield return offer.TiersNote;
         foreach (var tier in offer.Tiers)
         {
             var price = tier.MonthlyPrice % 1 == 0 ? $"${tier.MonthlyPrice:0}" : $"${tier.MonthlyPrice:0.00}";
-            var cadence = offer.IsRecurring ? "/month" : "";
-            yield return new(BlockKind.Heading, $"{tier.Name} — {price}{cadence}");
-            yield return new(BlockKind.List, string.Join('\n', tier.Benefits.Select(b => b.Describe())));
+            var lines = new List<string> { $"{tier.Name}:", $"{marker} {price}{(offer.IsRecurring ? "/month" : "")}" };
+            lines.AddRange(tier.Benefits.Select(b => $"{marker} {b.Describe()}"));
+            yield return string.Join("\n", lines);
         }
-        if (offer.TermsUrl is not null)
-            yield return new(BlockKind.Text, $"Full terms: {offer.TermsUrl}", offer.TermsUrl);
+        if (offer.TermsUrl is not null) yield return $"Full terms: {offer.TermsUrl}";
     }
 
     private static string ToPlainText(IEnumerable<EditorBlock> blocks) =>
-        string.Join("\n\n", blocks.Select(b => b.Kind switch
+        string.Join("\n\n", blocks.Where(b => b.Kind != BlockKind.Spacer).Select(b => b.Kind switch
         {
+            BlockKind.Header => b.Image is null ? b.Text : $"{b.Text} [over photo: {b.Image.Name}]",
             BlockKind.Heading => b.Text.ToUpperInvariant(),
-            BlockKind.List => string.Join('\n', b.Text.Split('\n').Select(l => $"• {l}")),
+            BlockKind.Image => $"[photo: {b.Image!.Name}]",
             BlockKind.Button => $"[ {b.Text} ] → {b.Url}",
-            BlockKind.Divider => "———",
             _ => b.Text,
         }));
 }

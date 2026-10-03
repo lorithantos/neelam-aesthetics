@@ -36,9 +36,11 @@ public class CampaignJsonTests
         Assert.Equal(Origin.Template, reopened.SignOff("Sign-off").Origin);
         Assert.Equal(Origin.Entered, reopened.Text("Headline").Origin);
         Assert.Equal(Origin.Empty, reopened.Preheader.Origin);
-        Assert.Equal(["Headline", "Greeting", "Opening", "Offer", "Call to action", "Closing", "Sign-off", "Disclaimer"],
-            reopened.Blocks.Select(b => b.Label));
+        Assert.Equal(DraftFixtures.Membership.Blocks.Select(b => b.Label), reopened.Blocks.Select(b => b.Label));
         Assert.True(reopened.Offer("Offer").IsRecurring);
+        Assert.Equal("🤍", ((OfferBlockDraft)reopened["Offer"]).Marker);
+        Assert.Equal(Origin.Template, reopened.Header("Header").Origin);
+        Assert.Equal("Principals seated", reopened.Image("Photo").Value.Name);
     }
 
     // A template is data: its blocks, their order, what is fixed and what is required all survive.
