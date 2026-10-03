@@ -1,0 +1,51 @@
+@page "/templates"
+@* A client's templates are its own data: the access check decides whose, on top of the policy. *@
+@attribute [Authorize(Policy = Features.Templates)]
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+
+<PageTitle>Templates</PageTitle>
+
+<h1>Templates</h1>
+
+@if (_denied is not null)
+{
+    <p>You cannot see templates here: @_denied.</p>
+}
+else if (_templates is not null)
+{
+    <p class="muted">The layouts @_client's campaigns are written from. Changing one changes only campaigns started after it.</p>
+    <p><a class="button primary" href="templates/new">New template</a></p>
+
+    @if (_templates.Count == 0)
+    {
+        <p>No templates yet. Start a new one.</p>
+    }
+    @foreach (var template in _templates)
+    {
+        <section class="card">
+            <h2>@template.Title</h2>
+            <p class="muted">Last saved @template.SavedAt.ToString("d MMM yyyy, HH:mm") UTC</p>
+            <a class="button" href="templates/@template.Id">Edit</a>
+            <a class="button" href="templates/new?from=@template.Id">Copy</a>
+        </section>
+    }
+}
+
+@code {
+    private string? _denied;
+    private ClientName? _client;
+    private IReadOnlyList<SaveRef>? _templates;
+
+    protected override async Task OnInitializedAsync()
+    {
+        (_client, var reason) = await Workspace.ClientDataAsync();
+        if (_client is null)
+        {
+            _denied = reason;
+            return;
+        }
+        _templates = (await Stores.Campaigns(_client).LatestAsync(DocumentKind.Template))
+            .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+}

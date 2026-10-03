@@ -56,6 +56,7 @@ builder.Services.AddSingleton<ISupportGrantStore>(metadata);
 // pages think is asking: Prototype's fixed caller (Prototype:Client), or the Entra sign-in.
 builder.Services.AddFeatureAccess(AccessMode.Prototype, builder.Environment, builder.Configuration);
 builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddScoped<ClientWorkspace>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();

@@ -1,0 +1,20 @@
+@* Text as Square holds it: paragraphs separated by a blank line, each possibly several lines. *@
+@foreach (var paragraph in Text.Split("\n\n"))
+{
+    var lines = paragraph.Split('\n');
+    <p class="@(TemplatePreview.IsPlaceholder(paragraph) ? "placeholder" : null)">
+        @for (var i = 0; i < lines.Length; i++)
+        {
+            if (i > 0)
+            {
+                <br />
+            }
+            @lines[i]
+        }
+    </p>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public string Text { get; set; } = "";
+}

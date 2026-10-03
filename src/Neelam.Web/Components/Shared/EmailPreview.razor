@@ -1,0 +1,48 @@
+@* The email's blocks as Square will show them, top to bottom. Placeholders, the parts each
+   campaign fills in, are set apart from content that goes out as it is. *@
+<div class="preview" aria-label="Preview of the email">
+    @foreach (var block in Blocks)
+    {
+        switch (block.Kind)
+        {
+            case BlockKind.Spacer:
+                <div class="preview-spacer" aria-hidden="true"></div>
+                break;
+            case BlockKind.Header:
+                <div class="preview-block preview-header">
+                    <PreviewText Text="@block.Text" />
+                    @if (block.Image is not null)
+                    {
+                        <p class="preview-photo">Photo: @block.Image.Name</p>
+                    }
+                </div>
+                break;
+            case BlockKind.Heading:
+                <div class="preview-block preview-heading"><PreviewText Text="@block.Text" /></div>
+                break;
+            case BlockKind.Image:
+                var placeholder = TemplatePreview.IsPlaceholder(block.Image!.Name);
+                <div class="preview-block preview-photo @(placeholder ? "placeholder" : null)">
+                    @(placeholder ? block.Image.Name : $"Photo: {block.Image.Name}")
+                </div>
+                break;
+            case BlockKind.Button:
+                <div class="preview-block preview-button">
+                    <span class="preview-button-label @(TemplatePreview.IsPlaceholder(block.Text) ? "placeholder" : null)">@block.Text</span>
+                    @if (block.Url is not null)
+                    {
+                        <span class="muted">@block.Url</span>
+                    }
+                </div>
+                break;
+            default:
+                <div class="preview-block preview-text"><PreviewText Text="@block.Text" /></div>
+                break;
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<EditorBlock> Blocks { get; set; } = [];
+}
