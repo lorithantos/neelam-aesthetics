@@ -430,3 +430,6 @@ FodyWeavers.xsd
 
 # Claude Code: .claude/settings.json is shared project config and IS committed.
 .claude/settings.local.json
+
+# The package Invoke-BuildDeploy leaves behind: the built app, never source.
+deploy.zip
