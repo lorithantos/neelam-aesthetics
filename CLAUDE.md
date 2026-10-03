@@ -62,6 +62,11 @@ reachable over HTTP:
   index or storage logging. This is about blob history, so a deleted save's
   contents cannot be recovered. Telemetry naming a blob is fine: customer data
   does not live in blob names or metadata.
+- **The operator does not read client data.** Clients are kept apart in code
+  by the members table. The operator manages clients, members and each
+  client's look, but reading a client's drafts, templates, catalog or check policy takes a
+  support grant that the client gives. Neelam is the one exception until 1.0, as a standing
+  grant. Design: README "Clients and access".
 - **Security settings in `infra/main.bicep` are pinned by
   `InfrastructureTests`.** Changing one means changing its test, deliberately.
 - **Design calls belong to the owner.** The open decisions in `WIP.md` are

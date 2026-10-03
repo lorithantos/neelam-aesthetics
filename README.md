@@ -48,28 +48,75 @@ value in a draft is a `Slot` that remembers where it came from:
 
 ## Saving
 
-Drafts and templates are saved to Azure Blob Storage by `CampaignStore`, one blob per save:
+Drafts and templates are saved to Azure Blob Storage by `CampaignStore`, one blob per save, in
+the client's own container (see [Clients and access](#clients-and-access)):
 
 ```
 {client}/drafts/{campaign id}/20261002T143000.0000000Z.json
 {client}/templates/{template id}/20261002T150512.1234567Z.json
 ```
 
-- **Each client has its own container**, named by the client (e.g. `neelam-aesthetics`), with
-  the same layout inside for every client. The app's blob role is granted on that container, not
-  the account, so another business using this tool cannot reach these saves even through a bug.
-  The name comes from the `Storage:Client` setting, which has no default: the deployment's
-  `clientName` sets it, and the app refuses to start without one.
-
 - **Every save is a new blob.** Nothing is overwritten; two saves in the same instant get
   different names.
-- **There is no index or database.** Lists are read from the blob names, and the title is in the
-  blob's own metadata. Deleting a blob therefore leaves no record of it: delete the newest save
-  and the previous one becomes the latest; delete them all and the campaign is gone.
+- **Saves have no index.** Lists are read from the blob names, and the title is in the blob's own
+  metadata. The tables hold clients, members and approvals, never a list of saves. Deleting a
+  blob therefore leaves no record of it: delete the newest save and the previous one becomes the
+  latest; delete them all and the campaign is gone.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed
   when the draft is opened again.
+
+## Clients and access
+
+*Designed 2026-10-03; being built. `WIP.md` says what exists so far.*
+
+One deployment serves every client. The tool is for businesses that cannot set this up
+themselves, so the **operator** (whoever runs this deployment) onboards each client and runs it
+for them. A client's people only sign in and work on their campaigns.
+
+| Where | Holds | Reached by |
+|---|---|---|
+| Table Storage, same account | Clients, members, support grants, approvals and dismissals | The app. The operator manages clients and members |
+| `settings` container | Each client's own look: `settings/{client}/{stamp}.json` | That client's members and the operator |
+| One container per client | That client's drafts, templates, catalog of procedures and medications, and check policy | The client's members. The operator only under a support grant |
+
+- **Who someone is comes from Entra ID; which client they belong to comes from the members
+  table**, which the operator manages. Nobody on the client side touches Entra. A signed-in user
+  with no member row reaches nothing.
+- **Each client has its own container**, named by the client (`ClientName`: 3-63 lowercase
+  letters, digits and single hyphens, never a reserved name such as `settings`), laid out the
+  same way for every client. The app's one identity can reach every client container, so the
+  separation between clients is enforced in code: a request touches only the containers its
+  user is a member of.
+- **The operator does not read client data.** The operator role covers clients, members and
+  each client's look, not drafts, templates or the catalog. Looking at a client's own data, which
+  happens only when they ask for help, takes a **support grant**. The client's own user grants it in the app,
+  with a reason and an expiry. The app checks it on every read, and the row stays afterwards as
+  the record.
+- **Until 1.0, Neelam is the exception.** The tool is being shaped with Neelam, so the operator
+  works with Neelam's data directly until there is a proper 1.0. This is a standing support
+  grant for Neelam, marked as lasting until 1.0, so the app still has one access check and
+  ending the exception is one deletion. Any direct Azure access during that time is a role on
+  Neelam's container alone, removed at 1.0.
+- **At the Azure level the operator holds no data role either.** Shared keys are off and denied
+  by policy, so even the subscription Owner cannot read blobs without first granting themselves
+  a role, and the Activity Log records that. Local development runs against a separate test
+  deployment that holds no client data; production grants no developer access.
+- **What the client offers is the client's.** The procedures and medications to offer, and
+  their usual prices, are a catalog in the client's own container
+  (`{client}/catalog/{stamp}.json`). The operator sees it only under a support grant, like the
+  campaigns.
+- **So is how strict the checks are.** The restricted terms, medical terms and emoji limit that
+  `CampaignPolicy` holds today become each client's own policy, in their container at
+  `{client}/policy/{stamp}.json`. These are the client's decisions: they see and control them,
+  including loosening a check they are comfortable with.
+- **Each client has its own look, and both sides can edit it.** It lives in the `settings`
+  container at `settings/{client}/{stamp}.json`. That client's members and the operator can read
+  and edit it; other clients cannot see it. Keeping it out of the client's own container means
+  working on a look never needs access to their campaigns or catalog.
+- Both are saved like campaigns, as timestamped blobs with the newest in force, so a bad change
+  is undone by deleting the newest.
 
 ## Infrastructure and access
 
@@ -87,8 +134,9 @@ Drafts and templates are saved to Azure Blob Storage by `CampaignStore`, one blo
   *Monitoring Metrics Publisher*, and the connection string is set by the deployment. Telemetry
   may name a blob, but it never holds a save's contents. Locally, without the setting, nothing
   is sent.
-- Locally the app signs in as the developer (`az login`); pass `developerPrincipalId` to the
-  deployment to give that person the same container access.
+- Locally the app signs in as the developer (`az login`). The template still takes
+  `developerPrincipalId`, which grants that person blob access. The design drops it from
+  production in favour of a separate test deployment (see [Clients and access](#clients-and-access)).
 - `InfrastructureTests` pins these settings so a later edit cannot quietly undo them.
 
 ```
@@ -155,10 +203,13 @@ dotnet test
    check against the real editor, especially whether a text block keeps bullet lists.
 2. **Sign-in** — the app needs Entra ID sign-in before it shows any campaign. Keeping to "no
    stored secrets" means signing in with a federated credential on the app's identity rather
-   than a client secret. Who can create the app registration in the tenant?
+   than a client secret. Clients' people need accounts without setting anything up themselves:
+   guests invited into the operator's directory, or Microsoft Entra External ID (an emailed
+   code or an existing account)?
 3. **Approval** — one person, or a second approver required before export? And must warnings be
    acknowledged individually before export, or only blockers stop it (current behaviour)?
 4. **Where Claude runs** — directly against the Anthropic API, or through Microsoft Foundry
    inside the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
 5. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`
-   are starting points for the owner to set.
+   are starting points. They become each client's own policy, set by the client (decided
+   2026-10-03); Neelam's values are still to be chosen.

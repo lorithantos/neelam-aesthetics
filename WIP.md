@@ -1,6 +1,6 @@
 # Work in progress — handover
 
-Status of the campaign-safety work as of 2026-10-02, for whoever picks it up next. The README
+Status of the campaign-safety work as of 2026-10-03, for whoever picks it up next. The README
 describes the design; this file covers where things stand, what was decided and by whom, and
 what is still open. Delete it once the PR is merged and the open items have homes elsewhere.
 
@@ -31,11 +31,21 @@ Treat these as fixed unless the owner reopens them.
 
 - The sending platform is **Square Marketing**, not Squarespace.
 - The stack is **ASP.NET / Blazor Server on Azure App Service**.
-- Storage is **Azure Blob Storage only**, with no SQL or other database.
+- Storage is **Azure Storage only**, with no SQL or other database. Extended on 2026-10-03: **Table Storage** in the same account holds metadata (clients, members, support grants, approvals and dismissals), reached with the managed identity like the blobs. Saves are never indexed there.
 - Infrastructure is written in **Bicep**.
 - **Managed identity only.** No account keys, SAS or client secrets, anywhere; the resource group denies key authentication through Azure Policy (see `infra/main.bicep`). Only the server matters; local runs need not prove it.
 - **Connection strings: fine, but never in GitHub** (2026-10-02, replacing 2026-10-01's "no connection strings at all"). The Application Insights connection string is acceptable. The general case is not a concern; a connection string just has to be stored where it would not be expected to be passed on, such as an App Service setting, and must not appear in any GitHub data. `CredentialGuard` now refuses only secrets (keys, SAS, passwords); `RepositoryTests` scans every file git would commit for a real-looking key. Git history was checked by hand on 2026-10-02 and holds only placeholders.
 - **Saves are date/time-stamped blobs.** Any blob can be deleted with no remaining record, so there is no index, versioning, soft delete or logging that would keep one. Clarified on 2026-10-02: the rule is about not keeping blob history, so a deleted save's contents cannot be recovered. Telemetry that names a blob is fine, because it never holds the blob's data, and customer data does not live in blob names or metadata.
+- **Clients and access** (2026-10-03; the README's "Clients and access" section is the design):
+  - One deployment serves every client. The tool is for people who cannot set this up themselves, so the operator onboards and runs each client; clients' people only sign in.
+  - Separation between clients is enforced **in code**: Entra says who is signed in, and the members table, which the operator manages, says which client they belong to. This replaces the per-deployment `Storage:Client` / `clientName` from commit `7141d54`, which the rework removes.
+  - One container per client, named by `ClientName`, with the same layout for every client.
+  - The operator role covers clients, members and settings, **not** campaign data. Reading a client's drafts and templates takes a **support grant, which the client grants** in the app, with a reason and an expiry. The row stays as the record.
+  - **Exception until 1.0:** the operator works with Neelam's data directly while the tool is shaped with Neelam. This is a standing support grant marked until 1.0, removed at 1.0.
+  - **The catalog is the client's:** the procedures and medications to offer, and their prices, live in the client's own container (`{client}/catalog/{stamp}.json`). The operator does not need them, and sees them only under a support grant (refined 2026-10-03).
+  - **Check policy is the client's too:** restricted terms, medical terms and the emoji limit are client decisions. Each client sees and controls its own policy, at `{client}/policy/{stamp}.json` in its own container, loosening included. The operator sees it only under a grant (decided 2026-10-03).
+  - **Each client has its own look**, at `settings/{client}/{stamp}.json` in a `settings` container. That client's members and the operator can both read and edit it; other clients cannot see it. Timestamped like saves.
+  - **Development** runs against a separate test deployment with no client data; production drops `developerPrincipalId`.
 - Campaigns are created **from templates**.
 - **Tier copy must not merely copy everything.** It leaves the name and price blank and marks copied benefits unreviewed.
 - An **AI proofread** is part of the gate.
@@ -51,7 +61,7 @@ Treat these as fixed unless the owner reopens them.
 | Draft/template JSON (`CampaignJson`) | `src/Neelam.Campaigns` | Done, tested |
 | Export to editor blocks (`EditorExport`) | `src/Neelam.Campaigns` | Done; block mapping to Square **unverified** |
 | Claude proofreader | `src/Neelam.Campaigns.Claude` | Compiles; parsing tested; **never called live** |
-| Blob store (`CampaignStore`, `AzureBlobBackend`) | `src/Neelam.Campaigns.Storage` | Tested in-memory; checked once by hand against Azurite. Since 2026-10-02 (owner's call) each client has its own container named by the client, with the same `drafts/` and `templates/` layout in every one, and the blob role is scoped to it. `Storage:Client` / Bicep `clientName` is required, with no default |
+| Blob store (`CampaignStore`, `AzureBlobBackend`) | `src/Neelam.Campaigns.Storage` | Tested in-memory; checked once by hand against Azurite. Container per client (`ClientName`) is built, but the client still comes from a per-deployment setting (`Storage:Client`, Bicep `clientName`, commit `7141d54`). That is **superseded** by the 2026-10-03 design and is next to rework |
 | Startup credential guard | `src/Neelam.Campaigns.Storage` | Done, tested |
 | Web host | `src/Neelam.Web` | Skeleton only: wiring + guard, **no campaign pages** |
 | Monitoring | `infra/main.bicep`, `src/Neelam.Web/Program.cs` | Application Insights over a Log Analytics workspace, both with local auth off. The site's identity has Monitoring Metrics Publisher, and Bicep fills `APPLICATIONINSIGHTS_CONNECTION_STRING` from the resource. The app uses the Azure Monitor distro with the same credential as storage, only when that setting is present. Default telemetry, blob dependencies included (decided 2026-10-02). **Never deployed or run live** |
@@ -67,26 +77,30 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
    - whether bullet lists survive pasting into a text block. If they don't, export each benefit as its own line with 🤍 in front.
 2. **Sign-in.** The app must not show or change campaigns until Entra ID sign-in exists, or anyone with the URL could read and delete saves.
    - Staying secret-free means a federated credential on the app's identity instead of a client secret.
-   - Open: who can create the app registration? Use App Service built-in auth or Microsoft.Identity.Web?
+   - Open: App Service built-in auth or Microsoft.Identity.Web? Either works with the members table.
+   - Open: how clients' people get accounts with no setup of their own. Guests invited into the operator's directory, or Microsoft Entra External ID (an emailed code or an existing account)? External ID is likely kinder for non-technical users, but it is a separate setup.
 3. **Approval.** Is one approver enough, or must a second person approve before export? Must warnings be acknowledged individually, or do only blockers stop export (the current behaviour)?
 4. **Claude.** No answer yet. Options: call the Anthropic API directly, or go through Microsoft Foundry in the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
    - An API key, or another way to authenticate, is needed before the proofreader can be run on the two real sends.
    - Server-side refusal fallbacks were left out because they aren't available on Foundry. A refusal currently blocks the email until a person dismisses it.
 5. **Placeholders the owner should replace:**
    - the "Gold Member" tier name and the `example.com` join and terms links in the fixtures
-   - the restricted terms, medical terms and emoji limit in `CampaignPolicy`
+   - the restricted terms, medical terms and emoji limit in `CampaignPolicy`. These become Neelam's own policy, which Neelam sets.
    - whether "Beauty Bank" and "savings account" are acceptable. They are warnings, not blockers, on purpose: it is a business and legal call.
 6. **"Start from last campaign".** Offered but not answered. It would reuse slot origins, so every copied field has to be edited or confirmed.
 7. **Copied benefit amounts.** Offered but not answered: should a copied tier's amounts start blank, so every number has to be re-typed? Currently each copied benefit is kept but marked unreviewed.
 
 ## Suggested next steps, once the decisions above land
 
-1. Sign-in, then the first real pages: list saves, open a draft, save, delete.
-2. A draft editor in Blazor, built on `CampaignDraft` / `Slot`. Show each slot's origin and a "confirm" action for copied values.
-3. A review screen: findings, dismissals with name and reason, and the export blocks with copy buttons.
-4. Persist dismissals and approvals. By the owner's rule these are also timestamped blobs with no index, and they need a design decision on where they live.
-5. First real deployment of `infra/main.bicep`, with `developerPrincipalId` set for local work.
-6. A live proofread of `FirstSend()` and `SecondSend()` once Claude access is decided.
+1. Rework `7141d54` to the clients-and-access design, before sign-in exists:
+   - **Bicep:** a `clients` list, with a container and the app's blob role per client; the `settings` container; Table Storage with *Storage Table Data Contributor* for the app; no `clientName`, no `developerPrincipalId`.
+   - **Code:** the access check as a pure, tested component (member, operator, support grant, the Neelam-until-1.0 grant); stores opened per client; the catalog and check policy (client container) and the look (`settings` container), with their stores, the policy feeding `CampaignReview`; `ClientName` refusing reserved names such as `settings`.
+2. Sign-in, then the first real pages: list saves, open a draft, save, delete.
+3. A draft editor in Blazor, built on `CampaignDraft` / `Slot`. Show each slot's origin and a "confirm" action for copied values.
+4. A review screen: findings, dismissals with name and reason, and the export blocks with copy buttons.
+5. Persist dismissals and approvals in Table Storage (decided 2026-10-03).
+6. First real deployment of `infra/main.bicep`, plus a separate test deployment for development.
+7. A live proofread of `FirstSend()` and `SecondSend()` once Claude access is decided.
 
 ## Environment notes
 
