@@ -1,0 +1,19 @@
+{
+  "name": "Neelam campaigns (test deployment)",
+  "identity": {
+    "source": "git",
+    "sink": { "type": "azureAppSetting", "setting": "LATEST_BUILD_INFO" }
+  },
+  "stages": {
+    "build": { "run": "dotnet build Neelam.sln --configuration Release" },
+    "package": { "run": "dotnet publish src\\Neelam.Web\\Neelam.Web.csproj -c Release -o {packageDir}", "zip": true },
+    "push": { "type": "azureWebAppZip", "app": "neelamtest-6excvnu62r4z6", "resourceGroup": "neelam-test-rg" }
+  },
+  "verify": {
+    "url": "https://neelamtest-6excvnu62r4z6.azurewebsites.net/healthz",
+    "warmingStatuses": [503],
+    "attempts": 24,
+    "delaySeconds": 10,
+    "initialDelaySeconds": 15
+  }
+}

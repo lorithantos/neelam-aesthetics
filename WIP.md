@@ -111,6 +111,7 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
   - Janet.Azure.Storage and Janet.Entra come from the local feed `..\.packages` (`nuget.config`), packed from `..\Janet.Shared` with `dotnet pack Janet.Shared.slnx -c Release -o ..\.packages`. A restore without that feed fails with NU1301.
   - Tests use xunit 2.4.2. Use `Assert.Equal` on sorted arrays, not `HashSet`s, for order-free comparisons.
 - **Bicep:** Bicep CLI 0.47.16 and Azure CLI 2.90.0 installed with winget on 2026-10-02; `az` uses the PATH `bicep`. Signed in with `az login` on 2026-10-02 (the tenants need MFA, so sign in with `--tenant`).
+- **Test deployment** (created 2026-10-03): resource group `neelam-test-rg` (westus3), site `https://neelamtest-6excvnu62r4z6.azurewebsites.net`, storage account `neelamtest6excvnu62r4z6`, clients `test-salon-one` and `test-salon-two`, environment `Test` (so the prototype's permissive access may run there, and nowhere else). Redeploy the template with `az deployment group create -g neelam-test-rg -f infra/main.bicep -p infra/test.bicepparam`; deploy the app with `& "$env:JanetBase\scripts\Invoke-BuildDeploy.ps1" -ManifestPath .\deploy-manifest.test.json`, which verifies `/healthz` (the app reading its clients table with its own identity). Costs a B1 plan plus a little storage and monitoring.
 - **Azurite check (manual):**
   1. `npm i azurite@3`, then make a self-signed certificate for `127.0.0.1`.
   2. Run `npx azurite-blob --oauth basic --cert cert.pem --key key.pem`.
