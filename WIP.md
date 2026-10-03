@@ -2,10 +2,9 @@
 
 Status of the campaign-safety work as of 2026-10-03, for whoever picks it up next. The README
 describes the design; this file covers where things stand, what was decided and by whom, and
-what is still open. Delete it once the PR is merged and the open items have homes elsewhere.
+what is still open. Delete it once the open items have homes elsewhere.
 
-- **Branch:** `claude/email-campaign-safety-system-lr7q1m`
-- **PR:** #1 (open, not merged; `main` holds only the initial commit)
+- **Branch:** `main`. This is a single-person repo: work is integrated on `main` locally and pushed, with no PRs (owner, 2026-10-03). The old `claude/email-campaign-safety-system-lr7q1m` branch was fast-forwarded into `main`.
 - **Tests:** `janet check` → 99 passing on `net10.0`, no build warnings
 - **Bicep:** `bicep build` and `bicep lint` clean (CLI 0.47.16)
 
@@ -50,7 +49,7 @@ Treat these as fixed unless the owner reopens them.
 - **Tier copy must not merely copy everything.** It leaves the name and price blank and marks copied benefits unreviewed.
 - An **AI proofread** is part of the gate.
 
-## Built (all on the PR branch)
+## Built (on `main`)
 
 | Area | Where | State |
 |---|---|---|

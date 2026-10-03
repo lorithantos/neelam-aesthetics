@@ -84,5 +84,7 @@ reachable over HTTP:
 - `az` needs `az login` before a what-if, a deployment or `janet az token`. The
   owner runs it themselves (`! az login`).
 - `gh` is not installed. Find GitHub repos through the REST API.
+- Single-person repo: commit on `main` and push it. No branches for review,
+  no PRs.
 - Commit messages: look at `git log --oneline` and match it -- an imperative
   subject, a prose body on why, and a closing line saying what was verified.
