@@ -35,7 +35,7 @@ public static class EditorExport
     {
         if (!report.CanExport)
             throw new CampaignBlockedException(report);
-        return Render(report.Campaign);
+        return Render(report.Campaign.Blocks);
     }
 
     /// <summary>The whole passed email as plain text, for the approver to read top to bottom.</summary>
@@ -45,10 +45,11 @@ public static class EditorExport
     /// The email as it would be sent, ungated. Used to show the proofreader exactly what the
     /// customer would read; never a source for pasting.
     /// </summary>
-    public static string Preview(Campaign c) => ToPlainText(Render(c));
+    public static string Preview(Campaign c) => ToPlainText(Render(c.Blocks));
 
     // The template's blocks, in its order, as Square blocks; consecutive text becomes one block.
-    private static List<EditorBlock> Render(Campaign c)
+    // Shared with TemplatePreview, which passes placeholders for the blocks each campaign fills.
+    internal static List<EditorBlock> Render(IEnumerable<Block> source)
     {
         var blocks = new List<EditorBlock>();
         var text = new List<string>();
@@ -66,10 +67,23 @@ public static class EditorExport
             blocks.Add(block);
         }
 
-        foreach (var block in c.Blocks)
+        foreach (var block in source)
         {
             switch (block)
             {
+                case PlaceholderBlock p:
+                    switch (p.Type)
+                    {
+                        case BlockType.Header: Add(new(BlockKind.Header, p.Text)); break;
+                        case BlockType.Heading: Add(new(BlockKind.Heading, p.Text)); break;
+                        case BlockType.Image: Add(new(BlockKind.Image, p.Text, Image: new ImageRef(p.Text))); break;
+                        case BlockType.Button: Add(new(BlockKind.Button, p.Text)); break;
+                        case BlockType.Spacer: Add(new(BlockKind.Spacer, "")); break;
+                        // An offer is its name as a heading, then text, so its placeholder is too.
+                        case BlockType.Offer: Add(new(BlockKind.Heading, p.Text)); break;
+                        default: text.Add(p.Text); break;
+                    }
+                    break;
                 case HeaderBlock h: Add(new(BlockKind.Header, h.Text, Image: h.Photo)); break;
                 case HeadingBlock h: Add(new(BlockKind.Heading, h.Text)); break;
                 case ImageBlock i: Add(new(BlockKind.Image, i.Image.AltText ?? "", Image: i.Image)); break;
@@ -109,13 +123,13 @@ public static class EditorExport
         if (offer.TermsUrl is not null) yield return $"Full terms: {offer.TermsUrl}";
     }
 
-    private static string ToPlainText(IEnumerable<EditorBlock> blocks) =>
+    internal static string ToPlainText(IEnumerable<EditorBlock> blocks) =>
         string.Join("\n\n", blocks.Where(b => b.Kind != BlockKind.Spacer).Select(b => b.Kind switch
         {
             BlockKind.Header => b.Image is null ? b.Text : $"{b.Text} [over photo: {b.Image.Name}]",
             BlockKind.Heading => b.Text.ToUpperInvariant(),
             BlockKind.Image => $"[photo: {b.Image!.Name}]",
-            BlockKind.Button => $"[ {b.Text} ] → {b.Url}",
+            BlockKind.Button => b.Url is null ? $"[ {b.Text} ]" : $"[ {b.Text} ] → {b.Url}",
             _ => b.Text,
         }));
 }
