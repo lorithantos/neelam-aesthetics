@@ -34,21 +34,41 @@ public class InfrastructureTests
         Assert.DoesNotContain("clientName", Bicep);
     }
 
-    // Data access belongs to the app's identity alone, scoped to each container and table, never
-    // the account: a container left out of the clients list is out of the app's reach, and no
-    // person holds standing data access (development uses a separate test deployment).
+    // The app's data access is scoped to each container and table, never the account: a container
+    // left out of the clients list is out of the app's reach. The only other principal is the
+    // developer, pinned below.
     [Fact]
-    public void Only_the_app_holds_data_access_and_only_where_listed()
+    public void The_app_holds_data_access_only_where_listed()
     {
-        Assert.DoesNotContain("developerPrincipalId", Bicep);
         Assert.Equal(
             Regex.Matches(Bicep, @"principalId: ").Count,
-            Regex.Matches(Bicep, @"principalId: site\.identity\.principalId").Count);
+            Regex.Matches(Bicep, @"principalId: (?:site\.identity\.principalId|developerPrincipalId)\s").Count);
 
         string[] dataScopes = Regex.Matches(Bicep,
-                @"scope: (\S+)\s*properties: \{\s*roleDefinitionId: (?:blobDataContributor|tableDataContributor)")
+                @"scope: (\S+)\s*properties: \{\s*roleDefinitionId: (?:blobDataContributor|tableDataContributor)\s*principalId: site\.identity\.principalId\s")
             .Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(["clientContainers[i]", "settingsContainer", "tables[i]"], dataScopes);
+    }
+
+    // No person holds data access in production. On the test deployment, whose clients are made
+    // up, the developer holds blob and table data access to the whole account; the template grants
+    // it only when the environment is Test, and only the test parameter file names a developer.
+    [Fact]
+    public void Only_the_test_deployment_grants_the_developer_data_access()
+    {
+        Assert.Matches(new Regex(@"param developerPrincipalId string = ''\s"), Bicep);
+        Assert.Matches(new Regex(@"var developerAccess = environmentName == 'Test' && !empty\(developerPrincipalId\)\s"), Bicep);
+        Assert.Single(Regex.Matches(Bicep, @"developerAccess = "));
+
+        string[] developerRoles = Regex.Matches(Bicep,
+                @"= if \(developerAccess\) \{\s*name: [^\n]+\s*scope: storage\s*properties: \{\s*roleDefinitionId: (\w+)\s*principalId: developerPrincipalId\s*principalType: 'User'\s")
+            .Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(["blobDataContributor", "tableDataContributor"], developerRoles);
+        Assert.Equal(developerRoles.Length, Regex.Matches(Bicep, @"principalId: developerPrincipalId\s").Count);
+
+        Assert.DoesNotContain("developerPrincipalId", File.ReadAllText(Path.Combine(Root, "infra", "main.bicepparam")));
+        Assert.Matches(new Regex(@"param developerPrincipalId = '[0-9a-f-]{36}'"),
+            File.ReadAllText(Path.Combine(Root, "infra", "test.bicepparam")));
     }
 
     // Permissive prototype access is refused in Production by the app; this keeps the real

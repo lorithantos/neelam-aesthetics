@@ -7,7 +7,8 @@
 // Access is by managed identity only. The storage account has shared-key access turned off, so
 // account keys, connection strings and account SAS tokens do not work at all; the web app reaches
 // storage with its system-assigned identity and RBAC roles on exactly the containers and tables
-// below. Nobody else is granted data access here: development uses a separate test deployment.
+// below. The only person ever granted data access is the developer, and only on the test
+// deployment, whose clients are made up (developerPrincipalId); production grants no person data access.
 //
 // Saves are date/time-stamped blobs and deleting one must leave no record of it, so blob
 // versioning, soft delete, change feed and point-in-time restore are all off. A delete is final.
@@ -28,6 +29,9 @@ param clients string[]
 ])
 param environmentName string = 'Production'
 
+@description('The developer\'s Entra object ID, given full blob and table data access to this storage account so local runs and checks can see what the app writes. Honoured on the test deployment only: Production grants no person data access, whatever is passed here.')
+param developerPrincipalId string = ''
+
 param location string = resourceGroup().location
 
 @description('App Service plan SKU. Blazor Server keeps a live connection per user, so Basic or above.')
@@ -38,6 +42,9 @@ var suffix = uniqueString(resourceGroup().id)
 // The one client the prototype works as, on the test deployment only; empty everywhere else.
 // The app refuses prototype access in Production anyway.
 var prototypeClient = environmentName == 'Test' ? clients[0] : ''
+
+// The developer's data access exists on the test deployment alone, and only when one is named.
+var developerAccess = environmentName == 'Test' && !empty(developerPrincipalId)
 var storageName = take(toLower('${prefix}${suffix}'), 24)
 
 // Built-in role: Storage Blob Data Contributor (read, write, delete blobs; no keys, no account control).
@@ -244,8 +251,8 @@ resource scmPublishing 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2
   }
 }
 
-// The app's data access, and nobody else's: blob access on each listed client container and on
-// settings, table access on each table. All scoped to the container or table, never the account,
+// The app's data access: blob access on each listed client container and on settings, table
+// access on each table. All scoped to the container or table, never the account,
 // so a container that is not in the clients list is out of the app's reach.
 resource siteClientAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   for (client, i) in clients: {
@@ -280,6 +287,28 @@ resource siteTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = 
     }
   }
 ]
+
+// The developer's access, on the test deployment only (developerAccess): the whole account, since
+// its clients are made up and development needs to read and clear everything the app writes.
+resource developerBlobAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (developerAccess) {
+  name: guid(storage.id, developerPrincipalId, blobDataContributor)
+  scope: storage
+  properties: {
+    roleDefinitionId: blobDataContributor
+    principalId: developerPrincipalId
+    principalType: 'User'
+  }
+}
+
+resource developerTableAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (developerAccess) {
+  name: guid(storage.id, developerPrincipalId, tableDataContributor)
+  scope: storage
+  properties: {
+    roleDefinitionId: tableDataContributor
+    principalId: developerPrincipalId
+    principalType: 'User'
+  }
+}
 
 resource siteTelemetry 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(insights.id, site.id, metricsPublisher)

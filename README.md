@@ -133,7 +133,8 @@ for them. A client's people only sign in and work on their campaigns.
 - **At the Azure level the operator holds no data role either.** Shared keys are off and denied
   by policy, so even the subscription Owner cannot read blobs without first granting themselves
   a role, and the Activity Log records that. Local development runs against a separate test
-  deployment that holds no client data; production grants no developer access.
+  deployment that holds no client data, where the developer holds data access through the
+  template; production grants no developer access.
 - **What the client offers is the client's.** The procedures and medications to offer, and
   their usual prices, are a catalog in the client's own container
   (`{client}/catalog/{stamp}.json`). The operator sees it only under a support grant, like the
@@ -160,7 +161,7 @@ deployment used in development.
   connection strings and account SAS tokens are refused by the service itself. The web app
   uses its system-assigned identity with *Storage Blob Data Contributor* on each client container
   and on `settings`, and *Storage Table Data Contributor* on each table. Every role is scoped to
-  its container or table, never the account, and no person holds data access.
+  its container or table, never the account. In production no person holds data access.
 - **No stored credentials in the app either.** `CredentialGuard` stops the app at startup if any
   key, SAS or password is configured. FTP/basic publishing is off; deploy with your Entra sign-in.
 - **No connection string in the repository.** A connection string carrying no secret, such as
@@ -171,8 +172,11 @@ deployment used in development.
   may name a blob, but it never holds a save's contents. Locally, without the setting, nothing
   is sent.
 - Locally the app signs in as the developer (`az login`) and points at the **test deployment**,
-  whose made-up clients hold no client data. Data access there is granted by hand to the
-  developer on that resource group; production grants no person data access.
+  whose made-up clients hold no client data. There the template gives the developer named by
+  `developerPrincipalId` in `infra/test.bicepparam` *Storage Blob Data Contributor* and *Storage
+  Table Data Contributor* on the whole account. The template honours it only when
+  `environmentName` is `Test`, and `main.bicepparam` never sets it, so production grants no
+  person data access.
 - `InfrastructureTests` pins these settings so a later edit cannot quietly undo them.
 
 ```
