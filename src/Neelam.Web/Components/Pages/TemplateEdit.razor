@@ -33,6 +33,7 @@ else if (_session is not null)
     var editor = _session.Editor;
     var errors = editor.Errors();
     var advice = editor.Advice(_policy);
+    var missing = editor.Missing(_baseline);
 
     <h1>@Title</h1>
     <p><a href="templates">Back to templates</a></p>
@@ -185,6 +186,17 @@ else if (_session is not null)
             <section class="card">
                 <h2>Save</h2>
                 <Problems Messages="@errors.Select(e => $"{e.Where}: {e.Message}").ToList()" />
+                @if (missing.Count > 0)
+                {
+                    @* The baseline warns and never blocks: a short note may rightly lack a part. *@
+                    <ul class="advice" aria-label="Parts this template lacks">
+                        @foreach (var gap in missing)
+                        {
+                            <li>@gap.Message</li>
+                        }
+                    </ul>
+                    <p class="field-help">It can still be saved. The parts every template should have are listed under <a href="templates">Templates</a>.</p>
+                }
                 <button class="button primary" disabled="@(errors.Count > 0)" @onclick="SaveAsync">Save template</button>
                 @if (_message is not null)
                 {
@@ -252,6 +264,7 @@ else if (_session is not null)
     // A template whose every save is undone, while it can still be restored.
     private SaveRef? _undone;
     private CampaignPolicy _policy = CampaignPolicy.Default;
+    private TemplateBaseline _baseline = TemplateBaseline.None;
     private IReadOnlyList<string> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
@@ -274,6 +287,7 @@ else if (_session is not null)
         if (_session is null && Id is { } undoneId) _undone = await TemplateSession.RestorableAsync(store, undoneId);
         _missing = _session is null && _undone is null;
         _policy = await Stores.PolicyInForceAsync(client);
+        _baseline = (await Stores.BaselineInForceAsync(client)).Baseline;
         _photos = (await Stores.Images(client).ListAsync()).Select(i => i.Name).ToList();
     }
 

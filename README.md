@@ -55,6 +55,15 @@ The block types were derived from the one real email the tool has seen, the Beau
 announcement, read from both real sends as Square rendered them, and grow from the next real ones rather than from guesses ("data over dogma").
 The text checks (restricted terms, repetition, emoji) run over every block's text.
 
+**A baseline says which parts every template should have**, as a list of block types
+(`TemplateBaseline`), held as data. The operator keeps a standard baseline for every client;
+a client may save its own, which replaces it for that client, and saving an empty one turns the
+warnings off. The standard one is header, heading, sign-off, button and image, from Neelam's
+five sent emails. A template lacking a part still saves: the editor says, for example, "Your
+templates usually have a sign-off; this one doesn't." A block counts whether it is required or
+optional. Square adds the legal address and unsubscribe in its own footer, so templates never
+include them.
+
 Campaigns are written as a `CampaignDraft`, started from a template. Every value in a draft is
 a `Slot` that remembers where it came from:
 
@@ -106,8 +115,8 @@ for them. A client's people only sign in and work on their campaigns.
 | Where | Holds | Reached by |
 |---|---|---|
 | Table Storage, same account | Clients (each with its Entra group, and a description of the business that guides the AI proofread), support grants, approvals and dismissals | The app. The operator manages clients |
-| `settings` container | Each client's own look: `settings/{client}/{stamp}.json` | That client's members and the operator |
-| One container per client | That client's drafts, templates, catalog of procedures and medications, and check policy | The client's members. The operator only under a support grant |
+| `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json` | That client's members and the operator; the standard baseline is read for every client |
+| One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline if it saved one | The client's members. The operator only under a support grant |
 
 - **Who someone is, and what they may do, comes from Entra ID.** Each client has an Entra
   security group, and the sign-in token lists the groups a user is in, so membership is read

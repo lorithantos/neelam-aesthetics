@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Neelam.Campaigns;
 
 /// <summary>
-/// Saves drafts, templates and each client's catalog, check policy and look as JSON. A draft round-trips with every slot's origin, so a copied
+/// Saves drafts, templates, template baselines and each client's catalog, check policy and look as JSON. A draft round-trips with every slot's origin, so a copied
 /// benefit nobody has reviewed is still unreviewed after it is saved and opened again.
 /// </summary>
 public static class CampaignJson
@@ -132,6 +132,17 @@ public static class CampaignJson
         return new ClientLook(doc.AccentColour);
     }
 
+    public static string SerializeBaseline(TemplateBaseline b) =>
+        JsonSerializer.Serialize(new BaselineDocument(SchemaVersion, b.Parts), Options);
+
+    public static TemplateBaseline DeserializeBaseline(string json)
+    {
+        var doc = JsonSerializer.Deserialize<BaselineDocument>(json, Options)
+                  ?? throw new InvalidDataException("Empty baseline document.");
+        CheckVersion(doc.Schema);
+        return new TemplateBaseline(doc.Parts ?? throw new InvalidDataException("A baseline document without its parts."));
+    }
+
     private static void CheckVersion(int schema)
     {
         if (schema != SchemaVersion)
@@ -197,4 +208,7 @@ public static class CampaignJson
     private sealed record PolicyDocument(int Schema, CampaignPolicy Policy);
 
     private sealed record LookDocument(int Schema, string? AccentColour);
+
+    // Parts are block types by name ("signOff"), so an empty list is an empty baseline, not a missing one.
+    private sealed record BaselineDocument(int Schema, IReadOnlyList<BlockType>? Parts);
 }

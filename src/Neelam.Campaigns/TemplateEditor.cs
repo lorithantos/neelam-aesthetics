@@ -101,6 +101,12 @@ public sealed class TemplateEditor
     /// <summary>What the checks would say about every campaign from this template; see <see cref="TemplateAdvice"/>.</summary>
     public IReadOnlyList<Finding> Advice(CampaignPolicy? policy = null) => TemplateAdvice.For(TemplateBlocks(), policy);
 
+    /// <summary>
+    /// The baseline parts this template lacks, as it stands. Warnings only: they never stop a
+    /// save, since a short note such as "we're closed Monday" may rightly have no button.
+    /// </summary>
+    public IReadOnlyList<BaselineGap> Missing(TemplateBaseline baseline) => baseline.MissingFrom(_blocks.Select(b => b.Type));
+
     /// <summary>The email's shape as it stands, even while there are errors; see <see cref="TemplatePreview"/>.</summary>
     public IReadOnlyList<EditorBlock> Preview() => TemplatePreview.Blocks(TemplateBlocks());
 

@@ -61,6 +61,7 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     [InlineData("/", null)]
     [InlineData("/how-it-works", null)]
     [InlineData("/campaigns", Features.Campaigns)]
+    [InlineData("/templates", Features.Templates)]
     public async Task Client_pages_carry_no_admin_links(string path, string? role)
     {
         var (status, page) = await (role is null ? Get(path) : Get(path, role));

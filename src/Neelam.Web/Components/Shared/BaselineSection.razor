@@ -1,0 +1,98 @@
+@* The parts every template should have: the standard baseline, or the client's own. The baseline
+   is the client's data like its templates, so the access check decides whose. *@
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+
+@if (_client is not null && _inForce is not null)
+{
+    var parts = _inForce.Baseline.Parts;
+    <section class="card" aria-labelledby="baseline-heading">
+        <h2 id="baseline-heading">Every template should have</h2>
+        <p class="muted">@(_inForce.IsOwn ? "Your own baseline." : "The standard baseline.")
+            A template without one of these still saves; its editor says what it lacks.</p>
+        @if (parts.Count == 0)
+        {
+            <p>Nothing: these warnings are off.</p>
+        }
+        else
+        {
+            <ul>
+                @foreach (var part in parts)
+                {
+                    <li>@BlockGuide.For(part).Name</li>
+                }
+            </ul>
+        }
+
+        <details>
+            <summary>Change it</summary>
+            @foreach (var guide in BlockGuide.All.Where(g => g.Type != BlockType.Spacer))
+            {
+                var type = guide.Type;
+                <label class="check">
+                    <input type="checkbox" checked="@_chosen.Contains(type)" @onchange="e => Choose(type, e.Value is true)" />
+                    @guide.Name
+                </label>
+            }
+            <p>
+                <button class="button primary" @onclick="SaveOwnAsync">Save as your own</button>
+                <button class="button" @onclick="SaveEmptyAsync">Save it empty: no warnings</button>
+                @if (_inForce.IsOwn)
+                {
+                    <button class="button" @onclick="UseStandardAsync">Use the standard baseline</button>
+                }
+            </p>
+        </details>
+        @if (_message is not null)
+        {
+            <p role="status">@_message</p>
+        }
+    </section>
+}
+
+@code {
+    private ClientName? _client;
+    private BaselineInForce? _inForce;
+    private HashSet<BlockType> _chosen = [];
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        (_client, _) = await Workspace.ClientDataAsync();
+        if (_client is not null) await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _inForce = await Stores.BaselineInForceAsync(_client!);
+        _chosen = [.. _inForce.Baseline.Parts];
+    }
+
+    private void Choose(BlockType type, bool chosen)
+    {
+        if (chosen) _chosen.Add(type);
+        else _chosen.Remove(type);
+    }
+
+    private async Task SaveOwnAsync()
+    {
+        await Stores.Baseline(_client!).SaveAsync(
+            new TemplateBaseline(BlockGuide.All.Select(g => g.Type).Where(_chosen.Contains)));
+        await LoadAsync();
+        _message = "Saved as your own baseline.";
+    }
+
+    private async Task SaveEmptyAsync()
+    {
+        await Stores.Baseline(_client!).SaveAsync(TemplateBaseline.None);
+        await LoadAsync();
+        _message = "Saved empty: templates get no baseline warnings.";
+    }
+
+    private async Task UseStandardAsync()
+    {
+        await Stores.UseStandardBaselineAsync(_client!);
+        await LoadAsync();
+        _message = "Your own baseline is deleted; the standard one applies.";
+    }
+}
