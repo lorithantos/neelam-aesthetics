@@ -44,9 +44,9 @@ internal static class DraftFixtures
     }
 
     /// <summary>
-    /// Second send, replayed: tier 1 as it went out, "Platinum Member" at $149; tier 2 copied, its
-    /// price, two benefits and a fourth as they went out, its name and benefit 3 untouched. The copy
-    /// keeps the name, so both tiers are "Platinum Member", as both sent tiers were
+    /// Second send, replayed: tier 1 as it went out, "Option 1 Platinum Member" at $149 with its
+    /// "50% Complimentary Wellness Injections per visit"; tier 2 copied, then renamed "Option 2
+    /// Platinum Member", its price, two benefits and a fourth as they went out, benefit 3 untouched
     /// (<see cref="BeautyBankEmail.SecondSend"/>). Benefit 3 is the one step left undone: still the
     /// copy of tier 1's, where the send had a free injection, so the draft cannot build.
     /// </summary>
@@ -54,12 +54,18 @@ internal static class DraftFixtures
     {
         var d = StartAndFillText();
         var o = d.Offer("Offer");
-        AddGold(o).Name.Set("Platinum Member");
+        var first = o.AddTier();
+        first.Name.Set("Option 1 Platinum Member");
+        first.MonthlyPrice.Set(149m);
+        first.AddBenefit(new BirthdayCredit(25m));
+        first.AddBenefit(new PercentOff(5, "any qualifying treatments"));
+        first.AddBenefit(new DiscountedItem(50, "Wellness Injection", "per visit", "Complimentary"));
         var copy = o.CopyTier(0);
+        copy.Name.Set("Option 2 Platinum Member");
         copy.MonthlyPrice.Set(299m);
         copy.Benefits[0].Set(new BirthdayCredit(75m));
         copy.Benefits[1].Set(new PercentOff(10, "any qualifying treatments"));
-        copy.AddBenefit(new DiscountedItem(50, "wellness injection", "per visit", "any additional"));
+        copy.AddBenefit(new DiscountedItem(50, "wellness injection", "during visit", "any additional"));
         return d;
     }
 

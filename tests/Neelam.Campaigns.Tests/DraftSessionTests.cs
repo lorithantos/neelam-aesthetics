@@ -265,7 +265,7 @@ public class DraftSessionTests
         Assert.Equal(id, session!.Id);
         Assert.Equal("Second send, replayed", session.Latest!.Title);
         var tiers = session.Editor.Blocks.OfType<OfferBlockEditor>().Single().Offer.Tiers;
-        Assert.Equal(["Platinum Member", "Platinum Member"], tiers.Select(t => t.Name.Text));
+        Assert.Equal(["Option 1 Platinum Member", "Option 2 Platinum Member"], tiers.Select(t => t.Name.Text));
         Assert.Equal([false, false, true, false], tiers[1].Benefits.Select(b => b.IsUnreviewed));
         Assert.Equal("Tier 1", tiers[1].Benefits[2].CopiedFrom);
         Assert.Null(await DraftSession.OpenAsync(Store, Guid.NewGuid()));

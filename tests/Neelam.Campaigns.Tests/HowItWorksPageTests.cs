@@ -55,6 +55,11 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("Must fix", page);
         Assert.All(CampaignReview.Check(BeautyBankEmail.SecondSend()).Blockers,
             blocker => Assert.Contains(blocker.Message, page));
+        // As sent (checked 2026-10-09): both options Platinum, worth a look; its last line as written.
+        Assert.Contains("Tiers 1 and 2 are both 'Platinum'.", page);
+        Assert.Contains("50% off Complimentary Wellness Injections per visit", page);
+        Assert.Contains("offered the $299 option twice, as \"Option 1 Platinum Member\" and \"Option 2 Platinum Member\"",
+            System.Text.RegularExpressions.Regex.Replace(page, @"\s+", " "));
         Assert.Contains("Join the Beauty Bank", page);
     }
 

@@ -71,9 +71,9 @@ public class CampaignDraftTests
     }
 
     /// <summary>
-    /// Second send, replayed: tier 2 started as a copy, some benefits were updated, the rest and
-    /// the name were left as they were. The draft will not build, and says exactly what is left;
-    /// the name both tiers share, the second send's mistake, is a rule's Must fix meanwhile.
+    /// Second send, replayed: tier 2 started as a copy, some benefits were updated, the rest were
+    /// left as they were. The draft will not build, and says exactly what is left; the names, both
+    /// "Platinum" (the second send's mistake), are worth a look meanwhile.
     /// </summary>
     [Fact]
     public void Second_send_replayed_cannot_build_with_an_unreviewed_benefit_and_its_shared_name_is_flagged()
@@ -85,22 +85,23 @@ public class CampaignDraftTests
         Assert.False(result.Succeeded);
         Assert.Empty(Locations(result, "draft-missing"));
         Assert.Contains(CampaignEditor.Open(d).Status().Findings,
-            f => f.Severity == Severity.Blocker && f.Rule == "tier-names-unique");
+            f => f.Severity == Severity.Warning && f.Rule == "tier-rung-repeated");
         var unreviewed = Assert.Single(result.Problems, p => p.Rule == "draft-unreviewed-copy");
         Assert.Equal("Offer › Tier 2 › Benefit 3", unreviewed.Location);
         Assert.Contains("copied from Tier 1", unreviewed.Message);
-        Assert.Contains("50% off one wellness injection per visit", unreviewed.Message);
+        Assert.Contains("50% off Complimentary Wellness Injections per visit", unreviewed.Message);
     }
 
     /// <summary>
     /// The replay is the real second send, short of the one copied benefit nobody looked at: set
-    /// as it went out, the draft builds to the sent offer's tiers, both "Platinum Member".
+    /// as it went out, the draft builds to the sent offer's tiers, "Option 1 Platinum Member" and
+    /// "Option 2 Platinum Member".
     /// </summary>
     [Fact]
     public void Second_send_replayed_is_the_second_send_once_its_copied_benefit_is_set_as_sent()
     {
         var d = DraftFixtures.SecondSendReplayed();
-        d.Offer("Offer").Tiers[1].Benefits[2].Set(new FreeItem(1, "wellness injection", "per visit"));
+        d.Offer("Offer").Tiers[1].Benefits[2].Set(new FreeItem(1, "Wellness Injection", "per visit"));
 
         var built = d.Build();
 
@@ -108,7 +109,7 @@ public class CampaignDraftTests
         var sent = SampleCampaigns.SecondSend().OfferOf().Tiers;
         var tiers = built.Campaign!.OfferOf().Tiers;
         Assert.Equal(
-            [("Platinum Member", 149m), ("Platinum Member", 299m)],
+            [("Option 1 Platinum Member", 149m), ("Option 2 Platinum Member", 299m)],
             tiers.Select(t => (t.Name, t.MonthlyPrice)));
         Assert.Equal(sent.Select(t => (t.Name, t.MonthlyPrice)), tiers.Select(t => (t.Name, t.MonthlyPrice)));
         Assert.Equal(sent.Count, tiers.Count);

@@ -44,12 +44,12 @@ public class CampaignGateTests
     [Fact]
     public async Task Rule_blockers_cannot_be_dismissed()
     {
-        var dismissal = new Dismissal("tier-names-unique", "", "Looks fine to me.", "Someone");
+        var dismissal = new Dismissal("terms-required", "", "Looks fine to me.", "Someone");
 
         var report = await CampaignGate.ReviewAsync(
             SampleCampaigns.SecondSend(), FakeProofreader.Clean, [dismissal]);
 
-        Assert.Contains(report.Blockers, f => f.Rule == "tier-names-unique");
+        Assert.Contains(report.Blockers, f => f.Rule == "terms-required");
     }
 
     [Fact]

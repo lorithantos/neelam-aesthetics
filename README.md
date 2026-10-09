@@ -307,14 +307,16 @@ the resource group.
 
 ## Why: the one-year / Beauty Bank email
 
-It went out twice. `SampleCampaigns.FirstSend()` and `SecondSend()` in the tests reproduce
-both, and the tests pin which rules each trips.
+It went out twice, as "Celebrate 1 year of Neelam Aesthetics!" and then "Celebrate 1 year of
+Neelam Aesthetics! - Correction", both headed "WE'RE TURNING ONE!". `BeautyBankEmail.FirstSend()`
+and `SecondSend()` reproduce both as sent (checked word for word, 2026-10-09), and the tests pin
+which rules each trips.
 
 | Problem in the sent email | Rule | Severity |
 |---|---|---|
 | First send: both options the same $299 tier, contents and all, as "Option 1 Platinum Member" and "Option 2 Platinum Member" | Tier copy marks every benefit unreviewed; `tier-content-distinct`, `tier-prices-increase`. The names differ only by their numbers (owner, 2026-10-09: not a block, since "Glow 50" and "Glow 100" are good names), and both stand on the metals ladder's Platinum, so `tier-rung-repeated` says so | Blocker; the names Worth a look |
-| Second send, 38 minutes later: option 1 fixed to the $149 tier, both still named "Platinum Member" | Tier copy doesn't copy the name; `tier-names-unique` | Blocker |
-| "50% Complimentary Wellness Injections" — free or half off? | Not expressible: benefits are typed (`FreeItem` / `DiscountedItem`) and worded by the model; `benefit-value` rejects 100%-off | Blocker |
+| Second send, 38 minutes later: option 1 fixed to the $149 tier, both still "Option 1/2 Platinum Member" | Both on the metals ladder's Platinum: `tier-rung-repeated`. Identical names would be `tier-names-unique` | Worth a look (identical: Blocker) |
+| "50% Complimentary Wellness Injections" — free or half off? | Benefits are typed (`FreeItem` / `DiscountedItem`) and worded by the model; `benefit-value` rejects 100%-off. The second-send sample enters it as sent, "Complimentary" as the "Which ones" of a 50% discount ("50% off Complimentary Wellness Injections per visit"), which no instant rule reads: the proofread's to catch | Proofread |
 | A button ("Come visit", to the clinic's site), but nothing to join the offer with | The proofread: a button that does not match the offer. `cta-required` blocks an offer with no button at all; `cta-https` a button without https | Proofread; blockers |
 | Monthly charge with no cancellation / rollover / refund terms | `terms-required` | Blocker |
 | Promotes wellness injections with no disclaimer | `medical-disclaimer` | Blocker |

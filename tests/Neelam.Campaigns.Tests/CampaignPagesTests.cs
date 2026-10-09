@@ -208,7 +208,8 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         Assert.Contains("value=\"WE’RE TURNING ONE!\"", page);
         // Both tiers named as the second send had them.
-        Assert.Equal(2, Regex.Matches(page, "value=\"Platinum Member\"").Count);
+        Assert.Single(Regex.Matches(page, "value=\"Option 1 Platinum Member\""));
+        Assert.Single(Regex.Matches(page, "value=\"Option 2 Platinum Member\""));
         Assert.DoesNotContain("Gold Member", page);
         Assert.Contains("value=\"299\"", page);
         // Tier 2's third benefit was copied and never touched: still marked, with its Confirm.
@@ -224,8 +225,8 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("Still to do", unfinished);
         Assert.Matches($"<strong>Must fix</strong>\\s*<span>{Regex.Escape("Offer › Tier 2 › Benefit 3 was copied from Tier 1 and not reviewed")}", unfinished);
         Assert.Contains("Checked so far: the parts filled in.", unfinished);
-        // The copy kept the name, and the checks say so without saying which tier to rename.
-        Assert.Contains("Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart. Rename either one.", unfinished);
+        // Both options are Platinum, as the second send's were, and the checks say so, worth a look.
+        Assert.Contains("Tiers 1 and 2 are both 'Platinum'. Tier names like Bronze, Silver, Gold and Platinum tell readers which is which; give each tier its own.", unfinished);
 
         var (_, sameNames) = await Get($"/campaigns/{SameNames}", [Features.Campaigns]);
 

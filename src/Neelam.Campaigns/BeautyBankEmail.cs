@@ -56,7 +56,9 @@ public static class BeautyBankEmail
     private static readonly SignOff SignOff = new("With gratitude,", "Neelam Aesthetics Team 🤍✨",
         "Enhancing your beauty. Elevating your confidence.");
 
-    private static readonly Offer SentOffer = new(
+    // The offer's shared parts, and the tiers the corrected version starts from (its $149 tier
+    // renamed). Neither send's tiers: those are below, as each went out.
+    private static readonly Offer BeautyBank = new(
         Name: "✨The Neelam Aesthetics Beauty Bank✨",
         Summary: Summary,
         Tiers:
@@ -79,8 +81,9 @@ public static class BeautyBankEmail
         TermsUrl: null,
         TiersNote: "Here’s how it works, 100% of your money goes to any treatments you would like:");
 
-    // The first send's option, as close to its words as the typed benefits come (checked word for word
-    // against the sent email, 2026-10-09). As sent, each option was one line per benefit:
+    // The $299 option as sent, as close to its words as the typed benefits come (checked word for word
+    // against the sent email, 2026-10-09): both options of the first send, and option 2 of the second.
+    // As sent, each option was one line per benefit:
     //   "Option 1 Platinum Member:"
     //   "🤍 $299 monthly contribution (100% of your money goes to any treatments you would like)"
     //   "🤍 $75 Birthday reward during your birth month!"
@@ -89,7 +92,7 @@ public static class BeautyBankEmail
     // with "or" on a line between the two options. What the model cannot say: the price line (it
     // writes "$299/month"), "Birthday reward ...!" (a birthday credit reads "birthday credit"),
     // "Complimentary" capitalised, the last line as one line rather than two benefits, and the "or".
-    private static Tier FirstSendOption(int number) => new($"Option {number} Platinum Member", 299m,
+    private static Tier SentOption299(int number) => new($"Option {number} Platinum Member", 299m,
     [
         new BirthdayCredit(75m),
         new PercentOff(10, "any qualifying treatments"),
@@ -97,36 +100,61 @@ public static class BeautyBankEmail
         new DiscountedItem(50, "wellness injection", "during visit", "any additional"),
     ]);
 
+    // The second send's option 1, the $149 tier, checked word for word against the send (2026-10-09).
+    // Its last line went out as "50% Complimentary Wellness Injections per visit", the email's real
+    // mistake (half off, or free?), entered as sent: "Complimentary" in "Which ones", so it reads
+    // "50% off Complimentary Wellness Injections per visit", the sent words plus the "off" the model adds.
+    private static readonly Tier SecondSendOption1 = new("Option 1 Platinum Member", 149m,
+    [
+        new BirthdayCredit(25m),
+        new PercentOff(5, "any qualifying treatments"),
+        new DiscountedItem(50, "Wellness Injection", "per visit", "Complimentary"),
+    ]);
+
+    private static readonly string[] SentOpening =
+        [Opening[0], Opening[1].Replace("small family business", "small Family business"), Opening[2]];
+
     /// <summary>
     /// First send: both options were the $299 tier, word for word, under the names "Option 1 Platinum
-    /// Member" and "Option 2 Platinum Member". Its offer heading began "Introducing:", and its
+    /// Member" and "Option 2 Platinum Member". Its subject was "Celebrate 1 year of Neelam Aesthetics!"
+    /// ("WE'RE TURNING ONE!" was the headline), its offer heading began "Introducing:", and its
     /// opening wrote "small Family business".
     /// </summary>
     public static Campaign FirstSend() =>
-        Email(SentOffer with
+        Email(BeautyBank with
             {
                 Name = "Introducing: ✨The Neelam Aesthetics Beauty Bank✨",
-                Tiers = [FirstSendOption(1), FirstSendOption(2)],
+                Tiers = [SentOption299(1), SentOption299(2)],
             },
-            "Hi Beautiful🤍", ComeVisit, disclaimer: null,
-            opening: [Opening[0], Opening[1].Replace("small family business", "small Family business"), Opening[2]]);
+            "Hi Beautiful🤍", ComeVisit, disclaimer: null, opening: SentOpening,
+            subject: "Celebrate 1 year of Neelam Aesthetics!");
 
     /// <summary>
-    /// Second send, 38 minutes later: option 1 became the $149 tier, but both were still named
-    /// "Platinum Member". It had a button, "Come visit", to the clinic's site; nothing let a reader
-    /// join the Beauty Bank, and there was no disclaimer or terms link.
+    /// Second send, 38 minutes later, subject "Celebrate 1 year of Neelam Aesthetics! - Correction":
+    /// option 1 became the $149 tier, but the options were still "Option 1 Platinum Member" and
+    /// "Option 2 Platinum Member", and option 1's last line said "50% Complimentary Wellness
+    /// Injections per visit". Otherwise as the first send: the "Introducing:" heading, "small Family
+    /// business", a button, "Come visit", to the clinic's site that let no reader join the Beauty
+    /// Bank, and no disclaimer or terms link.
     /// </summary>
-    public static Campaign SecondSend() => Email(SentOffer, "Hi Beautiful🤍", ComeVisit, disclaimer: null);
+    public static Campaign SecondSend() =>
+        Email(BeautyBank with
+            {
+                Name = "Introducing: ✨The Neelam Aesthetics Beauty Bank✨",
+                Tiers = [SecondSendOption1, SentOption299(2)],
+            },
+            "Hi Beautiful🤍", ComeVisit, disclaimer: null, opening: SentOpening,
+            subject: "Celebrate 1 year of Neelam Aesthetics! - Correction");
 
     /// <summary>
     /// The same email with every blocker fixed. The offer name is deliberately left as
     /// "Beauty Bank": renaming it is the owner's call, so it stays a warning.
     /// </summary>
     public static Campaign Corrected() => Email(
-        SentOffer with
+        BeautyBank with
         {
             Name = "✨ The Neelam Aesthetics Beauty Bank ✨",
-            Tiers = [SentOffer.Tiers[0] with { Name = "Gold Member" }, SentOffer.Tiers[1]],
+            Tiers = [BeautyBank.Tiers[0] with { Name = "Gold Member" }, BeautyBank.Tiers[1]],
             TermsUrl = TermsUrl,
             TiersNote = "Here’s how it works. 100% of your monthly contribution goes toward any " +
                         "treatments you choose.",
@@ -171,9 +199,10 @@ public static class BeautyBankEmail
     // In the order Square rendered the real sends: header photo with the business name, a spacer,
     // the headline, the greeting and opening, the offer through to the sign-off, then a photo and
     // the button.
+    // The corrected version keeps the headline as its subject; the sends' subjects are their own.
     private static Campaign Email(
         Offer offer, string greeting, CallToAction button, string? disclaimer, string[]? opening = null,
-        (ImageRef Header, ImageRef Body)? photos = null)
+        (ImageRef Header, ImageRef Body)? photos = null, string subject = "WE’RE TURNING ONE!")
     {
         var (headerPhoto, bodyPhoto) = photos ?? (HeaderPhoto, BodyPhoto);
         var blocks = new List<Block>
@@ -190,6 +219,6 @@ public static class BeautyBankEmail
         if (disclaimer is not null) blocks.Add(new FinePrintBlock("Disclaimer", disclaimer));
         blocks.Add(new ImageBlock("Photo", bodyPhoto));
         blocks.Add(new ButtonBlock("Call to action", button));
-        return new Campaign("WE’RE TURNING ONE!", blocks);
+        return new Campaign(subject, blocks);
     }
 }

@@ -12,12 +12,23 @@ Neelam Aesthetics sends marketing email through **Square Marketing**, which has 
 campaigns. The one-year / "Beauty Bank" email went out **twice** with mistakes:
 
 1. **First send:** both membership offers were identical.
-2. **Second send:** one offer's contents were updated, but both were still named "Platinum Member".
+2. **Second send:** one offer's contents were updated, but both were still "Platinum Member"
+   ("Option 1 Platinum Member" and "Option 2 Platinum Member").
 
 The original also had wording errors ("50% Complimentary Wellness Injections", "Hi Beautiful🤍",
 the same sentence three times, no join link, no terms). Both sends are reproduced as fixtures
 in `tests/Neelam.Campaigns.Tests/SampleCampaigns.cs`, and the README's "Why" table maps each
-mistake to the check that now stops it.
+mistake to the check that now stops it. **Since 2026-10-09 both samples say what was sent**
+(`BeautyBankEmail.FirstSend()` / `SecondSend()`, checked word for word): subjects "Celebrate 1
+year of Neelam Aesthetics!" and "Celebrate 1 year of Neelam Aesthetics! - Correction" ("WE'RE
+TURNING ONE!" is the headline of both); the second send's "Introducing:" offer name, "small Family
+business", options "Option 1/2 Platinum Member", option 1's last line entered as sent (Percent off
+an item, 50, "Wellness Injection", which ones "Complimentary", per visit: "50% off Complimentary
+Wellness Injections per visit") and option 2's "Wellness Injection" and "during visit". So the
+second send's names are no longer a Must fix (`tier-names-unique` needs identical names) but
+`tier-rung-repeated`, Worth a look; it is still blocked by `terms-required` and
+`medical-disclaimer`. Whether any instant rule should catch "50% off Complimentary" is open; it is
+the proofread's line. The corrected sample is unchanged.
 
 The owner's stated goals: no duplicate offers, and no embarrassing mistakes "that a simple LLM
 could catch".
@@ -208,8 +219,10 @@ drifting from hers, and no image file is copied or stored here.
 
 ## Campaign label (owner, 2026-10-09)
 
-Her two sends of the Beauty Bank email share the subject "WE'RE TURNING ONE!", so her list could
-tell them apart only by time. **Decided:** a campaign has an optional label, for her own use only.
+Her two sends of the Beauty Bank email share the subject "WE’RE TURNING ONE!", so her list could
+tell them apart only by time. *(Corrected 2026-10-09: that was the headline of both and the subject
+of the entries made from the old samples; the inbox subjects were "Celebrate 1 year of Neelam
+Aesthetics!" and "... - Correction". The label is still wanted.)* **Decided:** a campaign has an optional label, for her own use only.
 
 - **Where it lives:** `CampaignDraft.Label`, saved by `CampaignJson` as an optional `label` in the
   draft's JSON (trimmed; left out when blank, so schema stays 2 and older drafts read as

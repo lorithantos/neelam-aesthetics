@@ -33,7 +33,8 @@ public class CampaignReviewTests
     [Fact]
     public void Identical_names_are_still_a_must_fix_and_not_the_numbered_note()
     {
-        var second = CampaignReview.Check(SampleCampaigns.SecondSend());
+        var second = CampaignReview.Check(TwoTiers(
+            new Tier("Platinum Member", 149m, [new BirthdayCredit(25m)]), new Tier("Platinum Member", 299m, [new BirthdayCredit(75m)])));
         var numbered = CampaignReview.Check(TwoTiers(
             new Tier("Option 1 Gold", 149m, [new BirthdayCredit(25m)]), new Tier("Option 1 Gold", 299m, [new BirthdayCredit(75m)])));
 
@@ -93,15 +94,21 @@ public class CampaignReviewTests
     }
 
     // It had a button ("Come visit", to the clinic's site), so cta-required rightly stays quiet; that
-    // the button did not let anyone join the offer is the proofread's to catch.
+    // the button did not let anyone join the offer is the proofread's to catch. As sent (checked
+    // 2026-10-09) its options were "Option 1 Platinum Member" and "Option 2 Platinum Member", not
+    // the same name, so tier-names-unique is quiet; both are Platinum, which tier-rung-repeated says,
+    // worth a look. "50% off Complimentary Wellness Injections" is left to the proofread.
     [Fact]
     public void Second_send_is_blocked_for_every_known_failure()
     {
         var report = CampaignReview.Check(SampleCampaigns.SecondSend());
 
+        Assert.Equal(["medical-disclaimer", "terms-required"], Rules(report, Severity.Blocker));
         Assert.Equal(
-            ["medical-disclaimer", "terms-required", "tier-names-unique"],
-            Rules(report, Severity.Blocker));
+            "Tiers 1 and 2 are both 'Platinum'. Tier names like Bronze, Silver, Gold and Platinum tell readers which is which; " +
+            "give each tier its own.",
+            Assert.Single(report.Warnings, f => f.Rule == "tier-rung-repeated").Message);
+        Assert.DoesNotContain(report.Findings, f => f.Rule is "tier-names-unique" or "tier-names-numbered");
     }
 
     // ---- Wording: the benefit as she wrote it, never its key; singular and plural; text as written
@@ -177,7 +184,8 @@ public class CampaignReviewTests
     public void Duplicate_tier_name_is_reported_once_naming_both_tiers()
     {
         var finding = Assert.Single(
-            CampaignReview.Check(SampleCampaigns.SecondSend()).Findings,
+            CampaignReview.Check(TwoTiers(
+                new Tier("Platinum Member", 149m, [new BirthdayCredit(25m)]), new Tier("Platinum Member", 299m, [new BirthdayCredit(75m)]))).Findings,
             f => f.Rule == "tier-names-unique");
 
         Assert.Contains("Tiers 1 and 2", finding.Message);
