@@ -30,7 +30,7 @@ public class KnownItemsTests
 
     // ---- Storage: one table, a partition per client
 
-    public static TheoryData<KnownItem> EachKind => new() { Wellness, TenOff, Platinum };
+    public static TheoryData<KnownItem> EachKind => new() { Wellness, TenOff, FiveToTen, Platinum };
 
     [Theory]
     [MemberData(nameof(EachKind))]
@@ -479,6 +479,194 @@ public class KnownItemsTests
         Assert.True(tier.SaveOffered(known));
     }
 
+    // ---- Benefit lines are patterns: the words fixed, the amounts usual and optionally limited
+    // (owner, 2026-10-09: known lines are "replacements with limits if needed", and "Outside of
+    // limits should be warnings").
+
+    private static KnownBenefit Limited(Benefit usual, decimal? min, decimal? max) =>
+        new(KnownItem.NewId(), usual, [new AmountLimit(usual.Amounts.Single().Field.Name, min, max)]);
+
+    private static readonly KnownBenefit FiveToTen = Limited(new PercentOff(10, "any qualifying treatments"), 5, 10);
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(8)]
+    [InlineData(10)]
+    public void A_line_within_its_limits_is_silent(int percent) =>
+        Assert.Empty(NearMisses(WithBenefit(new PercentOff(percent, "Any Qualifying Treatment")), Knowing(FiveToTen)));
+
+    [Theory]
+    [InlineData(15, "'15% off any qualifying treatments' is outside your usual range for this line (5%–10%).")]
+    [InlineData(3, "'3% off any qualifying treatments' is outside your usual range for this line (5%–10%).")]
+    public void Above_the_highest_or_below_the_lowest_is_worth_a_look_with_the_range(int percent, string message)
+    {
+        var finding = Assert.Single(NearMisses(WithBenefit(new PercentOff(percent, "any qualifying treatments")), Knowing(FiveToTen)));
+
+        Assert.Equal(Severity.Warning, finding.Severity);
+        Assert.Equal("known-item", finding.Rule);
+        Assert.Equal("Offer › Tier 1, benefit 1", finding.Location);
+        Assert.Equal(message, finding.Message);
+        Assert.Equal($"{percent}% off any qualifying treatments", finding.Excerpt);
+    }
+
+    // One end open, and each kind's own unit: dollars and a count read as the email writes them.
+    [Fact]
+    public void A_range_open_at_one_end_says_so_in_the_line_s_own_units()
+    {
+        var credit = Limited(new BirthdayCredit(75m), null, 100m);
+        var injections = Limited(new FreeItem(1, "wellness injection", "per visit"), 1, null);
+
+        Assert.Equal("'$150 birthday credit during your birth month' is outside your usual range for this line (up to $100).",
+            Assert.Single(NearMisses(WithBenefit(new BirthdayCredit(150m)), Knowing(credit))).Message);
+        Assert.Equal("'0 complimentary wellness injections per visit' is outside your usual range for this line (at least 1).",
+            Assert.Single(NearMisses(WithBenefit(new FreeItem(0, "wellness injection", "per visit")), Knowing(injections))).Message);
+        Assert.Equal("$75 birthday credit during your birth month — usually $75, at most $100", credit.Shown);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(10)]
+    [InlineData(50)]
+    [InlineData(110)]
+    public void With_no_limits_any_amount_is_silent(int amount)
+    {
+        Assert.Empty(NearMisses(WithBenefit(new PercentOff(amount, "any qualifying treatments")), Knowing(TenOff)));
+        Assert.Empty(NearMisses(WithBenefit(new FreeItem(amount, "wellness injection", "per visit")),
+            Knowing(new KnownBenefit(KnownItem.NewId(), new FreeItem(1, "wellness injection", "per visit")))));
+        Assert.Equal("10% off any qualifying treatments — usually 10%, any amount", TenOff.Shown);
+    }
+
+    // The words are still compared as before: a near miss is "Did you mean", at the amount written;
+    // other words are the neutral note.
+    [Fact]
+    public void A_difference_in_the_words_still_gets_the_near_miss_or_the_neutral_note()
+    {
+        Assert.Equal("Did you mean '15% off any qualifying treatments'? It's in your known items.",
+            Assert.Single(NearMisses(WithBenefit(new PercentOff(15, "any qualifing treatments")), Knowing(FiveToTen))).Message);
+        Assert.Equal("'10% off any facial' isn't one of your known benefit lines.",
+            Assert.Single(NearMisses(WithBenefit(new PercentOff(10, "any facial")), Knowing(FiveToTen))).Message);
+        // Another kind with the same words is another line.
+        Assert.Equal(BenefitStanding.NotKnown,
+            new KnownItems([FiveToTen]).CheckBenefit(new DiscountedItem(10, "qualifying treatment", "per visit")).Standing);
+    }
+
+    // "10% off" and "15% off" is a decision, not a typo: whatever the amount, a known line's words
+    // draw no "Did you mean" and no offer to save it again.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(9)]
+    [InlineData(15)]
+    [InlineData(100)]
+    public void A_different_amount_is_never_a_did_you_mean(int amount)
+    {
+        var lines = new KnownItems([TenOff, Limited(new DiscountedItem(50, "wellness injection", "per visit"), 25, 50)]);
+        foreach (var written in new Benefit[] { new PercentOff(amount, "any qualifying treatments"), new DiscountedItem(amount, "wellness injection", "per visit") })
+        {
+            var findings = NearMisses(WithBenefit(written), new BusinessContext("Neelam Aesthetics") { Known = lines });
+            Assert.DoesNotContain(findings, f => f.Message.StartsWith("Did you mean"));
+            Assert.DoesNotContain(findings, f => f.Message.Contains("isn't one of your known"));
+            Assert.False(BenefitEditor.Standalone(written).SaveOffered(lines));
+        }
+    }
+
+    // Picking a line in the campaign editor fills its kind, words and usual amounts; she changes the
+    // amount there, and the limits then hold it.
+    [Fact]
+    public void Picking_a_line_fills_its_usual_amounts()
+    {
+        var editor = CampaignEditor.Open(DraftFixtures.Finished());
+        var tier = OfferOf(editor).Tiers[0];
+        var known = new KnownItems([FiveToTen]);
+
+        var picked = tier.AddKnownBenefit(known.BenefitNamed("10% off any qualifying treatments")!.Benefit);
+
+        Assert.Equal(("percent-off", "10", "any qualifying treatments"), (picked.Kind, picked.Percent, picked.AppliesTo));
+        Assert.Equal(new PercentOff(10, "any qualifying treatments"), picked.Value);
+        picked.Percent = "20";
+        Assert.Equal(BenefitStanding.OutsideLimits, known.CheckBenefit(picked.Value!).Standing);
+    }
+
+    [Fact]
+    public void Limits_round_trip_through_the_table_row()
+    {
+        var line = new KnownBenefit(KnownItem.NewId(), new BirthdayCredit(75m),
+            [new AmountLimit("Amount", 50m, 99.50m)]);
+
+        var row = KnownItemTable.FromItem(SalonOne, line);
+
+        Assert.Equal("""[{"field":"Amount","min":50,"max":99.50}]""", row.GetString("Limits"));
+        var read = Assert.IsType<KnownBenefit>(KnownItemTable.ToItem(SalonOne, row));
+        Assert.Equal(line.Benefit, read.Benefit);
+        Assert.Equal(line.SetLimits, read.SetLimits);
+        // One end open: the other is left out of the row, not written as null.
+        Assert.Equal("""[{"field":"Amount","max":100}]""",
+            KnownItemTable.FromItem(SalonOne, line with { Limits = [new AmountLimit("Amount", null, 100m)] }).GetString("Limits"));
+        // No limits, no column.
+        Assert.False(KnownItemTable.FromItem(SalonOne, TenOff).ContainsKey("Limits"));
+    }
+
+    // A row written before limits existed has no Limits column: it is a line with no limits.
+    [Fact]
+    public void An_old_row_reads_as_no_limits()
+    {
+        var old = new TableEntity(SalonOne.Value, KnownItem.NewId())
+        {
+            ["Kind"] = "Benefit",
+            ["Text"] = "10% off any qualifying treatments",
+            ["Benefit"] = CampaignJson.SerializeBenefits([new PercentOff(10, "any qualifying treatments")]),
+        };
+        var log = new ListLogger<KnownItemTable>();
+
+        var line = Assert.Single(KnownItemTable.ReadAll(SalonOne, [old], log).Benefits);
+
+        Assert.Empty(log.Entries);
+        Assert.Empty(line.SetLimits);
+        Assert.Equal(BenefitStanding.Known, new KnownItems([line]).CheckBenefit(new PercentOff(40, "any qualifying treatments")).Standing);
+    }
+
+    [Theory]
+    [InlineData(10, 5, "The lowest percentage (10%) is above the highest (5%).")]
+    [InlineData(12, 20, "The usual percentage (10%) is below the lowest (12%).")]
+    [InlineData(null, 8, "The usual percentage (10%) is above the highest (8%).")]
+    public async Task Limits_that_do_not_hold_together_are_refused(int? min, int? max, string message)
+    {
+        var store = new InMemoryKnownItems();
+
+        var refused = await Assert.ThrowsAsync<ArgumentException>(() =>
+            store.AddAsync(SalonOne, Limited(new PercentOff(10, "any qualifying treatments"), min, max)));
+
+        Assert.Equal(message, refused.Message);
+        Assert.Empty((await store.ForClientAsync(SalonOne)).All);
+    }
+
+    // A line is its words: the same words at another usual amount is the same line, and says so.
+    [Fact]
+    public async Task The_same_words_at_another_amount_are_already_known()
+    {
+        var store = new InMemoryKnownItems();
+        await store.AddAsync(SalonOne, TenOff);
+
+        var twice = await Assert.ThrowsAsync<ArgumentException>(() =>
+            store.AddAsync(SalonOne, new KnownBenefit(KnownItem.NewId(), new PercentOff(15, "Any qualifying treatments"))));
+
+        Assert.Equal("\"10% off any qualifying treatments\" is already in your known items.", twice.Message);
+        await store.AddAsync(SalonOne, new KnownBenefit(KnownItem.NewId(), new PercentOff(15, "any facial")));
+    }
+
+    // A tier goes out as a whole: its lines are known word for word and amount for amount, so the
+    // same words at another amount are not one of them, while a typo in the words still is a near miss.
+    [Fact]
+    public void A_known_tier_s_lines_are_still_compared_word_for_word()
+    {
+        Assert.Empty(NearMisses(WithBenefit(new PercentOff(10, "any qualifying treatments")), Knowing(Platinum)));
+        Assert.Equal("'15% off any qualifying treatments' isn't one of your known benefit lines.",
+            Assert.Single(NearMisses(WithBenefit(new PercentOff(15, "any qualifying treatments")), Knowing(Platinum))).Message);
+        Assert.Equal("'$80 birthday credit during your birth month' isn't one of your known benefit lines.",
+            Assert.Single(NearMisses(WithBenefit(new BirthdayCredit(80m)), Knowing(Platinum))).Message);
+        Assert.Equal("Did you mean '10% off any qualifying treatments'? It's in your known items.",
+            Assert.Single(NearMisses(WithBenefit(new PercentOff(10, "any qualifing treatments")), Knowing(Platinum))).Message);
+    }
+
     // ---- A store that fails never ends her session
     // On an interactive page an exception ends the connection, and her unsaved campaign with it, so
     // a storage failure is told to her and logged, never thrown.
@@ -565,6 +753,7 @@ public class KnownItemsTests
     [Fact]
     public void A_malformed_row_is_left_out_and_logged_by_its_key_alone()
     {
+        var tenOffJson = CampaignJson.SerializeBenefits([TenOff.Benefit]);
         Azure.Data.Tables.TableEntity Row(string id, params (string Key, object Value)[] columns)
         {
             var row = new Azure.Data.Tables.TableEntity(SalonOne.Value, id);
@@ -579,6 +768,10 @@ public class KnownItemsTests
             Row(KnownItem.NewId(), ("Kind", "Tier"), ("Text", "Secret two"), ("Price", "lots"), ("Benefits", "[]")),
             Row(KnownItem.NewId(), ("Kind", "Tier"), ("Text", "Secret three"), ("Price", "299"), ("Benefits", "{not json")),
             Row(KnownItem.NewId(), ("Kind", "Benefit"), ("Text", "Secret four"), ("Benefit", "[]")), // no benefit in it
+            // Limits that do not parse, and limits that do not hold (lowest above highest, an amount it lacks).
+            Row(KnownItem.NewId(), ("Kind", "Benefit"), ("Text", "Secret five"), ("Benefit", tenOffJson), ("Limits", "{not json")),
+            Row(KnownItem.NewId(), ("Kind", "Benefit"), ("Text", "Secret six"), ("Benefit", tenOffJson), ("Limits", """[{"field":"Percent","min":10,"max":5}]""")),
+            Row(KnownItem.NewId(), ("Kind", "Benefit"), ("Text", "Secret seven"), ("Benefit", tenOffJson), ("Limits", """[{"field":"Amount","max":5}]""")),
         };
         var log = new ListLogger<KnownItemTable>();
 
@@ -625,6 +818,7 @@ public class KnownItemsTests
         {
             case KnownBenefit b:
                 Assert.Equal(b.Benefit, ((KnownBenefit)actual).Benefit);
+                Assert.Equal(b.SetLimits, ((KnownBenefit)actual).SetLimits);
                 break;
             case KnownTier t:
                 var tier = (KnownTier)actual;

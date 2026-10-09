@@ -185,6 +185,33 @@ public class AssistantExportTests
         Assert.DoesNotContain(worthALook, w => w.Contains("Social") || w.Contains("Lasers") || w.Contains("Facial"));
     }
 
+    // A benefit line's amount outside her usual range is worth a look on the page and for the
+    // assistant alike (owner, 2026-10-09: "Outside of limits should be warnings"), never a block.
+    [Fact]
+    public void A_benefit_outside_its_line_s_limits_reaches_worth_a_look()
+    {
+        var campaign = BeautyBankEmail.Corrected();
+        var offerLabel = campaign.BlocksOf<OfferBlock>().Single().Label;
+        var benefits = campaign.BlocksOf<OfferBlock>().Single().Offer.Tiers[0].Benefits.ToList();
+        var written = benefits.First(b => b.Item is null);
+        var amount = written.Amounts.Single();
+        // Her line usually one less than written, and at most that.
+        var line = new KnownBenefit(KnownItem.NewId(), written.WithAmount(amount.Field.Name, amount.Value - 1),
+            [new AmountLimit(amount.Field.Name, null, amount.Value - 1)]);
+        var known = new BusinessContext("Neelam Aesthetics") { Known = new KnownItems([line]) };
+
+        var report = CampaignGate.DemoReview(campaign, ByPriya, business: known);
+
+        // Another tier carrying the same line is noted there too (open decision 10); this is tier 1's.
+        var finding = Assert.Single(report.Findings, f => f.Rule == "known-item" && f.Location.StartsWith($"{offerLabel} › Tier 1,")
+                                                          && f.Message.Contains("outside your usual range"));
+        Assert.Equal(Severity.Warning, finding.Severity);
+        var worthALook = Parse(Exported(report, context: Context))["review"]!["worthALook"]!.AsArray()
+            .Select(n => n!.GetValue<string>()).ToList();
+        Assert.Contains($"{offerLabel} › Tier 1, benefit {benefits.IndexOf(written) + 1}: '{written.Describe()}' is outside your usual range for this line " +
+                        $"(up to {amount.Field.Show(amount.Value - 1)}).", worthALook);
+    }
+
     // The page and the assistant read the same findings: a benefit named as she wrote it, never by its
     // key ("free:wellness injection"), in "Worth a look" too.
     [Fact]

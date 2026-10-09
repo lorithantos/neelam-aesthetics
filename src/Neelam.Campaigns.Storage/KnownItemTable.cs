@@ -139,7 +139,9 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         switch (item)
         {
             case KnownBenefit b:
+                // The usual amounts are the benefit's own; the limits, when any is set, beside it.
                 row["Benefit"] = CampaignJson.SerializeBenefits([b.Benefit]);
+                if (b.SetLimits.Count > 0) row["Limits"] = JsonSerializer.Serialize(b.SetLimits, LimitsJson);
                 break;
             case KnownTier t:
                 // Text, not a double: a price is exact.
@@ -162,13 +164,38 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         return row.GetString("Kind") switch
         {
             nameof(KnownItemKind.Treatment) => new KnownTreatment(row.RowKey, text),
-            nameof(KnownItemKind.Benefit) => new KnownBenefit(row.RowKey,
-                CampaignJson.DeserializeBenefits(Required(row, "Benefit")).Single()),
+            nameof(KnownItemKind.Benefit) => BenefitLine(row),
             nameof(KnownItemKind.Tier) => new KnownTier(row.RowKey, text,
                 decimal.Parse(Required(row, "Price"), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture),
                 CampaignJson.DeserializeBenefits(Required(row, "Benefits"))),
             var kind => throw new InvalidDataException($"Known item {row.RowKey} is of no known kind ('{kind}')."),
         };
+    }
+
+    // Limits are a JSON list of { field, min, max }: camelCase, an unset end left out.
+    private static readonly JsonSerializerOptions LimitsJson = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+    };
+
+    /// <summary>
+    /// A benefit line from its row. A row with no Limits column (every row from before limits
+    /// existed) is a line with no limits: any amount is fine. Limits that do not parse, or do not hold
+    /// for the line (an amount it lacks, lowest above highest, the usual amount outside them), make the
+    /// row malformed, left out by <see cref="ReadAll"/> like any other.
+    /// </summary>
+    private static KnownBenefit BenefitLine(TableEntity row)
+    {
+        var benefit = CampaignJson.DeserializeBenefits(Required(row, "Benefit")).Single();
+        var limits = row.GetString("Limits") is { } json
+            ? JsonSerializer.Deserialize<List<AmountLimit>>(json, LimitsJson)
+              ?? throw new InvalidDataException($"Known item {row.RowKey} has empty limits.")
+            : [];
+        if (limits.Any(l => l is null)) throw new InvalidDataException($"Known item {row.RowKey} has an empty limit.");
+        var line = new KnownBenefit(row.RowKey, benefit, limits);
+        if (line.LimitProblems().Count > 0)
+            throw new InvalidDataException($"Known item {row.RowKey} has limits that do not hold.");
+        return line;
     }
 
     private static string Required(TableEntity row, string property) =>

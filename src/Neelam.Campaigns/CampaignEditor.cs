@@ -507,15 +507,19 @@ public sealed class TierEditor
 /// <see cref="Benefit"/> types themselves; a test holds it to the types <see cref="Benefit"/>
 /// declares, so a new kind of benefit cannot be added without its fields here.
 /// </summary>
-public sealed record BenefitKind(string Key, string Name, Type Type)
+/// <param name="Amounts">The kind's amounts, which a known benefit line may limit.</param>
+public sealed record BenefitKind(string Key, string Name, Type Type, IReadOnlyList<AmountField> Amounts)
 {
     public static IReadOnlyList<BenefitKind> All { get; } =
     [
-        new("birthday-credit", "Birthday credit", typeof(BirthdayCredit)),
-        new("percent-off", "Percent off treatments", typeof(PercentOff)),
-        new("free-item", "Something free", typeof(FreeItem)),
-        new("discounted-item", "Percent off an item", typeof(DiscountedItem)),
+        new("birthday-credit", "Birthday credit", typeof(BirthdayCredit), [BirthdayCredit.AmountField]),
+        new("percent-off", "Percent off treatments", typeof(PercentOff), [PercentOff.PercentField]),
+        new("free-item", "Something free", typeof(FreeItem), [FreeItem.QuantityField]),
+        new("discounted-item", "Percent off an item", typeof(DiscountedItem), [DiscountedItem.PercentField]),
     ];
+
+    /// <summary>The kind under <paramref name="key"/>, or null.</summary>
+    public static BenefitKind? Of(string key) => All.FirstOrDefault(k => k.Key == key);
 }
 
 /// <summary>
@@ -587,12 +591,12 @@ public sealed class BenefitEditor
 
     /// <summary>
     /// Whether "Save as a known item" is offered for this line: while it is unfinished (the button
-    /// then says to fill it in), or when the line is new to her list and its item is no near miss of a
-    /// known treatment.
+    /// then says to fill it in), or when the line is new to her list (<see cref="KnownItems.IsNewBenefit"/>:
+    /// one of her lines at another amount is not new) and its item is no near miss of a known treatment.
     /// </summary>
     public bool SaveOffered(KnownItems known) =>
         Value is not { } benefit
-        || (known.IsNew(KnownItemKind.Benefit, benefit.Describe())
+        || (known.IsNewBenefit(benefit)
             && (benefit.Item is not { } item || known.NearMiss(KnownItemKind.Treatment, item) is null));
 
     /// <summary>The kind's <see cref="BenefitKind.Key"/>, or blank before one is chosen.</summary>

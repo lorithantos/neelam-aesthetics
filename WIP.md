@@ -270,13 +270,18 @@ misses.
   in `InfrastructureTests.The_metadata_tables_are_exactly_these`, beside `activity`): partition = client
   name, row = the item's id (32 hex digits). Columns: `Kind` (Treatment, Benefit, Tier), `Text` (a
   treatment's or tier's name, a benefit's sentence), and `Benefit` (a benefit item's typed benefit as
-  JSON) or `Price` (text, so it is exact) and `Benefits` (the tier's typed lines as JSON). The site's
+  JSON, at its usual amounts) with `Limits` (its limits as JSON, `[{"field":"Percent","min":5,"max":10}]`,
+  present only when one is set) or `Price` (text, so it is exact) and `Benefits` (the tier's typed lines
+  as JSON). `Limits` needed no infra change: Table Storage rows take any column, and a row without it
+  (every row written before 2026-10-09's limits) is a line with no limits. The site's
   identity gets Storage Table Data Contributor on it through the same `tables[i]` loop as every table.
   Until it is deployed, the Known items page fails to open; campaign pages log the failed read
   (`ClientWorkspace.BusinessAsync`) and go on with no known items. **Malformed rows** (2026-10-09): a
   known-items row that cannot be read (missing column, unknown kind, a price or benefits that do not
   parse) is left out by the store (`KnownItemTable.ReadAll`) and logged by its row key and the failure's
-  type, never its content; the rest are kept. A row from another client's partition is still refused
+  type, never its content; the rest are kept. Limits that do not parse, or do not hold for the line
+  (an amount its kind lacks, lowest above highest, the usual amount outside them), are malformed the
+  same way. A row from another client's partition is still refused
   outright, and `BusinessAsync` takes any failure to read known items as none. A clients-table row that
   cannot be read makes `BusinessAsync` log it and throw `RegistrationUnreadableException`; the campaign
   page then says "This campaign can't be checked yet" with "Your business's details couldn't be read, so
@@ -286,7 +291,41 @@ misses.
   (sign-in, Campaigns list, Clients page) still fail on such a row.
 - **Benefits stay typed.** The campaign model has no free-text benefit (README "Why": "50% Complimentary"
   cannot be expressed), so a known benefit is a typed `Benefit`, its text the sentence it reads as.
-  Picking one puts the same kind and values in the form.
+- **Benefit lines are patterns with limits (owner, 2026-10-09; built the same day).** The owner: known
+  lines should be "replacements with limits if needed", and "Outside of limits should be warnings - if
+  they want to give you money to have a service (110% off) then...well, that just makes them
+  presidential." So:
+  - A known benefit line (`KnownBenefit`) is its kind and its words (what it is off, the item, how often,
+    which ones), plus, for each **amount** its kind has (`Benefit.Amounts`: a birthday credit's dollars,
+    a percentage, how many), a usual value (the benefit's own) and an optional lowest and highest
+    (`AmountLimit`). No limit: any amount is fine. Which fields are amounts is the benefit type's
+    (`AmountField`, listed per kind on `BenefitKind`); `Benefit.Pattern()` is the sentence with them left out.
+  - **Matching** (`KnownItems.CheckBenefit`): a campaign's benefit is a line when the kind is the same and
+    the patterns match as `KnownItemMatch.IsKnown` does (case, spacing, plural endings). Its amounts are
+    then held to that line's limits: outside them is Worth a look, "'15% off any qualifying treatments' is
+    outside your usual range for this line (5%–10%)." (one end open: "(up to $100)", "(at least 1)"),
+    never a block; within them, or with none, silent. The near miss and the neutral note apply to the
+    words only: a near miss of a line's pattern (same kind) suggests that line at the amounts written
+    ("Did you mean '15% off any qualifying treatments'?"), so a different amount is never a "Did you mean".
+    `KnownItemMatch`'s same-digits rule stays: for benefit lines it now sees only numbers in the words
+    ("30+ units"), and it still guards tier names and known tiers' lines.
+  - **Tiers stay literal:** a known tier's lines are compared word for word and amount for amount, as
+    before (`KnownItems.TierLines`); only standalone benefit lines are patterns. A benefit that matches one
+    of her lines is held to that line's limits even when a known tier carries it at another amount.
+  - **Picking** a line ("Pick a benefit") fills its kind, words and usual amounts; she changes the amount
+    there. Saving a line from a campaign is not offered when it is one of her lines at another amount.
+  - **One line per pattern:** a line says the same as another of the same kind with the same words,
+    whatever its amounts, so adding "15% off any qualifying treatments" beside "10% off ..." is refused as
+    already known.
+  - **Her page:** each line reads "10% off any qualifying treatments — usually 10%, between 5% and 10%"
+    ("at least", "at most", or "any amount"). Adding or changing a line has "Lowest percentage
+    (optional)" / "Highest percentage (optional)" boxes per amount of the chosen kind
+    (`AmountLimitsForm`); lowest above highest, or the usual amount outside them, is refused with "The
+    lowest percentage (10%) is above the highest (5%)." / "The usual percentage (12%) is above the
+    highest (10%)." (`KnownBenefit.LimitProblems`, held by the store through `KnownItemRules`).
+  - Activity events and logs are unchanged: ids only, never the line or its limits.
+  - **Note:** `benefit-value` already makes a percentage over 99 a Must fix ("110% off is not a
+    discount; use 1–99."), whatever the limits; the owner's "110% off" is a block there, not only here.
 - **A tier carries its lines' text, not references to benefit items.** A tier goes out as a whole, so
   changing or removing a benefit item must not quietly change a tier; a tier saved from a campaign has
   lines that were never benefit items; and one row is the whole tier, with no reference to dangle.
@@ -326,7 +365,8 @@ misses.
   - **Threshold** (`KnownItemMatch`): the same words ignoring case, spacing and a plural ending on any
     word ("Facials" = "Facial", "Lashes" = "Lash") is known and says nothing; otherwise a near miss is at
     most 1 edit for a known item under `KnownItemMatch.LongItemLength` (10) characters, 2 at or above,
-    with the same digits ("15% off" is not a typo of "10% off").
+    with the same digits. A benefit line is compared by its words alone (above), so "15% off" is never a
+    typo of "10% off" there.
   - With no known items of a kind, nothing is said about that kind. Only offer details reach the
     assistant export's `worthALook` from this rule (pinned by a test).
   The items reach the rule as the phone numbers do: `BusinessContext.Known`, filled by

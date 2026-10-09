@@ -40,13 +40,145 @@ public sealed record KnownTreatment(string Id, string Name) : KnownItem(Id)
 }
 
 /// <summary>
-/// A benefit line. Benefits are typed (<see cref="Benefit"/>), so a known one is too: picking it puts
-/// the same kind and values in the form, and its text is the sentence the email will carry.
+/// A benefit line, as a pattern (owner, 2026-10-09: known lines are "replacements with limits if
+/// needed"). Benefits are typed (<see cref="Benefit"/>), so a known one is too: its kind and its words
+/// (what it is off, the item, how often, which ones) are the line, and its amounts are the usual ones.
+/// Picking it puts the same kind, words and usual amounts in the form, and she changes the amount as
+/// needed. A campaign's benefit is this line when its kind and words are the same, whatever its
+/// amounts (<see cref="Matches"/>); an amount outside <paramref name="Limits"/> is worth a look, never
+/// a block. No limit on an amount: any amount of it is fine.
 /// </summary>
-public sealed record KnownBenefit(string Id, Benefit Benefit) : KnownItem(Id)
+/// <param name="Limits">At most one per amount of <paramref name="Benefit"/>; null or empty when none is limited.</param>
+public sealed record KnownBenefit(string Id, Benefit Benefit, IReadOnlyList<AmountLimit>? Limits = null) : KnownItem(Id)
 {
     public override KnownItemKind Kind => KnownItemKind.Benefit;
+
+    /// <summary>The sentence at the usual amounts: what pickers list and what picking fills in.</summary>
     public override string Text => Benefit.Describe();
+
+    /// <summary>The limits that limit something; none for a line from before limits existed.</summary>
+    public IReadOnlyList<AmountLimit> SetLimits => (Limits ?? []).Where(l => l.IsSet).ToList();
+
+    /// <summary>The limit on one of its amounts, or null when that amount may be anything.</summary>
+    public AmountLimit? LimitOn(string field) => SetLimits.FirstOrDefault(l => l.Field == field);
+
+    /// <summary>
+    /// The line as her list shows it: "10% off any qualifying treatments — usually 10%, between 5% and
+    /// 10%", or "... — usually 10%, any amount" with no limit.
+    /// </summary>
+    public string Shown =>
+        $"{Text} — " + string.Join("; ", Benefit.Amounts.Select(a =>
+            $"usually {a}, {(LimitOn(a.Field.Name) is { } limit ? limit.Between(a.Field) : "any amount")}"));
+
+    /// <summary>
+    /// Whether <paramref name="written"/> is this line: the same kind of benefit and the same words,
+    /// ignoring case, spacing and plural endings as <see cref="KnownItemMatch"/> does. Its amounts are
+    /// not compared here: they are held to the limits (<see cref="OutsideLimits"/>).
+    /// </summary>
+    public bool Matches(Benefit written) =>
+        written.GetType() == Benefit.GetType() && KnownItemMatch.IsKnown(written.Pattern(), [Benefit.Pattern()]);
+
+    /// <summary>Each amount of <paramref name="written"/> outside this line's limit on it; empty when none is.</summary>
+    public IReadOnlyList<OutsideLimit> OutsideLimits(Benefit written) =>
+        written.Amounts
+            .Select(a => (Amount: a, Limit: LimitOn(a.Field.Name)))
+            .Where(p => p.Limit is { } limit && !limit.Allows(p.Amount.Value))
+            .Select(p => new OutsideLimit(p.Amount, p.Limit!))
+            .ToList();
+
+    /// <summary>Why the limits cannot be kept as they stand; empty when they can.</summary>
+    public IReadOnlyList<string> LimitProblems()
+    {
+        var problems = new List<string>();
+        var amounts = Benefit.Amounts;
+        foreach (var limit in Limits ?? [])
+        {
+            if (amounts.FirstOrDefault(a => a.Field.Name == limit.Field) is not { } usual)
+            {
+                problems.Add("A limit names an amount this kind of benefit doesn't have.");
+                continue;
+            }
+            if ((Limits ?? []).Count(l => l.Field == limit.Field) > 1)
+            {
+                problems.Add($"The {usual.Field.Label} has more than one limit.");
+                continue;
+            }
+            var field = usual.Field;
+            if (field.Unit != AmountUnit.Dollars && (limit.Min % 1 is not (null or 0m) || limit.Max % 1 is not (null or 0m)))
+                problems.Add($"The lowest and highest {field.Label} are whole numbers.");
+            if (limit is { Min: { } lo, Max: { } hi } && lo > hi)
+                problems.Add($"The lowest {field.Label} ({field.Show(lo)}) is above the highest ({field.Show(hi)}).");
+            else if (limit.Min is { } min && usual.Value < min)
+                problems.Add($"The usual {field.Label} ({usual}) is below the lowest ({field.Show(min)}).");
+            else if (limit.Max is { } max && usual.Value > max)
+                problems.Add($"The usual {field.Label} ({usual}) is above the highest ({field.Show(max)}).");
+        }
+        return problems.Distinct().ToList();
+    }
+}
+
+/// <summary>
+/// The lowest and highest one amount of a known benefit line usually is; either may be left open.
+/// </summary>
+/// <param name="Field">The amount's field, as <see cref="AmountField.Name"/> names it.</param>
+public sealed record AmountLimit(string Field, decimal? Min, decimal? Max)
+{
+    /// <summary>Whether it limits anything: with neither end set, any amount is fine.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsSet => Min is not null || Max is not null;
+
+    public bool Allows(decimal value) => (Min is not { } lo || value >= lo) && (Max is not { } hi || value <= hi);
+
+    /// <summary>As a finding writes it: "5%–10%", "at least 5%", "up to 10%".</summary>
+    public string Range(AmountField field) => (Min, Max) switch
+    {
+        ({ } lo, { } hi) => $"{field.Show(lo)}–{field.Show(hi)}",
+        ({ } lo, null) => $"at least {field.Show(lo)}",
+        (null, { } hi) => $"up to {field.Show(hi)}",
+        _ => "any amount",
+    };
+
+    /// <summary>As her list writes it: "between 5% and 10%", "at least 5%", "at most 10%".</summary>
+    public string Between(AmountField field) => (Min, Max) switch
+    {
+        ({ } lo, { } hi) => $"between {field.Show(lo)} and {field.Show(hi)}",
+        ({ } lo, null) => $"at least {field.Show(lo)}",
+        (null, { } hi) => $"at most {field.Show(hi)}",
+        _ => "any amount",
+    };
+}
+
+/// <summary>An amount a campaign wrote that is outside the known line's limit on it.</summary>
+public sealed record OutsideLimit(BenefitAmount Amount, AmountLimit Limit)
+{
+    public string Range => Limit.Range(Amount.Field);
+}
+
+/// <summary>How a campaign's benefit stands against her benefit lines and her known tiers' lines.</summary>
+public enum BenefitStanding
+{
+    /// <summary>One of her lines, within its limits, or a known tier's line word for word. Nothing is said.</summary>
+    Known,
+
+    /// <summary>One of her lines, with an amount outside its limits: worth a look.</summary>
+    OutsideLimits,
+
+    /// <summary>Close to one of her lines in its words, or to a known tier's line: "Did you mean".</summary>
+    NearMiss,
+
+    /// <summary>None of them: a neutral note, with saving it as a line one click away.</summary>
+    NotKnown,
+}
+
+/// <summary>What <see cref="KnownItems.CheckBenefit"/> found.</summary>
+/// <param name="Suggestion">For a near miss: the line it nearly is, at the amounts written.</param>
+/// <param name="Line">The known benefit line it is, or nearly is; null for a tier's line or none.</param>
+/// <param name="Outside">For <see cref="BenefitStanding.OutsideLimits"/>: each amount outside its limit.</param>
+public sealed record BenefitCheck(
+    BenefitStanding Standing, string? Suggestion = null, KnownBenefit? Line = null, IReadOnlyList<OutsideLimit>? Outside = null)
+{
+    public static BenefitCheck Known { get; } = new(BenefitStanding.Known);
+    public static BenefitCheck NotKnown { get; } = new(BenefitStanding.NotKnown);
 }
 
 /// <summary>
@@ -94,24 +226,78 @@ public sealed class KnownItems
     public KnownTier? TierNamed(string text) => Named(Tiers, text);
 
     /// <summary>
-    /// The item of the same kind with the same text, ignoring case and surrounding space, other
-    /// than <paramref name="item"/> itself: a list that says the same thing twice is no help.
+    /// The item of the same kind that says the same thing, other than <paramref name="item"/> itself:
+    /// a list that says the same thing twice is no help. A treatment or tier says the same as another
+    /// with the same text, ignoring case and surrounding space; a benefit line, as another of the same
+    /// kind with the same words, whatever its amounts, since both would match the same benefits.
     /// </summary>
     public KnownItem? SameAs(KnownItem item) =>
-        All.FirstOrDefault(i => i.Kind == item.Kind && i.Id != item.Id
-                                && string.Equals(i.Text.Trim(), item.Text.Trim(), StringComparison.OrdinalIgnoreCase));
+        All.FirstOrDefault(i => i.Kind == item.Kind && i.Id != item.Id && SaysTheSame(i, item));
+
+    private static bool SaysTheSame(KnownItem a, KnownItem b) => (a, b) switch
+    {
+        (KnownBenefit x, KnownBenefit y) => x.Benefit.GetType() == y.Benefit.GetType()
+            && string.Equals(x.Benefit.Pattern().Trim(), y.Benefit.Pattern().Trim(), StringComparison.OrdinalIgnoreCase),
+        _ => string.Equals(a.Text.Trim(), b.Text.Trim(), StringComparison.OrdinalIgnoreCase),
+    };
 
     /// <summary>
-    /// What a benefit line is checked against: the benefit items, and the lines of the known tiers.
+    /// Her known tiers' lines, word for word. A tier goes out as a whole, so its lines are literal:
+    /// a benefit is one of them only with the same amounts too. Only her benefit lines are patterns.
     /// </summary>
-    public IReadOnlyList<string> BenefitLines =>
-        Benefits.Select(b => b.Text).Concat(Tiers.SelectMany(t => t.Benefits.Select(b => b.Describe())))
-            .Distinct(StringComparer.Ordinal).ToList();
+    public IReadOnlyList<string> TierLines =>
+        Tiers.SelectMany(t => t.Benefits.Select(b => b.Describe())).Distinct(StringComparer.Ordinal).ToList();
+
+    /// <summary>Whether there is anything a benefit is checked against: a benefit line or a known tier's line.</summary>
+    public bool HasBenefitLines => Benefits.Count > 0 || TierLines.Count > 0;
+
+    /// <summary>
+    /// How a campaign's benefit stands against her benefit lines and her known tiers' lines:
+    /// <list type="number">
+    /// <item>One of her lines (<see cref="KnownBenefit.Matches"/>): known when its amounts are within
+    /// that line's limits, else <see cref="BenefitStanding.OutsideLimits"/>. A different amount is
+    /// never a near miss: it is a decision, held only to the limits.</item>
+    /// <item>A known tier's line, word for word and amount for amount: known.</item>
+    /// <item>Close to one of her lines in its words (the same kind of benefit, the amounts left out,
+    /// <see cref="KnownItemMatch.NearMiss"/>): a near miss, suggesting that line at the amounts
+    /// written. Else close to a known tier's line as written: a near miss, suggesting that line.</item>
+    /// <item>Otherwise not known.</item>
+    /// </list>
+    /// </summary>
+    public BenefitCheck CheckBenefit(Benefit written)
+    {
+        var lines = Benefits.Where(k => k.Matches(written)).ToList();
+        if (lines.Count > 0)
+        {
+            if (lines.Any(l => l.OutsideLimits(written).Count == 0)) return BenefitCheck.Known;
+            return new(BenefitStanding.OutsideLimits, Line: lines[0], Outside: lines[0].OutsideLimits(written));
+        }
+
+        var sentence = written.Describe();
+        var tierLines = TierLines;
+        if (KnownItemMatch.IsKnown(sentence, tierLines)) return BenefitCheck.Known;
+
+        var sameKind = Benefits.Where(k => k.Benefit.GetType() == written.GetType()).ToList();
+        if (KnownItemMatch.NearMiss(written.Pattern(), sameKind.Select(k => k.Benefit.Pattern())) is { } pattern)
+        {
+            var line = sameKind.First(k => k.Benefit.Pattern().Trim() == pattern);
+            return new(BenefitStanding.NearMiss, Suggestion: line.Benefit.WithAmounts(written.Amounts).Describe(), Line: line);
+        }
+        return KnownItemMatch.NearMiss(sentence, tierLines) is { } near
+            ? new(BenefitStanding.NearMiss, Suggestion: near)
+            : BenefitCheck.NotKnown;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="written"/> is new to her benefit lines: not one of them at any amount,
+    /// not a known tier's line, and not a near miss of either. Only then is saving it offered.
+    /// </summary>
+    public bool IsNewBenefit(Benefit written) => CheckBenefit(written).Standing == BenefitStanding.NotKnown;
 
     /// <summary>
     /// The known text of this kind that <paramref name="text"/> nearly matches, as the checks'
-    /// "Did you mean" names it; null when it is known, or near none. Benefit lines are checked
-    /// against <see cref="BenefitLines"/>, as the checks do.
+    /// "Did you mean" names it; null when it is known, or near none. Treatments and tiers only: a
+    /// benefit line is a pattern, compared as a benefit (<see cref="CheckBenefit"/>).
     /// </summary>
     public string? NearMiss(KnownItemKind kind, string text) => KnownItemMatch.NearMiss(text, TextsOf(kind));
 
@@ -119,7 +305,7 @@ public sealed class KnownItems
     /// Whether <paramref name="text"/> is new to her list of this kind: not known, and not a near miss
     /// of a known item. Only then is saving it offered, beside the checks' neutral "isn't one of your
     /// known ..." note; a near miss draws "Did you mean" instead, and saving it would keep the
-    /// misspelling as known.
+    /// misspelling as known. Treatments and tiers only; for a benefit, <see cref="IsNewBenefit"/>.
     /// </summary>
     public bool IsNew(KnownItemKind kind, string text)
     {
@@ -131,8 +317,9 @@ public sealed class KnownItems
     private IReadOnlyList<string> TextsOf(KnownItemKind kind) => kind switch
     {
         KnownItemKind.Treatment => Treatments.Select(t => t.Name).ToList(),
-        KnownItemKind.Benefit => BenefitLines,
         KnownItemKind.Tier => Tiers.Select(t => t.Name).ToList(),
+        KnownItemKind.Benefit => throw new ArgumentException(
+            "A benefit line is a pattern; compare a benefit with CheckBenefit.", nameof(kind)),
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -163,6 +350,9 @@ public static class KnownItemRules
                 if (string.IsNullOrWhiteSpace(t.Name)) problems.Add("Fill in the tier's name.");
                 if (t.Price <= 0) problems.Add("A tier needs a price above zero.");
                 break;
+            case KnownBenefit b:
+                problems.AddRange(b.LimitProblems());
+                break;
         }
         if (problems.Count == 0 && existing.SameAs(item) is { } same)
             problems.Add($"\"{same.Text}\" is already in your known items.");
@@ -181,8 +371,11 @@ public static class KnownItemRules
 /// <item><b>Near miss</b> (<see cref="NearMiss"/>): otherwise, within the known item's
 /// <see cref="EditBudget"/> of single-character edits ignoring case (insert, delete or change, as
 /// Levenshtein counts them), and carrying the same digits in the same order. The digit condition
-/// keeps "15% off" from being taken for a typo of "10% off": a different number is a decision, not
-/// a slip.</item>
+/// keeps a number from being taken for a typo of another: a different number is a decision, not a
+/// slip. A benefit line's amounts never reach it (they are left out of its
+/// <see cref="Benefit.Pattern"/> and held to the line's limits instead), so for benefit lines it
+/// guards only numbers in the words, such as "30+ units"; for tier names and a known tier's lines,
+/// compared word for word, it guards every number.</item>
 /// <item>Anything else is not one of the known items at all.</item>
 /// </list>
 /// </summary>

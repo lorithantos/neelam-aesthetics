@@ -135,7 +135,7 @@
                 <label for="pick-benefit-@id">Pick a benefit</label>
                 <input @key="@($"pick-{id}-{_picks}")" id="pick-benefit-@id" list="@KnownItemLists.Benefits" placeholder="Start typing to search your known benefits"
                        value="@PickText(tier)" @oninput="e => PickBenefit(tier, e.Value as string)" />
-                <span class="field-help">Choosing one adds it to this tier as a new line, which you can still change.</span>
+                <span class="field-help">Choosing one adds it to this tier as a new line at its usual amount, which you can still change.</span>
             </div>
         }
     </section>

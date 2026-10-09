@@ -236,8 +236,11 @@ for them. A client's people only sign in and work on their campaigns.
   picks them into a campaign (a benefit into a tier, a whole tier into the offer, a treatment or
   tier name suggested as she types), and saves a tier, a benefit line or a benefit's treatment
   from a campaign as a known item. Picked text is hers, as if typed. Benefits stay typed, so a known benefit is a
-  typed benefit and its text is the sentence it reads as; a known tier carries its own lines
-  rather than pointing at benefit items, so changing a benefit item never changes a tier.
+  typed benefit; it is a pattern (owner, 2026-10-09: "replacements with limits if needed"): its
+  kind and words are the line, its amounts the usual ones, each with an optional lowest and
+  highest. Picking it fills in the usual amounts, which she changes as needed. A known tier
+  carries its own lines, word for word, rather than pointing at benefit items, so changing a
+  benefit item never changes a tier.
 - **So is how strict the checks are.** The restricted terms, medical terms and emoji limit that
   `CampaignPolicy` holds today become each client's own policy, in their container at
   `{client}/policy/{stamp}.json`. These are the client's decisions: they see and control them,
@@ -337,16 +340,23 @@ The same idea, from her own data, for offer details only (owner, 2026-10-09: goo
 prose, strict on offer details). `known-item` holds each tier's name to her known tiers, each
 benefit's Item to her known treatments, and each benefit's sentence to her benefit lines. Prose
 (headline, opening, closing, any free text) is never held to the list: its spelling is the
-proofread's job. All three findings are warnings ("Worth a look"):
+proofread's job. A benefit is one of her benefit lines when its kind and words are the same,
+whatever its amounts; a known tier's lines are compared word for word. All four findings are
+warnings ("Worth a look"):
 
 - close to a known item but not the same: "Did you mean 'Wellness injection'? It's in your known
   items." Close means within 1 edit for an item under 10 characters, 2 at 10 or more, with the
-  same numbers in it, so "15% off" is never taken for a typo of "10% off". Another case or a
-  plural ending ("Facials" for "Facial") is the same item and says nothing (`KnownItemMatch`);
+  same numbers in it. A benefit line's amounts are left out of that comparison, so "15% off" is
+  never taken for a typo of "10% off", and the suggestion keeps the amount she wrote. Another
+  case or a plural ending ("Facials" for "Facial") is the same item and says nothing
+  (`KnownItemMatch`);
 - not one of them at all: "'Hydrafacial' isn't one of your known treatments." (or tiers, or
   benefit lines), with a one-click save beside the field;
 - a known tier's name at another price: "'Platinum Member' is $299/month in your known items;
-  here it is $249/month."
+  here it is $249/month.";
+- one of her benefit lines with an amount outside its limits (owner, 2026-10-09: "Outside of
+  limits should be warnings"): "'15% off any qualifying treatments' is outside your usual range
+  for this line (5%–10%)." Within the limits, or with none set, nothing is said.
 
 With no known items of a kind, nothing is said about that kind.
 

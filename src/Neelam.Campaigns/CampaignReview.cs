@@ -84,6 +84,10 @@ public static class CampaignReview
     /// <item>Close to a known item but not the same (<see cref="KnownItemMatch"/>): "Did you mean ...?".</item>
     /// <item>Not one of them at all: a neutral note, since saving it as a known item is one click.</item>
     /// <item>A known tier's name at a different price.</item>
+    /// <item>A benefit that is one of her benefit lines with an amount outside that line's limits
+    /// (owner, 2026-10-09: "Outside of limits should be warnings"). Her benefit lines are patterns:
+    /// the words are compared, the amounts only held to the limits, so a different amount is never a
+    /// "Did you mean" (<see cref="KnownItems.CheckBenefit"/>). A known tier's lines stay literal.</item>
     /// </list>
     /// All are warnings, never a block. With no known items of a kind, nothing is said about that
     /// kind. When a benefit's Item draws a note, its sentence is not noted too: the item is the cause.
@@ -94,7 +98,6 @@ public static class CampaignReview
         if (known.IsEmpty) yield break;
         var treatments = known.Treatments.Select(t => t.Name).ToList();
         var tierNames = known.Tiers.Select(t => t.Name).ToList();
-        var lines = known.BenefitLines;
 
         // Each finding names its field, as the form does: two notes on one tier, one for its name and
         // one for a benefit, must not read alike.
@@ -117,10 +120,26 @@ public static class CampaignReview
                 var benefit = tier.Benefits[b];
                 var field = $"{where}, benefit {b + 1}";
                 var itemFinding = benefit.Item is { } item ? AgainstKnown(field, item, treatments, "treatments") : null;
-                var finding = itemFinding ?? AgainstKnown(field, benefit.Describe(), lines, "benefit lines");
+                var finding = itemFinding ?? AgainstBenefitLines(field, benefit, known);
                 if (finding is not null) yield return finding;
             }
         }
+    }
+
+    private static Finding? AgainstBenefitLines(string where, Benefit benefit, KnownItems known)
+    {
+        if (!known.HasBenefitLines) return null;
+        var written = benefit.Describe().Trim();
+        var check = known.CheckBenefit(benefit);
+        string? message = check.Standing switch
+        {
+            BenefitStanding.OutsideLimits =>
+                $"'{written}' is outside your usual range for this line ({string.Join("; ", check.Outside!.Select(o => o.Range))}).",
+            BenefitStanding.NearMiss => $"Did you mean '{check.Suggestion}'? It's in your known items.",
+            BenefitStanding.NotKnown => $"'{written}' isn't one of your known benefit lines.",
+            _ => null,
+        };
+        return message is null ? null : new(Severity.Warning, "known-item", where, message, Excerpt: written);
     }
 
     private static Finding? AgainstKnown(string where, string written, IReadOnlyList<string> known, string kinds)

@@ -72,21 +72,24 @@ else if (_session is not null)
             @foreach (var item in items.Benefits)
             {
                 <li>
-                    @if (_session.Editing?.Id == item.Id && _session.EditBenefit is { } editing)
+                    @if (_session.Editing?.Id == item.Id && _session.EditBenefit is { } editing && _session.EditLimits is { } limits)
                     {
-                        <BenefitFields Benefit="editing" Id="edit" Label="Benefit" />
+                        <BenefitFields Benefit="editing" Id="edit" Label="Benefit" Changed="KindMayHaveChanged" />
+                        @LimitFields(limits, editing, "edit")
                         @EditActions
                     }
                     else
                     {
-                        <span>@item.Text</span>
+                        <span>@item.Shown</span>
                         @ItemActions(item)
                     }
                 </li>
             }
         </ul>
         <h3>Add a benefit line</h3>
-        <BenefitFields Benefit="_session.NewBenefit" Id="new" Label="Kind of benefit" />
+        <p class="field-help">The amounts you type are the usual ones: picking the line in a campaign fills them in, and you can change them there.</p>
+        <BenefitFields Benefit="_session.NewBenefit" Id="new" Label="Kind of benefit" Changed="KindMayHaveChanged" />
+        @LimitFields(_session.NewLimits, _session.NewBenefit, "new")
         <button class="button primary" @onclick="() => _session.AddBenefitAsync()">Add benefit line</button>
     </section>
 
@@ -154,6 +157,30 @@ else if (_session is not null)
         <button class="button primary" @onclick="() => _session!.SaveEditAsync()">Save changes</button>
         <button class="button" @onclick="_session!.CancelEdit">Cancel</button>
     </span>;
+
+    // Told by a benefit's fields after each change: handling it re-renders the page, so the limit
+    // boxes follow the kind chosen.
+    private void KindMayHaveChanged()
+    {
+    }
+
+    // A benefit line's optional lowest and highest, for each amount its kind has. Blank is no limit;
+    // a campaign's amount outside them is worth a look there, never a block.
+    private RenderFragment LimitFields(AmountLimitsForm form, BenefitEditor benefit, string id) => @<div>
+        @foreach (var limit in form.FieldsFor(benefit))
+        {
+            var key = $"{id}-{limit.Field.Name.ToLowerInvariant()}";
+            <div class="field">
+                <label for="limit-lowest-@key">Lowest @limit.Field.Label (optional)</label>
+                <input id="limit-lowest-@key" inputmode="decimal" @bind="limit.Lowest" @bind:event="oninput" />
+            </div>
+            <div class="field">
+                <label for="limit-highest-@key">Highest @limit.Field.Label (optional)</label>
+                <input id="limit-highest-@key" inputmode="decimal" @bind="limit.Highest" @bind:event="oninput" />
+                <span class="field-help">A campaign outside these is pointed out as worth a look. Leave both blank for any amount.</span>
+            </div>
+        }
+    </div>;
 
     // A tier's name, price and lines: each line picked from her benefit lines or typed.
     private RenderFragment TierFields(KnownTierForm form, string id) => @<div>

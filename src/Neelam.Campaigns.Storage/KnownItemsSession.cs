@@ -56,7 +56,11 @@ public sealed class KnownItemsSession
 
     public string NewTreatment { get; set; } = "";
 
+    /// <summary>The new line's kind, words and usual amounts.</summary>
     public BenefitEditor NewBenefit { get; private set; } = BenefitEditor.Standalone();
+
+    /// <summary>The new line's optional lowest and highest amounts.</summary>
+    public AmountLimitsForm NewLimits { get; private set; } = new();
 
     public KnownTierForm NewTier { get; private set; } = new();
 
@@ -69,10 +73,10 @@ public sealed class KnownItemsSession
 
     public async Task<bool> AddBenefitAsync(CancellationToken ct = default)
     {
-        if (NewBenefit.ToKnown() is not { } benefit)
-            return Refuse(NewBenefit.Error ?? "Choose what kind of benefit, and fill it in.");
+        var (benefit, errors) = NewLimits.ToItem(KnownItem.NewId(), NewBenefit, "Choose what kind of benefit, and fill it in.");
+        if (benefit is null) return Refuse([.. errors]);
         if (!await ChangeAsync(benefit, adding: true, ct)) return false;
-        NewBenefit = BenefitEditor.Standalone();
+        (NewBenefit, NewLimits) = (BenefitEditor.Standalone(), new AmountLimitsForm());
         return true;
     }
 
@@ -92,6 +96,7 @@ public sealed class KnownItemsSession
 
     public string EditTreatment { get; set; } = "";
     public BenefitEditor? EditBenefit { get; private set; }
+    public AmountLimitsForm? EditLimits { get; private set; }
     public KnownTierForm? EditTier { get; private set; }
 
     public void StartEdit(KnownItem item)
@@ -100,13 +105,14 @@ public sealed class KnownItemsSession
         (Message, Errors) = (null, []);
         EditTreatment = item is KnownTreatment t ? t.Name : "";
         EditBenefit = item is KnownBenefit b ? BenefitEditor.Standalone(b.Benefit) : null;
+        EditLimits = item is KnownBenefit line ? AmountLimitsForm.Of(line) : null;
         EditTier = item is KnownTier tier ? KnownTierForm.Of(tier) : null;
     }
 
     public void CancelEdit()
     {
         Editing = null;
-        (EditBenefit, EditTier, EditTreatment) = (null, null, "");
+        (EditBenefit, EditLimits, EditTier, EditTreatment) = (null, null, null, "");
         Errors = [];
     }
 
@@ -120,9 +126,9 @@ public sealed class KnownItemsSession
                 changed = new KnownTreatment(editing.Id, EditTreatment.Trim());
                 break;
             case KnownBenefit:
-                if (EditBenefit!.Value is not { } benefit)
-                    return Refuse(EditBenefit.Error ?? "Fill in the benefit.");
-                changed = new KnownBenefit(editing.Id, benefit);
+                var (line, problems) = EditLimits!.ToItem(editing.Id, EditBenefit!, "Fill in the benefit.");
+                if (line is null) return Refuse([.. problems]);
+                changed = line;
                 break;
             default:
                 var (tier, errors) = EditTier!.ToItem(editing.Id);

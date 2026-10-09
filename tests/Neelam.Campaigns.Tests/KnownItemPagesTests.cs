@@ -54,7 +54,8 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Contains("What Salon One writes again and again, spelled once.", page);
         Assert.Contains("<span>Wellness injection</span>", page);
-        Assert.Contains("<span>$75 birthday credit during your birth month</span>", page);
+        // A benefit line with its usual amount, and no limit on it: any amount is fine.
+        Assert.Contains("<span>$75 birthday credit during your birth month — usually $75, any amount</span>", page);
         // The price as the campaign shows it: a tier is a monthly price.
         Assert.Contains("<h3>Diamond Member, $499/month</h3>", page);
         Assert.Contains("<li>$100 birthday credit during your birth month</li>", page);
@@ -231,6 +232,46 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         await page.RemoveAsync(page.Items.Benefits[0]);
         Assert.Empty((await store.ForClientAsync(client)).All);
+    }
+
+    // Each amount's usual value is the benefit's own; its lowest and highest are optional, shown
+    // plainly, kept when the line is changed, and refused when they do not hold together.
+    [Fact]
+    public async Task The_page_sets_a_benefit_line_s_usual_amount_and_its_limits()
+    {
+        var (store, client) = (new InMemoryKnownItems(), SalonOne.Name);
+        var page = await Open(store);
+
+        page.NewBenefit.Kind = "percent-off";
+        page.NewBenefit.Percent = "10";
+        page.NewBenefit.AppliesTo = "any qualifying treatments";
+        var limits = Assert.Single(page.NewLimits.FieldsFor(page.NewBenefit));
+        Assert.Equal(PercentOff.PercentField, limits.Field);
+        limits.Lowest = "10";
+        limits.Highest = "5";
+        Assert.False(await page.AddBenefitAsync());
+        Assert.Equal(["The lowest percentage (10%) is above the highest (5%)."], page.Errors);
+        Assert.Empty((await store.ForClientAsync(client)).All);
+        Assert.Equal("10", page.NewBenefit.Percent);
+
+        limits.Lowest = "5%";
+        limits.Highest = "10";
+        Assert.True(await page.AddBenefitAsync());
+        var added = Assert.Single(page.Items.Benefits);
+        Assert.Equal("10% off any qualifying treatments — usually 10%, between 5% and 10%", added.Shown);
+        Assert.Equal([new AmountLimit("Percent", 5, 10)], added.SetLimits);
+
+        // Changing it starts from what is kept; the usual amount above the highest is refused.
+        page.StartEdit(added);
+        var editing = Assert.Single(page.EditLimits!.FieldsFor(page.EditBenefit!));
+        Assert.Equal(("5", "10"), (editing.Lowest, editing.Highest));
+        page.EditBenefit!.Percent = "12";
+        Assert.False(await page.SaveEditAsync());
+        Assert.Equal(["The usual percentage (12%) is above the highest (10%)."], page.Errors);
+        editing.Highest = "";
+        Assert.True(await page.SaveEditAsync());
+        Assert.Equal("12% off any qualifying treatments — usually 12%, at least 5%",
+            Assert.Single((await store.ForClientAsync(client)).Benefits).Shown);
     }
 
     [Fact]
