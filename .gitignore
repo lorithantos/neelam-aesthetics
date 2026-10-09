@@ -430,6 +430,9 @@ FodyWeavers.xsd
 
 # Claude Code: .claude/settings.json is shared project config and IS committed.
 .claude/settings.local.json
+# Agents' git worktrees live in the checkout; without this, `git status` lists them and the deploy
+# stamp (Invoke-BuildDeploy, `git status --porcelain`) reads "+dirty" on a clean tree.
+.claude/worktrees/
 
 # The package Invoke-BuildDeploy leaves behind: the built app, never source.
 deploy.zip

@@ -87,6 +87,15 @@ a:hover {
     padding-bottom: 3rem;
 }
 
+/* Which build is running, from the deploy's stamp: there to quote, not to read. */
+.site-footer {
+    max-width: var(--page-width);
+    margin: 0 auto;
+    padding: 0 var(--gutter) 1.5rem;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
 /* Header and navigation */
 
 .site-header {

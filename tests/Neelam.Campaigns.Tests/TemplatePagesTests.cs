@@ -50,7 +50,9 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("Membership announcement", page);
         Assert.Contains($"templates/{Membership}", page);
         // Her business by the name in the clients table, not its container's.
-        Assert.Contains("The layouts Salon One's campaigns", page);
+        // No possessive is built from the name ("Neelam Aesthetics's").
+        Assert.Contains("Templates for Salon One: the layouts campaigns are written from.", page);
+        Assert.DoesNotContain("Salon One's", page);
         Assert.DoesNotContain("test-salon-one", page);
     }
 

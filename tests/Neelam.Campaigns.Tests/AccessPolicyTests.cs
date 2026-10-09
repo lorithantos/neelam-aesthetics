@@ -29,11 +29,18 @@ public class AccessPolicyTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             .Where(e => !(e.RoutePattern.RawText ?? "").TrimStart('/').StartsWith('_'))
             .Where(e => e.Metadata.GetMetadata<IAllowAnonymous>() is null)
             .Where(e => !e.Metadata.GetOrderedMetadata<IAuthorizeData>().Any(a => Features.All.Contains(a.Policy)))
+            .Where(e => !IsStaticAssetsDevelopmentFallback(e))
             .Select(e => e.RoutePattern.RawText)
             .ToList();
 
         Assert.True(ungated.Count == 0, "Name a Features policy, or mark it [AllowAnonymous]: " + string.Join(", ", ungated));
     }
+
+    // Also framework plumbing: MapStaticAssets, run from build output (as here and in a local run, never
+    // in a published app), adds a fallback that serves a file from wwwroot changed since the build. It
+    // takes none of the conventions given to MapStaticAssets, and holds nothing but the site's own files.
+    private static bool IsStaticAssetsDevelopmentFallback(RouteEndpoint endpoint) =>
+        endpoint.RoutePattern.RawText == "{**path:file}" && endpoint.DisplayName == "Fallback {**path:file}";
 
     [Fact]
     public void The_contract_sees_the_app_s_own_pages_and_endpoints()

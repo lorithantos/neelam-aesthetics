@@ -1,11 +1,24 @@
-﻿@page "/"
-@* The landing page shows no client data, so it is open to anyone. *@
+@page "/"
+@* The landing page shows no client data, so it is open to anyone. It says what the site does here:
+   on the demo every step works; elsewhere, until sign-in exists, no campaign can be opened. *@
 @attribute [AllowAnonymous]
+@inject SiteMode Site
 
 <PageTitle>Neelam campaigns</PageTitle>
 
 <h1>Neelam campaigns</h1>
 
-<p>Sign-in is not set up yet, so this app does not show or change any campaigns.</p>
+@if (Site.IsDemo)
+{
+    <p>
+        Write a campaign from one of your templates, see the checks as you go, approve it, and copy it
+        into Square. Start in <a href="campaigns">Campaigns</a>, or keep your photos in
+        <a href="images">Images</a> and the offers you write again and again in <a href="known-items">Known items</a>.
+    </p>
+}
+else
+{
+    <p>Sign-in is not set up yet, so this app does not show or change any campaigns.</p>
+}
 
 <p><a href="how-it-works">How a campaign gets from idea to inbox</a></p>

@@ -97,9 +97,13 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseStaticFiles();
 app.UseAuthorization();
 app.UseAntiforgery();
+
+// The site's own files (app.css, copy.js) at fingerprinted addresses with long-lived caching, linked
+// through @Assets in App.razor; a changed file gets a new address, so no browser keeps a stale one.
+// They hold no client data, and every page needs them, so they are public.
+app.MapStaticAssets().AllowAnonymous();
 
 // Proves the app's identity can reach its storage: it reads the clients table and reports only
 // whether that worked, never what is in it. Public so a deploy can check it with no sign-in.

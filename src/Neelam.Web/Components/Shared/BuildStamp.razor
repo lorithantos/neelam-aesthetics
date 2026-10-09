@@ -1,0 +1,18 @@
+@* Which build is running, small and quiet at the foot of every page. The deploy (Janet's
+   Invoke-BuildDeploy, "identity" in deploy-manifest.test.json) writes its stamp, such as
+   "Build 73 (local) | Commit ... | Branch main | <UTC time>", to the App Service setting
+   LATEST_BUILD_INFO after a successful push; App Service hands settings to the app as environment
+   variables, so it is configuration here. A run with no stamp, such as a local one, shows nothing. *@
+@inject IConfiguration Configuration
+
+@if (Stamp is { } stamp)
+{
+    <footer class="site-footer"><span class="build-stamp">@stamp</span></footer>
+}
+
+@code {
+    /// <summary>The setting the deploy writes its stamp to.</summary>
+    public const string Setting = "LATEST_BUILD_INFO";
+
+    private string? Stamp => Configuration[Setting] is { } value && !string.IsNullOrWhiteSpace(value) ? value.Trim() : null;
+}
