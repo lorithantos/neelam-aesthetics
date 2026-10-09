@@ -304,18 +304,34 @@ public static class CampaignReview
         }
     }
 
+    /// <summary>
+    /// Tiers' prices run one way: all rising or all falling (owner, 2026-10-09, with one-click
+    /// "Lowest price first" and "Highest price first"). The first two different prices set the
+    /// direction; a tier that goes against it, or costs the same as the tier before it, is a Must
+    /// fix. Neutral about which tier to change, as for names: a copy keeps its price too.
+    /// </summary>
     private static IEnumerable<Finding> TierPricesIncrease(string label, Offer offer)
     {
-        for (var i = 0; i < offer.Tiers.Count; i++)
+        var tiers = offer.Tiers;
+        var first = Enumerable.Range(1, Math.Max(0, tiers.Count - 1))
+            .FirstOrDefault(i => tiers[i].MonthlyPrice != tiers[i - 1].MonthlyPrice);
+        var rising = first == 0 || tiers[first].MonthlyPrice > tiers[first - 1].MonthlyPrice;
+        for (var i = 0; i < tiers.Count; i++)
         {
-            var tier = offer.Tiers[i];
+            var tier = tiers[i];
             if (tier.MonthlyPrice <= 0)
                 yield return new(Severity.Blocker, "tier-price-positive", $"{label} › Tier {i + 1}",
                     $"'{tier.Name}' has no price.");
-            // Neutral about which tier to change, as for names: a copy keeps its price too.
-            if (i > 0 && tier.MonthlyPrice <= offer.Tiers[i - 1].MonthlyPrice)
+            if (i == 0) continue;
+            var (price, before) = (tier.MonthlyPrice, tiers[i - 1].MonthlyPrice);
+            if (price == before)
                 yield return new(Severity.Blocker, "tier-prices-increase", $"{label} › Tier {i + 1}",
-                    $"Tier {i + 1} costs no more than tier {i}; change either price, or reorder the tiers so they run cheapest first.");
+                    $"Tier {i + 1} costs the same as tier {i}; change either price.");
+            else if (price > before != rising)
+                yield return new(Severity.Blocker, "tier-prices-increase", $"{label} › Tier {i + 1}",
+                    $"Tier {i + 1} costs {(rising ? "less" : "more")} than tier {i}, but the tiers before it go " +
+                    $"{(rising ? "up" : "down")} in price; change either price, or put the tiers in order with " +
+                    "Lowest price first or Highest price first.");
         }
     }
 

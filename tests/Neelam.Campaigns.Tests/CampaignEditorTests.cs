@@ -228,6 +228,97 @@ public class CampaignEditorTests
         Assert.Single(offer.CopyTier(gold).Benefits);
     }
 
+    // ---- Ordering tiers by price (owner, 2026-10-09: "a fast ordering of tiers top to bottom or bottom to top")
+
+    private static OfferEditor ThreeTiers(CampaignEditor editor, params string[] prices)
+    {
+        var offer = OfferOf(editor);
+        for (var i = 0; i < prices.Length; i++)
+        {
+            var tier = offer.AddTier();
+            tier.Name.Text = $"Tier {(char)('A' + i)}";
+            tier.Price.Text = prices[i];
+            AddBenefit(tier, "birthday-credit", b => b.Amount = (25 * (i + 1)).ToString());
+        }
+        return offer;
+    }
+
+    private static string[] Names(OfferEditor offer) => offer.Tiers.Select(t => t.Name.Text).ToArray();
+
+    [Fact]
+    public void Lowest_or_highest_price_first_reorders_the_form_and_the_draft_together()
+    {
+        var editor = Start();
+        var offer = ThreeTiers(editor, "299", "149", "199");
+
+        offer.OrderByPrice(highestFirst: false);
+        Assert.Equal(["Tier B", "Tier C", "Tier A"], Names(offer));
+        Assert.Equal([149m, 199m, 299m], editor.Draft.Offer("Offer").Tiers.Select(t => t.MonthlyPrice.Value));
+
+        offer.OrderByPrice(highestFirst: true);
+        Assert.Equal(["Tier A", "Tier C", "Tier B"], Names(offer));
+        Assert.Equal([299m, 199m, 149m], editor.Draft.Offer("Offer").Tiers.Select(t => t.MonthlyPrice.Value));
+        // Each tier's fields move with it.
+        Assert.Equal("75", offer.Tiers[1].Benefits[0].Amount);
+    }
+
+    // Equal prices keep their order; a tier with no price yet goes last, either way.
+    [Fact]
+    public void Ordering_is_stable_and_leaves_an_unpriced_tier_last()
+    {
+        var editor = Start();
+        var offer = ThreeTiers(editor, "", "199", "99", "199");
+
+        offer.OrderByPrice(highestFirst: false);
+        Assert.Equal(["Tier C", "Tier B", "Tier D", "Tier A"], Names(offer));
+        offer.OrderByPrice(highestFirst: true);
+        Assert.Equal(["Tier B", "Tier D", "Tier C", "Tier A"], Names(offer));
+    }
+
+    // Either order is a direction tier-prices-increase accepts.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Either_order_satisfies_the_price_rule(bool highestFirst)
+    {
+        var editor = CampaignEditor.Open(DraftFixtures.Finished());
+        var offer = OfferOf(editor);
+        var silver = offer.AddTier();
+        silver.Name.Text = "Silver Member";
+        silver.Price.Text = "99";
+        AddBenefit(silver, "birthday-credit", b => b.Amount = "10");
+        Assert.Contains("tier-prices-increase", BlockerRules(editor));   // $149, $299, $99: mixed
+
+        offer.OrderByPrice(highestFirst);
+
+        Assert.DoesNotContain("tier-prices-increase", BlockerRules(editor));
+        Assert.DoesNotContain(editor.Status().Review!.Findings, f => f.Rule.StartsWith("tier-rung"));
+    }
+
+    // WIP noted a copied benefit's "Tier N" going stale when tiers move: it names its tier's new
+    // number, in the form and in Still to do, and a removed source says so.
+    [Fact]
+    public void A_copied_benefit_keeps_naming_its_source_after_tiers_move_or_go()
+    {
+        var editor = Start();
+        var offer = ThreeTiers(editor, "199", "299");
+        var copy = offer.CopyTier(offer.Tiers[1]);
+        copy.Price.Text = "99";
+        Assert.Equal("Tier 2", copy.Benefits[0].CopiedFrom);
+
+        offer.OrderByPrice(highestFirst: false);
+
+        Assert.Same(copy, offer.Tiers[0]);
+        Assert.Equal("Tier 3", copy.Benefits[0].CopiedFrom);
+        Assert.Contains(editor.Status().Missing, m => m.Rule == "draft-unreviewed-copy"
+            && m.Location == "Offer › Tier 1 › Benefit 1" && m.Message.StartsWith("Offer › Tier 1 › Benefit 1 was copied from Tier 3 and"));
+
+        offer.RemoveTier(offer.Tiers[1]);
+        Assert.Equal("Tier 2", copy.Benefits[0].CopiedFrom);
+        offer.RemoveTier(offer.Tiers[1]);
+        Assert.Equal("a tier since removed", copy.Benefits[0].CopiedFrom);
+    }
+
     // A copy whose benefits are looked at but whose name and price are as copied.
     private static CampaignEditor CopiedAsItStands() => CampaignEditor.Open(DraftFixtures.CopiedAsItStands());
 
@@ -245,7 +336,7 @@ public class CampaignEditorTests
         Assert.Equal(
             [
                 ("tier-names-unique", "Tiers 1 and 2 share the name 'Gold Member'; customers cannot tell them apart. Rename either one."),
-                ("tier-prices-increase", "Tier 2 costs no more than tier 1; change either price, or reorder the tiers so they run cheapest first."),
+                ("tier-prices-increase", "Tier 2 costs the same as tier 1; change either price."),
             ],
             status.Review!.Blockers.Select(f => (f.Rule, f.Message)).OrderBy(f => f.Rule, StringComparer.Ordinal));
     }

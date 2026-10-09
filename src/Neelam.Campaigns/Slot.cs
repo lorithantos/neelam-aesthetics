@@ -56,6 +56,15 @@ public sealed class Slot<T>
         Origin = Origin.Entered;
     }
 
+    /// <summary>
+    /// Names where a copied value came from anew, as when the tier it was copied from has moved or
+    /// gone; a value that is not a copy has nothing to rename.
+    /// </summary>
+    internal void Relabel(string source)
+    {
+        if (Origin == Origin.Copied) CopiedFrom = source;
+    }
+
     /// <summary>Puts back a value exactly as it was saved, origin included.</summary>
     internal void Restore(Origin origin, T value, string? copiedFrom)
     {

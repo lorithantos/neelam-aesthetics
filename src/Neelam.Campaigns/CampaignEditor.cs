@@ -399,6 +399,18 @@ public sealed class OfferEditor
     }
 
     /// <summary>
+    /// "Lowest price first" or "Highest price first": the tiers reordered by price through
+    /// <see cref="OfferDraft.OrderByPrice"/>, each tier's fields moving with it.
+    /// </summary>
+    public void OrderByPrice(bool highestFirst)
+    {
+        _offer.OrderByPrice(highestFirst);
+        var editors = _offer.Tiers.Select(t => _tiers.Single(e => e.Tier == t)).ToList();
+        _tiers.Clear();
+        _tiers.AddRange(editors);
+    }
+
+    /// <summary>
     /// Whether <see cref="CopyTier"/> can copy this tier: the draft copies every benefit's value,
     /// so a tier with a benefit not yet filled in has to be finished, or that benefit removed, first.
     /// </summary>

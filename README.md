@@ -143,6 +143,12 @@ a `Slot` that remembers where it came from:
   repricing either tier is easier than inventing new ones, and until one changes, the rules
   `tier-names-unique` and `tier-prices-increase` stop the campaign, without saying which tier
   to change.
+- **Tier order** is one click (owner, 2026-10-09): "Lowest price first" or "Highest price first"
+  (`OfferDraft.OrderByPrice`), stable for equal prices, a tier with no price yet last. Either is a
+  direction `tier-prices-increase` accepts: prices must run one way, all rising or all falling, the
+  first two different prices setting it; the same price twice, or a tier against the direction, is
+  a Must fix. A copied benefit waiting to be checked keeps naming the tier it came from by that
+  tier's new number when tiers move or go.
 - `Build()` reports what's left as findings (`draft-missing`, `draft-unreviewed-copy`), in the
   same shape as the gate. A built campaign still goes through the gate.
 - A draft may carry a **label**, the client's own name for the campaign ("Beauty Bank -- first

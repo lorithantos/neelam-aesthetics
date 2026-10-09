@@ -218,13 +218,33 @@ public class CampaignReviewTests
         Assert.Contains(CampaignReview.Check(c).Blockers, f => f.Rule == "benefit-value");
     }
 
+    // Owner, 2026-10-09: tiers may run lowest price first or highest price first, as long as they
+    // run one way. The corrected email listed highest first is fine; a tier against the direction
+    // the first two set is a Must fix, and so is the same price twice.
     [Fact]
-    public void Tier_cheaper_than_the_one_before_is_blocked()
+    public void Prices_may_run_either_way_but_only_one_way()
     {
         var offer = SampleCampaigns.Corrected().OfferOf();
-        var c = SampleCampaigns.Corrected().With(new OfferBlock("Offer", offer with { Tiers = [offer.Tiers[1], offer.Tiers[0]] }));
+        Campaign With(params decimal[] prices) => SampleCampaigns.Corrected().With(new OfferBlock("Offer", offer with
+        {
+            Tiers = prices.Select((p, i) => new Tier($"Tier {(char)('A' + i)}", p, [new BirthdayCredit(i + 1)])).ToList(),
+        }));
+        string[] Messages(Campaign c) => CampaignReview.Check(c).Blockers.Where(f => f.Rule == "tier-prices-increase").Select(f => f.Message).ToArray();
 
-        Assert.Contains(CampaignReview.Check(c).Blockers, f => f.Rule == "tier-prices-increase");
+        var highestFirst = SampleCampaigns.Corrected().With(new OfferBlock("Offer", offer with { Tiers = [offer.Tiers[1], offer.Tiers[0]] }));
+        Assert.Empty(Messages(highestFirst));
+        Assert.Empty(Messages(With(100m, 200m, 300m)));
+        Assert.Empty(Messages(With(300m, 200m, 100m)));
+        Assert.Equal(
+            ["Tier 3 costs less than tier 2, but the tiers before it go up in price; change either price, or put the tiers in order " +
+             "with Lowest price first or Highest price first."],
+            Messages(With(100m, 300m, 200m)));
+        Assert.Equal(
+            ["Tier 3 costs more than tier 2, but the tiers before it go down in price; change either price, or put the tiers in order " +
+             "with Lowest price first or Highest price first."],
+            Messages(With(300m, 100m, 200m)));
+        Assert.Equal(["Tier 2 costs the same as tier 1; change either price."], Messages(With(100m, 100m, 200m)));
+        Assert.DoesNotContain(Messages(With(100m, 300m, 200m)).Single(), "cheapest");
     }
 
     [Fact]

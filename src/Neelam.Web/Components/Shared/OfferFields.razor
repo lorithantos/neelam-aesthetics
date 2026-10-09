@@ -36,6 +36,14 @@
 {
     <p class="muted">No tiers yet.</p>
 }
+else if (Offer.Tiers.Count > 1)
+{
+    @* One click each (owner, 2026-10-09): the tiers by price, either way; the checks accept either. *@
+    <p class="block-actions">
+        <button class="button" @onclick="() => Offer.OrderByPrice(highestFirst: false)">Lowest price first</button>
+        <button class="button" @onclick="() => Offer.OrderByPrice(highestFirst: true)">Highest price first</button>
+    </p>
+}
 @for (var t = 0; t < Offer.Tiers.Count; t++)
 {
     var tierNumber = t + 1;

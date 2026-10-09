@@ -36,7 +36,7 @@ public sealed record BlockGuide(BlockType Type, string Name, string Purpose, IRe
             "Always written for each campaign, never fixed.",
             [
                 "It needs a button somewhere in the email, or the email is blocked.",
-                "Tiers must have different names and different benefits, and prices that rise from the first.",
+                "Tiers must have different names and different benefits, and prices that run one way, lowest first or highest first.",
                 "Names that are the same apart from their numbers (\"Option 1 Platinum Member\", \"Option 2 Platinum Member\") are flagged strongly, but not blocked: \"Glow 50\" and \"Glow 100\" are fine.",
                 "Tier names are read on ladders such as Bronze, Silver, Gold, Platinum: two tiers on the same rung are flagged, and so is a higher rung that costs less.",
                 "Each benefit's value must make sense (a discount between 1% and 99%, at least one free item).",

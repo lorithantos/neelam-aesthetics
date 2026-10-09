@@ -224,7 +224,48 @@ public sealed class OfferDraft
         return tier;
     }
 
-    public void RemoveTier(int index) => _tiers.RemoveAt(index);
+    /// <summary>
+    /// Removes a tier. A benefit copied from it, still waiting to be checked, then says it came from
+    /// a tier since removed, and one copied from a later tier names that tier's new number.
+    /// </summary>
+    public void RemoveTier(int index)
+    {
+        var before = _tiers.ToList();
+        _tiers.RemoveAt(index);
+        RenumberCopies(before);
+    }
+
+    /// <summary>
+    /// One click (owner, 2026-10-09: "a fast ordering of tiers top to bottom or bottom to top"): the
+    /// tiers by price, lowest first or highest first. Equal prices keep their order, and a tier with no
+    /// price yet goes last, in its order. Either way is a consistent direction for
+    /// tier-prices-increase. A copied benefit still waiting to be checked keeps naming the tier it was
+    /// copied from, by that tier's new number.
+    /// </summary>
+    public void OrderByPrice(bool highestFirst)
+    {
+        var before = _tiers.ToList();
+        var ordered = before
+            .OrderBy(t => t.MonthlyPrice.HasValue ? 0 : 1)
+            .ThenBy(t => !t.MonthlyPrice.HasValue ? 0m : highestFirst ? -t.MonthlyPrice.Value : t.MonthlyPrice.Value)
+            .ToList();
+        _tiers.Clear();
+        _tiers.AddRange(ordered);
+        RenumberCopies(before);
+    }
+
+    // A copied benefit names its source as "Tier N" (CopyTier). After tiers move or go, N is that
+    // tier's place now, or it is said to be removed.
+    private void RenumberCopies(IReadOnlyList<TierDraft> before)
+    {
+        foreach (var slot in _tiers.SelectMany(t => t.Benefits).Where(s => s.Origin == Origin.Copied))
+        {
+            if (slot.CopiedFrom is not { } from || !from.StartsWith("Tier ", StringComparison.Ordinal)
+                || !int.TryParse(from.AsSpan(5), out var number) || number < 1 || number > before.Count) continue;
+            var now = _tiers.IndexOf(before[number - 1]);
+            slot.Relabel(now < 0 ? "a tier since removed" : $"Tier {now + 1}");
+        }
+    }
 
     internal void Check(DraftProblems problems, string label)
     {
