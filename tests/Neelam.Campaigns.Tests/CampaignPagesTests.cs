@@ -67,8 +67,12 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains($"campaigns/{Replayed}", page);
         Assert.Contains($"campaigns/new/{Membership}", page);
         Assert.DoesNotContain("Salon two’s own campaign", page);
+        // Her business by the name in the clients table, not its container's.
+        Assert.Contains("Salon One's campaigns.", page);
+        Assert.DoesNotContain("test-salon-one", page);
 
         var (_, other) = await Get("/campaigns", [Features.Campaigns], groups: [SalonTwo.GroupId]);
+        Assert.Contains("Salon Two's campaigns.", other);
         Assert.Contains("Salon two’s own campaign", other);
         Assert.DoesNotContain("Second send, replayed", other);
         // No templates to start from: it says so, and where to make one.

@@ -10,7 +10,34 @@ public class ClientWorkspaceTests
     private static readonly ManualClock Clock = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
     private static Task<(ClientName? Client, string Reason)> For(Caller? caller) =>
-        new ClientWorkspace(new FixedCaller(caller), new InMemorySupportGrants(), Clock).ClientDataAsync();
+        new ClientWorkspace(new FixedCaller(caller), new InMemorySupportGrants(), new InMemoryClientDirectory(), Clock)
+            .ClientDataAsync();
+
+    private static Task<string> DisplayName(ClientName client, params ClientRecord[] table) =>
+        new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(), new InMemoryClientDirectory(table), Clock)
+            .DisplayNameAsync(client);
+
+    // The name her pages call her business by is data in the clients table, whoever the client is.
+    [Fact]
+    public async Task A_client_is_called_by_its_display_name_from_the_clients_table()
+    {
+        var table = new[]
+        {
+            new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics"),
+            new ClientRecord(SalonTwo, Guid.NewGuid(), "Salon Two Spa"),
+        };
+
+        Assert.Equal("Neelam Aesthetics", await DisplayName(SalonOne, table));
+        Assert.Equal("Salon Two Spa", await DisplayName(SalonTwo, table));
+    }
+
+    [Fact]
+    public async Task Without_a_row_or_a_display_name_a_client_is_called_by_its_name()
+    {
+        Assert.Equal("test-salon-one", await DisplayName(SalonOne));
+        Assert.Equal("test-salon-one", await DisplayName(SalonOne, new ClientRecord(SalonTwo, Guid.NewGuid(), "Salon Two Spa")));
+        Assert.Equal("test-salon-one", await DisplayName(SalonOne, new ClientRecord(SalonOne, Guid.NewGuid(), "  ")));
+    }
 
     [Fact]
     public async Task A_member_of_one_client_works_in_it() =>

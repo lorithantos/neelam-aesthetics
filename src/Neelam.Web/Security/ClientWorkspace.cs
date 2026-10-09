@@ -7,8 +7,19 @@ namespace Neelam.Web.Security;
 /// client the caller belongs to (the prototype's fixed caller belongs to exactly one). Choosing
 /// between several, and the operator working in a client under its support grant, come later.
 /// </summary>
-public sealed class ClientWorkspace(ICallerSource callers, ISupportGrantStore grants, TimeProvider clock)
+public sealed class ClientWorkspace(
+    ICallerSource callers, ISupportGrantStore grants, IClientDirectory clients, TimeProvider clock)
 {
+    /// <summary>
+    /// The name a client's people know it by, from the clients table: its display name, or its
+    /// name when the table has no row for it or the row has no display name.
+    /// </summary>
+    public async Task<string> DisplayNameAsync(ClientName client, CancellationToken ct = default)
+    {
+        var record = (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client);
+        return string.IsNullOrWhiteSpace(record?.DisplayName) ? client.ToString() : record.DisplayName;
+    }
+
     /// <returns>The client, or null with the reason the page cannot show one.</returns>
     public async Task<(ClientName? Client, string Reason)> ClientDataAsync(CancellationToken ct = default)
     {

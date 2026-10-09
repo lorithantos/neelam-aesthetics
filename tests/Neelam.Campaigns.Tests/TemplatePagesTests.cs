@@ -49,6 +49,9 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Contains("Membership announcement", page);
         Assert.Contains($"templates/{Membership}", page);
+        // Her business by the name in the clients table, not its container's.
+        Assert.Contains("The layouts Salon One's campaigns", page);
+        Assert.DoesNotContain("test-salon-one", page);
     }
 
     // The role is not enough: whose templates comes from the client groups, through the access check.

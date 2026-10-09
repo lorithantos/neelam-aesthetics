@@ -14,7 +14,7 @@
 }
 else if (_campaigns is not null && _templates is not null)
 {
-    <p class="muted">@_client's campaigns. Each save is kept as its own version until it is undone.</p>
+    <p class="muted">@_displayName's campaigns. Each save is kept as its own version until it is undone.</p>
 
     <section class="card" aria-labelledby="new-campaign">
         <h2 id="new-campaign">New campaign</h2>
@@ -52,6 +52,7 @@ else if (_campaigns is not null && _templates is not null)
 @code {
     private string? _denied;
     private ClientName? _client;
+    private string? _displayName;
     private IReadOnlyList<SaveRef>? _campaigns;
     private IReadOnlyList<SaveRef>? _templates;
 
@@ -63,6 +64,7 @@ else if (_campaigns is not null && _templates is not null)
             _denied = reason;
             return;
         }
+        _displayName = await Workspace.DisplayNameAsync(_client);
         var store = Stores.Campaigns(_client);
         _campaigns = await DraftSession.ListAsync(store);
         _templates = (await store.LatestAsync(DocumentKind.Template))

@@ -14,7 +14,7 @@
 }
 else if (_templates is not null)
 {
-    <p class="muted">The layouts @_client's campaigns are written from. Changing one changes only campaigns started after it.</p>
+    <p class="muted">The layouts @_displayName's campaigns are written from. Changing one changes only campaigns started after it.</p>
     <p><a class="button primary" href="templates/new">New template</a></p>
 
     @if (_templates.Count == 0)
@@ -35,6 +35,7 @@ else if (_templates is not null)
 @code {
     private string? _denied;
     private ClientName? _client;
+    private string? _displayName;
     private IReadOnlyList<SaveRef>? _templates;
 
     protected override async Task OnInitializedAsync()
@@ -45,6 +46,7 @@ else if (_templates is not null)
             _denied = reason;
             return;
         }
+        _displayName = await Workspace.DisplayNameAsync(_client);
         _templates = (await Stores.Campaigns(_client).LatestAsync(DocumentKind.Template))
             .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
