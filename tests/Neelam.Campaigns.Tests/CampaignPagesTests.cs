@@ -75,11 +75,13 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains($"campaigns/new/{Membership}", page);
         Assert.DoesNotContain("Salon two’s own campaign", page);
         // Her business by the name in the clients table, not its container's.
-        Assert.Contains("Salon One's campaigns.", page);
+        // No possessive built from the name: "Neelam Aesthetics's" read badly.
+        Assert.Contains("Campaigns for Salon One.", page);
+        Assert.DoesNotContain("'s campaigns", page);
         Assert.DoesNotContain("test-salon-one", page);
 
         var (_, other) = await Get("/campaigns", [Features.Campaigns], groups: [SalonTwo.GroupId]);
-        Assert.Contains("Salon Two's campaigns.", other);
+        Assert.Contains("Campaigns for Salon Two.", other);
         Assert.Contains("Salon two’s own campaign", other);
         Assert.DoesNotContain("Second send, replayed", other);
         // No templates to start from: it says so, and where to make one.
@@ -259,19 +261,104 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         await store.MarkUndoneAsync(undoneVersion);
 
         var (_, list) = await Get("/campaigns", [Features.Campaigns]);
-        Assert.DoesNotContain("Undone, all of it", list);
+        var yours = YourCampaigns(list);
+        Assert.DoesNotContain("Undone, all of it", yours);
         Assert.DoesNotContain("Undone version", list);
-        Assert.Contains("Kept version", list);
+        Assert.Contains("Kept version", yours);
+        // Deleted, it waits under Recently deleted; a campaign with a version left is not deleted.
+        Assert.Contains("<h3>Undone, all of it</h3>", RecentlyDeleted(list));
+        Assert.DoesNotContain("Kept version", RecentlyDeleted(list));
 
         var (_, gone) = await Get($"/campaigns/{onlySave.Id}", [Features.Campaigns]);
         Assert.Contains("<h1>Undone, all of it</h1>", gone);
-        Assert.Contains("Its last save was undone", gone);
+        Assert.Contains("This campaign is deleted. You can restore it until", gone);
         Assert.Contains(">Restore</button>", gone);
         Assert.DoesNotContain(TheList, gone);
 
         var (_, editor) = await Get($"/campaigns/{partly}", [Features.Campaigns]);
         Assert.Contains("Save campaign", editor);
         Assert.Contains("Restore undone save", editor);
+    }
+
+    private static string YourCampaigns(string list)
+    {
+        var start = list.IndexOf(TheList, StringComparison.Ordinal);
+        var end = list.IndexOf(DeletedHeading, StringComparison.Ordinal);
+        return end < 0 ? list[start..] : list[start..end];
+    }
+
+    private const string DeletedHeading = "<h2 id=\"recently-deleted\">Recently deleted</h2>";
+
+    private static string RecentlyDeleted(string list)
+    {
+        var start = list.IndexOf(DeletedHeading, StringComparison.Ordinal);
+        return start < 0 ? "" : list[start..];
+    }
+
+    // The walkthrough found no way back from the list once a campaign was deleted: it is listed under
+    // Recently deleted, with when it goes for good, and Restore there brings it back and opens it.
+    [Fact]
+    public async Task A_deleted_campaign_restores_from_the_list()
+    {
+        await Get("/campaigns", [Features.Campaigns]);
+        var store = app.Stores.Campaigns(SalonOne.Name, Actor.Demo);
+        var save = await store.SaveDraftAsync(Guid.NewGuid(), "Deleted by a misclick", DraftFixtures.Finished());
+        await store.MarkUndoneAsync(save);
+
+        var client = app.CreateClient(new() { AllowAutoRedirect = false });
+        client.SignedIn([Features.Campaigns], [SalonOne.GroupId]);
+        var list = WebUtility.HtmlDecode(await (await client.GetAsync("/campaigns")).Content.ReadAsStringAsync());
+        var deleted = RecentlyDeleted(list);
+        Assert.Contains("Deleted campaigns can be restored for a day.", deleted);
+        var card = Regex.Match(deleted, "<section class=\"card\" aria-label=\"Deleted: Deleted by a misclick\">.*?</section>", RegexOptions.Singleline).Value;
+        Assert.Contains("It will be removed for good", card);
+        Assert.Contains("<button type=\"submit\" class=\"button\">Restore</button>", card);
+        Assert.DoesNotContain("Deleted by a misclick", YourCampaigns(list));
+
+        var token = Regex.Match(card, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        var response = await client.PostAsync("/campaigns", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["_handler"] = $"restore-{save.Id:N}",
+            ["__RequestVerificationToken"] = token,
+        }));
+
+        Assert.True((int)response.StatusCode is >= 300 and < 400, $"Restore answered {response.StatusCode}.");
+        Assert.EndsWith($"campaigns/{save.Id}", response.Headers.Location!.OriginalString);
+        Assert.Equal(save.BlobName, (await DraftSession.OpenAsync(store, save.Id))!.Latest!.BlobName);
+        var (_, after) = await Get("/campaigns", [Features.Campaigns]);
+        Assert.Contains(ListHeading(save.Id, "Deleted by a misclick"), YourCampaigns(after));
+        Assert.DoesNotContain("Deleted by a misclick", RecentlyDeleted(after));
+    }
+
+    // With no version before it, undoing the save deletes the campaign, and the button says so.
+    [Fact]
+    public async Task The_only_save_s_undo_is_named_delete()
+    {
+        await Get("/campaigns", [Features.Campaigns]);
+        var store = app.Stores.Campaigns(SalonOne.Name, Actor.Demo);
+        var id = Guid.NewGuid();
+        await store.SaveDraftAsync(id, "One save", DraftFixtures.Finished());
+
+        var (_, once) = await Get($"/campaigns/{id}", [Features.Campaigns]);
+        Assert.Contains(">Delete campaign</button>", once);
+        Assert.DoesNotContain(">Undo last save</button>", once);
+
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        await store.SaveDraftAsync(id, "Two saves", DraftFixtures.Finished());
+        var (_, twice) = await Get($"/campaigns/{id}", [Features.Campaigns]);
+        Assert.Contains(">Undo last save</button>", twice);
+        Assert.DoesNotContain(">Delete campaign</button>", twice);
+    }
+
+    // Removing a tier or a benefit is a plain button, asked about first, not a red one beside Copy tier.
+    [Fact]
+    public async Task Remove_tier_and_remove_benefit_are_secondary_buttons()
+    {
+        var (_, page) = await Get($"/campaigns/{Finished}", [Features.Campaigns]);
+
+        Assert.Contains("<button class=\"button\" aria-label=\"Remove tier 1\">Remove tier</button>", page);
+        Assert.Contains("<button class=\"button\" aria-label=\"Remove benefit 1 of tier 1\">Remove benefit</button>", page);
+        Assert.DoesNotMatch("class=\"button danger\"[^>]*>Remove", page);
     }
 
     // Two sends of one email share the subject; her label tells them apart, the subject under it.

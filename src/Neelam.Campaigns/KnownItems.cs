@@ -108,6 +108,34 @@ public sealed class KnownItems
         Benefits.Select(b => b.Text).Concat(Tiers.SelectMany(t => t.Benefits.Select(b => b.Describe())))
             .Distinct(StringComparer.Ordinal).ToList();
 
+    /// <summary>
+    /// The known text of this kind that <paramref name="text"/> nearly matches, as the checks'
+    /// "Did you mean" names it; null when it is known, or near none. Benefit lines are checked
+    /// against <see cref="BenefitLines"/>, as the checks do.
+    /// </summary>
+    public string? NearMiss(KnownItemKind kind, string text) => KnownItemMatch.NearMiss(text, TextsOf(kind));
+
+    /// <summary>
+    /// Whether <paramref name="text"/> is new to her list of this kind: not known, and not a near miss
+    /// of a known item. Only then is saving it offered, beside the checks' neutral "isn't one of your
+    /// known ..." note; a near miss draws "Did you mean" instead, and saving it would keep the
+    /// misspelling as known.
+    /// </summary>
+    public bool IsNew(KnownItemKind kind, string text)
+    {
+        var clean = (text ?? "").Trim();
+        var known = TextsOf(kind);
+        return clean.Length > 0 && !KnownItemMatch.IsKnown(clean, known) && KnownItemMatch.NearMiss(clean, known) is null;
+    }
+
+    private IReadOnlyList<string> TextsOf(KnownItemKind kind) => kind switch
+    {
+        KnownItemKind.Treatment => Treatments.Select(t => t.Name).ToList(),
+        KnownItemKind.Benefit => BenefitLines,
+        KnownItemKind.Tier => Tiers.Select(t => t.Name).ToList(),
+        _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+    };
+
     private static T? Named<T>(IReadOnlyList<T> items, string text) where T : KnownItem
     {
         var clean = (text ?? "").Trim();

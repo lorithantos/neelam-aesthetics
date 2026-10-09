@@ -493,6 +493,13 @@ public sealed class TierEditor
         return (new KnownTier(KnownItem.NewId(), Tier.Name.Value, Tier.MonthlyPrice.Value,
             Tier.Benefits.Select(b => b.Value).ToList()), null);
     }
+
+    /// <summary>
+    /// Whether "Save as a known item" is offered for this tier: while its name is not filled in (the
+    /// button then says what is missing), or when the name is new to her known tiers, never a near miss.
+    /// </summary>
+    public bool SaveOffered(KnownItems known) =>
+        !Tier.Name.HasValue || known.IsNew(KnownItemKind.Tier, Tier.Name.Value);
 }
 
 /// <summary>
@@ -569,6 +576,24 @@ public sealed class BenefitEditor
     /// </summary>
     public KnownTreatment? TreatmentToKnown() =>
         Value?.Item is { } item && item.Trim().Length > 0 ? new KnownTreatment(KnownItem.NewId(), item.Trim()) : null;
+
+    /// <summary>
+    /// <see cref="TreatmentToKnown"/>, only when it is new to her treatments (<see cref="KnownItems.IsNew"/>):
+    /// never for one she already has, and never for a near miss, which the checks answer with "Did you
+    /// mean" rather than an offer to keep the misspelling.
+    /// </summary>
+    public KnownTreatment? TreatmentToSave(KnownItems known) =>
+        TreatmentToKnown() is { } treatment && known.IsNew(KnownItemKind.Treatment, treatment.Name) ? treatment : null;
+
+    /// <summary>
+    /// Whether "Save as a known item" is offered for this line: while it is unfinished (the button
+    /// then says to fill it in), or when the line is new to her list and its item is no near miss of a
+    /// known treatment.
+    /// </summary>
+    public bool SaveOffered(KnownItems known) =>
+        Value is not { } benefit
+        || (known.IsNew(KnownItemKind.Benefit, benefit.Describe())
+            && (benefit.Item is not { } item || known.NearMiss(KnownItemKind.Treatment, item) is null));
 
     /// <summary>The kind's <see cref="BenefitKind.Key"/>, or blank before one is chosen.</summary>
     public string Kind { get => _kind; set { _kind = value ?? ""; Apply(); } }

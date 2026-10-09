@@ -123,6 +123,26 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.DoesNotContain("Add a known tier</label>", two);
     }
 
+    // The walkthrough was offered to save "Wellness Injecton" with "Wellness injection" known. Save is
+    // offered beside the neutral note only: a near miss gets "Did you mean" and no Save.
+    [Fact]
+    public async Task The_editor_offers_to_save_a_new_treatment_and_never_a_near_miss()
+    {
+        await Get("/known-items", [Features.Campaigns]);
+        var draft = DraftFixtures.Finished();
+        draft.Offer("Offer").Tiers[1].AddBenefit(new FreeItem(1, "Wellness Injecton", "per month"));
+        draft.Offer("Offer").Tiers[1].AddBenefit(new FreeItem(1, "Hydrafacial", "per month"));
+        var id = Guid.NewGuid();
+        await app.Stores.Campaigns(SalonOne.Name, Actor.Demo).SaveDraftAsync(id, "Near misses", draft);
+
+        var (_, page) = await Get($"/campaigns/{id}", [Features.Campaigns]);
+
+        Assert.Contains("Did you mean 'Wellness injection'? It's in your known items.", page);
+        Assert.DoesNotContain("Save \"Wellness Injecton\" as a known treatment", page);
+        Assert.Contains("'Hydrafacial' isn't one of your known treatments.", page);
+        Assert.Contains("Save \"Hydrafacial\" as a known treatment</button>", page);
+    }
+
     // ---- What the page does: add, change and remove each kind
 
     private static readonly Actor Priya = new("Priya Sharma", FromSignIn: true);

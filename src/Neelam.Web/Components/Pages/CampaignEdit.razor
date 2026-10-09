@@ -25,6 +25,7 @@
 @inject IAuthorizationService Authorization
 @inject ActivityRecorder Recorder
 @inject ILogger<CampaignEdit> Log
+@inject IJSRuntime JS
 
 <PageTitle>@Title</PageTitle>
 
@@ -46,8 +47,9 @@ else if (_missing is not null)
 else if (_undone is not null)
 {
     <h1>@_undone.Title</h1>
-    <p>Its last save was undone, so it is gone from your campaigns. You can restore it until
-        @_store!.RestorableUntil(_undone)?.ToString("d MMM yyyy, HH:mm") UTC; after that it is deleted for good.</p>
+    <p>This campaign is deleted. You can restore it until
+        @_store!.RestorableUntil(_undone)?.ToString("d MMM yyyy, HH:mm") UTC; after that it is removed for good.
+        Until then it is also under Recently deleted in your campaigns.</p>
     <button class="button primary" @onclick="RestoreUndoneAsync">Restore</button>
     <a class="button" href="campaigns">Back to campaigns</a>
 }
@@ -59,10 +61,12 @@ else if (_session is not null)
     var approval = _session.CurrentApproval;
     var cannotApprove = _session.CannotApprove(_policy, _business);
     // One gate for both forms of the export: the copy blocks and the assistant's JSON come from
-    // the same report, so neither exists without the other.
+    // the same report, so neither exists without the other, and both carry the approval that
+    // report was made with (DraftSession.DemoExportReport: the approval in force, never the
+    // latest save's, which an unsaved edit leaves in place).
     var exportReport = ExportReport();
     var export = exportReport is null ? null : EditorExport.Blocks(exportReport);
-    var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, approval,
+    var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, exportReport.DemoApproval,
         new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
 
     <KnownItemLists Known="Known" />
@@ -191,15 +195,18 @@ else if (_session is not null)
                 @if (_session.Latest is { } latest)
                 {
                     <p class="muted">Last saved @latest.SavedAt.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    @* With no version before it, undoing the save deletes the campaign: the button and
+                       the question say so, rather than promising a version that is not there. *@
+                    var deletes = _session.UndoDeletesTheCampaign;
                     @if (_confirmingUndo)
                     {
-                        <p>Undo the last save? The version before it comes back, and any changes not saved are lost. The undone version can be restored for @Period(_store!.UndoGracePeriod), then it is deleted for good.</p>
-                        <button class="button danger" @onclick="UndoAsync">Undo it</button>
+                        <p>@_session.UndoQuestion</p>
+                        <button class="button danger" @onclick="UndoAsync">@(deletes ? "Delete it" : "Undo it")</button>
                         <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
                     }
                     else
                     {
-                        <button class="button" @onclick="() => _confirmingUndo = true">Undo last save</button>
+                        <button class="button" @onclick="() => _confirmingUndo = true">@(deletes ? "Delete campaign" : "Undo last save")</button>
                     }
                 }
                 @if (_session.Restorable is not null)
@@ -331,6 +338,7 @@ else if (_session is not null)
                                         {
                                             <pre id="@id">@block.Text</pre>
                                             <button type="button" class="button" data-copy="@id">Copy description</button>
+                                            <CopyHint For="@id" />
                                         }
                                         break;
                                     case BlockKind.Button:
@@ -346,6 +354,11 @@ else if (_session is not null)
                                                 <button type="button" class="button" data-copy="@($"{id}-link")">Copy link</button>
                                             }
                                         </div>
+                                        <CopyHint For="@id" />
+                                        @if (block.Url is not null)
+                                        {
+                                            <CopyHint For="@($"{id}-link")" />
+                                        }
                                         break;
                                     default:
                                         <pre id="@id">@block.Text</pre>
@@ -354,6 +367,7 @@ else if (_session is not null)
                                             <p class="field-help">Over the photo @block.Image.Name.</p>
                                         }
                                         <button type="button" class="button" data-copy="@id">Copy</button>
+                                        <CopyHint For="@id" />
                                         break;
                                 }
                             </li>
@@ -488,8 +502,23 @@ else
         var saved = await _session.SaveAsync();
         _message = DraftSession.SavedMessage(before, saved);
         _confirmingUndo = false;
-        // The address now names the campaign, so a reload opens what was saved.
-        if (isNew) Navigation.NavigateTo($"campaigns/{saved.Id}", replace: true);
+        // The address now names the campaign, so a reload opens what was saved. Only the address
+        // changes: navigating would load the page afresh, at the top and without the saved line.
+        if (isNew) await ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{saved.Id}").AbsoluteUri);
+    }
+
+    // The browser's address, replaced in place. A failure is only logged: the save stands, and the
+    // campaign is in her list whatever the address bar says.
+    private async Task ShowAddressAsync(string address)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("history.replaceState", null, "", address);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or TaskCanceledException)
+        {
+            Log.LogWarning(ex, "Could not show the saved campaign's address.");
+        }
     }
 
     // Undo marks the save for deletion; nothing is deleted here, or by leaving the page.
@@ -567,7 +596,4 @@ else
     private static string KindName(BlockKind kind) =>
         SquareWidgets.ByKind.TryGetValue(kind, out var widget) ? widget.DisplayName : kind.ToString();
 
-    // The grace period in words, such as "24 hours".
-    private static string Period(TimeSpan period) =>
-        period.TotalHours >= 1 ? $"{period.TotalHours:0.#} hours" : $"{period.TotalMinutes:0} minutes";
 }

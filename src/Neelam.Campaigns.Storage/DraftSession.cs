@@ -18,8 +18,12 @@ public sealed class DraftSession
     // The same, without her label: what an approval is of (ContentOf).
     private string? _savedContent;
 
+    // How many saves of the campaign are in use: undoing the only one takes the campaign off her list.
+    private int _versions;
+
     private DraftSession(
-        CampaignStore store, Guid? id, CampaignEditor editor, SaveRef? latest, SaveRef? restorable = null, SaveRef? superseded = null)
+        CampaignStore store, Guid? id, CampaignEditor editor, SaveRef? latest, SaveRef? restorable = null, SaveRef? superseded = null,
+        int versions = 0)
     {
         _store = store;
         Id = id;
@@ -27,6 +31,7 @@ public sealed class DraftSession
         Latest = latest;
         Restorable = restorable;
         SupersededApproval = superseded;
+        _versions = versions;
         if (latest is not null) MarkSaved();
     }
 
@@ -67,6 +72,28 @@ public sealed class DraftSession
 
     /// <summary>Until when <see cref="Restorable"/> can be restored.</summary>
     public DateTimeOffset? RestorableUntil => Restorable is null ? null : _store.RestorableUntil(Restorable);
+
+    /// <summary>
+    /// True when undoing the last save leaves no version in use: the campaign goes from her list,
+    /// restorable for the grace period, so the page calls it deleting.
+    /// </summary>
+    public bool UndoDeletesTheCampaign => Latest is not null && _versions <= 1;
+
+    /// <summary>
+    /// What the page asks before an undo, with the grace period in words. When the save is the only
+    /// one, there is no version before it to come back: the campaign is deleted, and can be restored.
+    /// </summary>
+    public string UndoQuestion
+    {
+        get
+        {
+            var period = TimeWords.Period(_store.UndoGracePeriod);
+            return UndoDeletesTheCampaign
+                ? $"This deletes the campaign. You can restore it for {period}."
+                : "Undo the last save? The version before it comes back, and any changes not saved are lost. " +
+                  $"The undone version can be restored for {period}, then it is deleted for good.";
+        }
+    }
 
     /// <summary>True when the form holds anything not in <see cref="Latest"/>, or nothing is saved yet.</summary>
     public bool HasUnsavedChanges =>
@@ -170,6 +197,14 @@ public sealed class DraftSession
         return latest.Zip(drafts, (save, draft) => new CampaignListing(save, draft.Label)).ToList();
     }
 
+    /// <summary>
+    /// The client's campaigns whose every save was undone and that can still be restored, each as the
+    /// save Restore brings back, most recently deleted first. Read from the blob names and marks alone:
+    /// nothing in a deleted campaign's JSON is read.
+    /// </summary>
+    public static Task<IReadOnlyList<SaveRef>> RecentlyDeletedAsync(CampaignStore store, CancellationToken ct = default) =>
+        store.RecentlyDeletedAsync(DocumentKind.Draft, ct);
+
     /// <summary>A new, unsaved campaign from a template's newest version, or null when the template has no saves.</summary>
     public static async Task<DraftSession?> StartAsync(CampaignStore store, Guid templateId, CancellationToken ct = default)
     {
@@ -190,7 +225,7 @@ public sealed class DraftSession
         return latest is null
             ? null
             : new DraftSession(store, id, CampaignEditor.Open(await store.LoadDraftAsync(latest, ct)), latest,
-                await store.RestorableAsync(DocumentKind.Draft, id, ct), Superseded(history));
+                await store.RestorableAsync(DocumentKind.Draft, id, ct), Superseded(history), history.Count);
     }
 
     // The newest earlier version with an approval, when the newest itself has none.
@@ -222,6 +257,7 @@ public sealed class DraftSession
         // approval goes with it to the new save.
         var keeps = before?.Approval is not null && CurrentApproval == before.Approval ? before : null;
         Latest = await _store.SaveDraftAsync(Id.Value, Editor.Title, Editor.Draft, ct);
+        _versions++;
         MarkSaved();
         // Saved over: an undone version below the new one is no longer offered back.
         Restorable = null;
@@ -268,6 +304,7 @@ public sealed class DraftSession
     {
         var history = await _store.HistoryAsync(DocumentKind.Draft, Id!.Value, ct);
         Latest = history.FirstOrDefault();
+        _versions = history.Count;
         SupersededApproval = Superseded(history);
         Restorable = await _store.RestorableAsync(DocumentKind.Draft, Id.Value, ct);
         if (Latest is null)

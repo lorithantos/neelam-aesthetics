@@ -141,6 +141,26 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Contains("Copy link", page);
     }
 
+    // A browser that refuses the clipboard used to leave the text selected with nothing said. Every
+    // copy button has a line beside it, empty until then, where the script says to copy by hand.
+    [Fact]
+    public async Task Every_copy_button_has_a_line_for_copying_by_hand()
+    {
+        var save = await Store.ApproveAsync(await Saved(DraftFixtures.Finished()), "Priya");
+
+        var page = await Get($"/campaigns/{save.Id}");
+
+        var copied = Regex.Matches(page, "data-copy=\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToList();
+        Assert.NotEmpty(copied);
+        foreach (var id in copied)
+            Assert.Contains($"<span id=\"{id}-hint\" class=\"field-help\" role=\"status\" data-copy-hint></span>", page);
+
+        var script = File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "wwwroot", "copy.js"));
+        Assert.Contains("\"Press Ctrl+C (or Cmd+C) to copy\"", script);
+        Assert.Contains("getAttribute(\"data-copy\") + \"-hint\"", script);
+        Assert.Matches(@"catch\s*\{[^}]*hint\.textContent = copyByHand;", script);
+    }
+
     [Fact]
     public async Task Without_approval_there_is_no_export()
     {

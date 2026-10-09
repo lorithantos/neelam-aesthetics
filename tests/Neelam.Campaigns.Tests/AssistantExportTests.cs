@@ -123,7 +123,7 @@ public class AssistantExportTests
         Assert.All(fromKnown, f => Assert.StartsWith($"{offerLabel} › Tier ", f.Location));
         var worthALook = Parse(Exported(report, context: Context))["review"]!["worthALook"]!.AsArray()
             .Select(n => n!.GetValue<string>()).ToList();
-        Assert.Contains($"{offerLabel} › Tier 2: 'Platinum Member' is $249/month in your known items; here it is $299/month.", worthALook);
+        Assert.Contains($"{offerLabel} › Tier 2 price: 'Platinum Member' is $249/month in your known items; here it is $299/month.", worthALook);
         Assert.DoesNotContain(worthALook, w => w.Contains("Social") || w.Contains("Lasers") || w.Contains("Facial"));
     }
 

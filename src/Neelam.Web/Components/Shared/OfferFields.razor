@@ -6,7 +6,9 @@
    while typing. What is picked is ordinary text she typed, never marked as not yet checked; a
    picked tier that repeats another's name or price is flagged by the rules, as a copy is. A tier, a
    benefit line, or the treatment in a benefit's Item field can be saved as a known item exactly as
-   written. *@
+   written, offered only for what is new to her list (never a near miss, which the checks answer
+   with "Did you mean"); what saving says shows beside the button clicked. Removing a tier or a
+   benefit is a plain button that asks first. *@
 @implements IHandleEvent
 <div class="field">
     <label for="offer-name-@Index">Offer name</label>
@@ -30,10 +32,6 @@
 </div>
 
 <h4>Tiers</h4>
-@if (_message is not null)
-{
-    <p role="status">@_message</p>
-}
 @if (Offer.Tiers.Count == 0)
 {
     <p class="muted">No tiers yet.</p>
@@ -49,13 +47,26 @@
             <h4>Tier @tierNumber</h4>
             <div class="block-actions">
                 <button class="button" disabled="@(!Offer.CanCopy(tier))" title="@(Offer.CanCopy(tier) ? null : "Fill in or remove its empty benefits first")" @onclick="() => Offer.CopyTier(tier)">Copy tier</button>
-                @if (SaveKnown is not null)
+                @if (SaveKnown is not null && tier.SaveOffered(Known))
                 {
                     <button class="button" disabled="@(cannotSaveTier is not null)" title="@cannotSaveTier" @onclick="() => SaveTierAsync(tier)">Save as a known item</button>
                 }
-                <button class="button danger" aria-label="Remove tier @tierNumber" @onclick="() => Offer.RemoveTier(tier)">Remove tier</button>
+                @* Secondary, and asked about first: a whole tier is a lot to lose to a misclick. *@
+                <button class="button" aria-label="Remove tier @tierNumber" @onclick="() => _confirmingRemove = tier">Remove tier</button>
             </div>
         </div>
+        @if (ReferenceEquals(_confirmingRemove, tier))
+        {
+            <p role="alert">
+                Remove tier @tierNumber@(tier.Name.Text.Trim().Length > 0 ? $", {tier.Name.Text.Trim()}," : "") and everything in it?
+                <button class="button danger" @onclick="() => RemoveTier(tier)">Remove it</button>
+                <button class="button" @onclick="() => _confirmingRemove = null">Keep it</button>
+            </p>
+        }
+        @if (NoteFor(tier) is { } tierNote)
+        {
+            <p role="status">@tierNote</p>
+        }
         <div class="field">
             <label for="tier-name-@id">Name</label>
             <input id="tier-name-@id" list="@KnownItemLists.Tiers" @bind="tier.Name.Text" @bind:event="oninput" />
@@ -91,14 +102,30 @@
                 <div class="block-actions">
                     @if (SaveKnown is not null)
                     {
-                        <button class="button" disabled="@(benefit.Value is null)" title="@(benefit.Value is null ? "Fill it in first" : null)" @onclick="() => SaveBenefitAsync(benefit)">Save as a known item</button>
-                        @if (benefit.TreatmentToKnown() is { } treatment)
+                        @if (benefit.SaveOffered(Known))
                         {
-                            <button class="button" @onclick="() => SaveTreatmentAsync(treatment)">Save "@treatment.Name" as a known treatment</button>
+                            <button class="button" disabled="@(benefit.Value is null)" title="@(benefit.Value is null ? "Fill it in first" : null)" @onclick="() => SaveBenefitAsync(benefit)">Save as a known item</button>
+                        }
+                        @* Only for a treatment new to her list: a near miss gets "Did you mean" from the checks instead. *@
+                        @if (benefit.TreatmentToSave(Known) is { } treatment)
+                        {
+                            <button class="button" @onclick="() => SaveTreatmentAsync(benefit, treatment)">Save "@treatment.Name" as a known treatment</button>
                         }
                     }
-                    <button class="button danger" aria-label="Remove benefit @benefitNumber of tier @tierNumber" @onclick="() => tier.RemoveBenefit(benefit)">Remove benefit</button>
+                    <button class="button" aria-label="Remove benefit @benefitNumber of tier @tierNumber" @onclick="() => _confirmingRemove = benefit">Remove benefit</button>
                 </div>
+                @if (ReferenceEquals(_confirmingRemove, benefit))
+                {
+                    <p role="alert">
+                        Remove benefit @benefitNumber of tier @tierNumber?
+                        <button class="button danger" @onclick="() => RemoveBenefit(tier, benefit)">Remove it</button>
+                        <button class="button" @onclick="() => _confirmingRemove = null">Keep it</button>
+                    </p>
+                }
+                @if (NoteFor(benefit) is { } benefitNote)
+                {
+                    <p role="status">@benefitNote</p>
+                }
             </div>
         }
         <p><button class="button" @onclick="() => tier.AddBenefit()">Add a benefit</button></p>
@@ -139,7 +166,27 @@
 
     private readonly Dictionary<TierEditor, string> _benefitPicks = [];
     private string _tierPick = "";
-    private string? _message;
+    // What saving a known item said, shown beside the button that was clicked: a tier or a benefit.
+    private (object Target, string Text)? _note;
+    // The tier or benefit whose Remove is waiting to be confirmed.
+    private object? _confirmingRemove;
+
+    private string? NoteFor(object target) => _note is { } note && ReferenceEquals(note.Target, target) ? note.Text : null;
+
+    private void RemoveTier(TierEditor tier)
+    {
+        Offer.RemoveTier(tier);
+        _confirmingRemove = null;
+        if (_note is { Target: var target } && (ReferenceEquals(target, tier) || target is BenefitEditor b && tier.Benefits.Contains(b)))
+            _note = null;
+    }
+
+    private void RemoveBenefit(TierEditor tier, BenefitEditor benefit)
+    {
+        tier.RemoveBenefit(benefit);
+        _confirmingRemove = null;
+        if (_note is { Target: var target } && ReferenceEquals(target, benefit)) _note = null;
+    }
     // Counts picks; a picker's key carries it, so after a pick the box is made afresh and shows empty
     // even when the browser filled it from the list without a keystroke Blazor saw.
     private int _picks;
@@ -167,7 +214,7 @@
         {
             tier.AddKnownBenefit(known.Benefit);
             _benefitPicks.Remove(tier);
-            _message = null;
+            _note = null;
             _picks++;
             return;
         }
@@ -180,7 +227,7 @@
         {
             Offer.AddKnownTier(known);
             _tierPick = "";
-            _message = null;
+            _note = null;
             _picks++;
             return;
         }
@@ -189,13 +236,14 @@
 
     private async Task SaveTierAsync(TierEditor tier)
     {
-        if (tier.ToKnown().Tier is { } known) _message = await SaveKnown!(known);
+        if (tier.ToKnown().Tier is { } known) _note = (tier, await SaveKnown!(known));
     }
 
     private async Task SaveBenefitAsync(BenefitEditor benefit)
     {
-        if (benefit.ToKnown() is { } known) _message = await SaveKnown!(known);
+        if (benefit.ToKnown() is { } known) _note = (benefit, await SaveKnown!(known));
     }
 
-    private async Task SaveTreatmentAsync(KnownTreatment treatment) => _message = await SaveKnown!(treatment);
+    private async Task SaveTreatmentAsync(BenefitEditor benefit, KnownTreatment treatment) =>
+        _note = (benefit, await SaveKnown!(treatment));
 }

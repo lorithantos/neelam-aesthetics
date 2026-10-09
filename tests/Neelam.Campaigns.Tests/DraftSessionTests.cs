@@ -162,6 +162,95 @@ public class DraftSessionTests
         Assert.DoesNotContain(_container.Blobs.Keys, k => k.StartsWith("drafts/", StringComparison.Ordinal));
     }
 
+    // Undo with no version before it deletes the campaign, and the question says so, with the grace
+    // period as configured; with one before it, it says that one comes back.
+    [Fact]
+    public async Task The_undo_question_says_when_it_deletes_the_campaign()
+    {
+        var session = await Started();
+        Assert.False(session.UndoDeletesTheCampaign);
+        await session.SaveAsync();
+
+        Assert.True(session.UndoDeletesTheCampaign);
+        Assert.Equal("This deletes the campaign. You can restore it for a day.", session.UndoQuestion);
+
+        _clock.Now += TimeSpan.FromMinutes(1);
+        session.Editor.Subject.Text = "Second";
+        await session.SaveAsync();
+        Assert.False(session.UndoDeletesTheCampaign);
+        Assert.StartsWith("Undo the last save? The version before it comes back", session.UndoQuestion);
+        Assert.EndsWith("can be restored for a day, then it is deleted for good.", session.UndoQuestion);
+
+        // Opened again, it still knows how many saves there are.
+        var reopened = (await DraftSession.OpenAsync(Store, session.Id!.Value))!;
+        Assert.False(reopened.UndoDeletesTheCampaign);
+        Assert.True(await reopened.UndoLastSaveAsync());
+        Assert.True(reopened.UndoDeletesTheCampaign);
+
+        // The period is the store's, in words.
+        var hours = (await DraftSession.OpenAsync(Records.Campaigns(_container, TimeSpan.FromHours(12)), session.Id.Value))!;
+        Assert.Equal("This deletes the campaign. You can restore it for 12 hours.", hours.UndoQuestion);
+    }
+
+    [Theory]
+    [InlineData("1.00:00:00", "a day")]
+    [InlineData("2.00:00:00", "2 days")]
+    [InlineData("01:00:00", "an hour")]
+    [InlineData("1.12:00:00", "36 hours")]
+    [InlineData("00:30:00", "30 minutes")]
+    [InlineData("00:01:00", "a minute")]
+    public void A_grace_period_reads_in_its_largest_whole_unit(string period, string words) =>
+        Assert.Equal(words, TimeWords.Period(TimeSpan.Parse(period, System.Globalization.CultureInfo.InvariantCulture)));
+
+    // Deleted campaigns are listed, for her to restore from the list, until the sweep may take them.
+    [Fact]
+    public async Task Recently_deleted_lists_each_campaign_with_no_save_in_use_while_it_can_be_restored()
+    {
+        var kept = await Started();
+        await kept.SaveAsync();
+        _clock.Now += TimeSpan.FromMinutes(1);
+        // A campaign with two saves, its newest undone: still in her list, so not deleted.
+        kept.Editor.Subject.Text = "Kept";
+        await kept.SaveAsync();
+        await kept.UndoLastSaveAsync();
+
+        var older = await Started();
+        older.Editor.Subject.Text = "Deleted first";
+        var olderSave = await older.SaveAsync();
+        Assert.False(await older.UndoLastSaveAsync());
+        _clock.Now += TimeSpan.FromHours(1);
+
+        var newer = await Started();
+        newer.Editor.Subject.Text = "Deleted second";
+        await newer.SaveAsync();
+        _clock.Now += TimeSpan.FromMinutes(1);
+        newer.Editor.Subject.Text = "Deleted second, again";
+        await newer.SaveAsync();
+        await newer.UndoLastSaveAsync();
+        Assert.False(await newer.UndoLastSaveAsync());
+
+        // Deleted and then saved again from the page still open: in use, so not deleted, though its
+        // first save is still restorable.
+        var resaved = await Started();
+        resaved.Editor.Subject.Text = "Saved again";
+        await resaved.SaveAsync();
+        Assert.False(await resaved.UndoLastSaveAsync());
+        _clock.Now += TimeSpan.FromMinutes(1);
+        await resaved.SaveAsync();
+
+        var deleted = await DraftSession.RecentlyDeletedAsync(Store);
+
+        // The save Restore brings back: for one undone save by save, the last one undone.
+        Assert.Equal([(newer.Id!.Value, "Deleted second"), (olderSave.Id, "Deleted first")], deleted.Select(s => (s.Id, s.Title)));
+        var restored = (await DraftSession.RestoreAsync(Store, deleted[1]))!;
+        Assert.Equal("Deleted first", restored.Latest!.Title);
+        Assert.Equal([newer.Id.Value], (await DraftSession.RecentlyDeletedAsync(Store)).Select(s => s.Id));
+
+        // Past its grace period, it is the sweep's, and no longer offered.
+        _clock.Now += Grace;
+        Assert.Empty(await DraftSession.RecentlyDeletedAsync(Store));
+    }
+
     // A copy nobody reviewed is still unreviewed after it is saved and opened again.
     [Fact]
     public async Task Opening_reads_the_newest_version_with_every_origin_and_an_unknown_campaign_is_null()

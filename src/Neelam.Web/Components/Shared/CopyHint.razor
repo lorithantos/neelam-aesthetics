@@ -1,0 +1,9 @@
+@* Beside a copy button: where copy.js says "Press Ctrl+C (or Cmd+C) to copy" when the browser
+   refuses the clipboard. Empty until then; the page renders it so the script adds nothing to markup
+   the page owns. *@
+<span id="@($"{For}-hint")" class="field-help" role="status" data-copy-hint></span>
+
+@code {
+    /// <summary>The id of the element the button copies, as its data-copy names it.</summary>
+    [Parameter, EditorRequired] public string For { get; set; } = "";
+}

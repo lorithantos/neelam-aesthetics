@@ -1,8 +1,12 @@
 @page "/campaigns"
-@* A client's campaigns are its own data: the access check decides whose, on top of the policy. *@
+@* A client's campaigns are its own data: the access check decides whose, on top of the policy.
+   A campaign whose every save was undone is listed under Recently deleted while it can still be
+   restored, with Restore: a plain form post, so it works on this page as it is served, with no
+   connection held open. *@
 @attribute [Authorize(Policy = Features.Campaigns)]
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
+@inject NavigationManager Navigation
 
 <PageTitle>Campaigns</PageTitle>
 
@@ -14,7 +18,7 @@
 }
 else if (_campaigns is not null && _templates is not null)
 {
-    <p class="muted">@_displayName's campaigns. Each save is kept as its own version until it is undone.</p>
+    <p class="muted">Campaigns for @_displayName. Each save is kept as its own version until it is undone.</p>
 
     <section class="card" aria-labelledby="new-campaign">
         <h2 id="new-campaign">New campaign</h2>
@@ -57,15 +61,40 @@ else if (_campaigns is not null && _templates is not null)
             <a class="button" href="@href">Open</a>
         </section>
     }
+
+    @if (_restoreMessage is not null)
+    {
+        <p role="alert">@_restoreMessage</p>
+    }
+    @if (_deleted is { Count: > 0 })
+    {
+        <h2 id="recently-deleted">Recently deleted</h2>
+        <p class="muted">Deleted campaigns can be restored for @TimeWords.Period(_store!.UndoGracePeriod). After that they are removed for good.</p>
+        @foreach (var deleted in _deleted)
+        {
+            <section class="card" aria-label="Deleted: @deleted.Title">
+                <h3>@deleted.Title</h3>
+                <p class="muted">Deleted @deleted.UndoneAt?.ToString("d MMM yyyy, HH:mm") UTC. It will be removed for good @_store.RestorableUntil(deleted)?.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                <form method="post" @formname="@($"restore-{deleted.Id:N}")" @onsubmit="() => RestoreAsync(deleted)">
+                    <AntiforgeryToken />
+                    <button type="submit" class="button">Restore</button>
+                </form>
+            </section>
+        }
+    }
 }
 
 @code {
     private string? _denied;
     private ClientName? _client;
     private string? _displayName;
+    private CampaignStore? _store;
     // Each with her label, read from its newest save's JSON: one read per campaign.
     private IReadOnlyList<CampaignListing>? _campaigns;
     private IReadOnlyList<SaveRef>? _templates;
+    // Campaigns whose every save is undone, still restorable; read from names and marks only.
+    private IReadOnlyList<SaveRef>? _deleted;
+    private string? _restoreMessage;
 
     protected override async Task OnInitializedAsync()
     {
@@ -76,9 +105,22 @@ else if (_campaigns is not null && _templates is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(_client);
-        var store = Stores.Campaigns(_client, await Workspace.ActorAsync());
+        var store = _store = Stores.Campaigns(_client, await Workspace.ActorAsync());
         _campaigns = await DraftSession.ListLabelledAsync(store);
         _templates = (await store.LatestAsync(DocumentKind.Template))
             .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+        _deleted = await DraftSession.RecentlyDeletedAsync(store);
+    }
+
+    // Restored, the campaign opens; past its grace period meanwhile, the list says so.
+    private async Task RestoreAsync(SaveRef deleted)
+    {
+        if (await DraftSession.RestoreAsync(_store!, deleted) is not null)
+        {
+            Navigation.NavigateTo($"campaigns/{deleted.Id}");
+            return;
+        }
+        _restoreMessage = $"\"{deleted.Title}\" can no longer be restored.";
+        _deleted = await DraftSession.RecentlyDeletedAsync(_store!);
     }
 }

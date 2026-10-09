@@ -197,6 +197,21 @@ public sealed class CampaignStore(
     }
 
     /// <summary>
+    /// Every campaign or template with no save in use and one still restorable: for each, the save
+    /// Restore would bring back (as <see cref="RestorableAsync"/> gives it, the last one undone), most
+    /// recently undone first. Read from the blob names and marks; no save's content is read.
+    /// </summary>
+    public async Task<IReadOnlyList<SaveRef>> RecentlyDeletedAsync(DocumentKind kind, CancellationToken ct = default) =>
+        (await ListPrefixAsync(kind, $"{Prefix(kind)}/", ct))
+            .GroupBy(s => s.Id)
+            .Where(g => g.All(s => s.UndoneAt is not null))
+            // Newest first within each campaign, so the last undone is the oldest save.
+            .Select(g => g.Last())
+            .Where(CanRestore)
+            .OrderByDescending(s => s.UndoneAt)
+            .ToList();
+
+    /// <summary>
     /// Takes an undo back: clears the save's mark, so it is in use again. False when the save is
     /// gone, is not undone, or its grace period has passed; the mark is read from storage, not
     /// from <paramref name="save"/>.

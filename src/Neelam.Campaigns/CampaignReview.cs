@@ -67,24 +67,28 @@ public static class CampaignReview
         var tierNames = known.Tiers.Select(t => t.Name).ToList();
         var lines = known.BenefitLines;
 
+        // Each finding names its field, as the form does: two notes on one tier, one for its name and
+        // one for a benefit, must not read alike.
         foreach (var block in c.BlocksOf<OfferBlock>())
         for (var i = 0; i < block.Offer.Tiers.Count; i++)
         {
             var tier = block.Offer.Tiers[i];
             var where = $"{block.Label} › Tier {i + 1}";
-            if (AgainstKnown(where, tier.Name, tierNames, "tiers") is { } nameFinding)
+            if (AgainstKnown($"{where} name", tier.Name, tierNames, "tiers") is { } nameFinding)
                 yield return nameFinding;
             else if (known.Tiers.FirstOrDefault(t => KnownItemMatch.IsKnown(tier.Name, [t.Name])) is { } knownTier
                      && knownTier.Price != tier.MonthlyPrice)
-                yield return new(Severity.Warning, "known-item", where,
+                yield return new(Severity.Warning, "known-item", $"{where} price",
                     $"'{knownTier.Name}' is {EditorExport.PriceText(knownTier.Price, block.Offer.IsRecurring)} in your known items; " +
                     $"here it is {EditorExport.PriceText(tier.MonthlyPrice, block.Offer.IsRecurring)}.",
                     Excerpt: tier.Name);
 
-            foreach (var benefit in tier.Benefits)
+            for (var b = 0; b < tier.Benefits.Count; b++)
             {
-                var itemFinding = benefit.Item is { } item ? AgainstKnown(where, item, treatments, "treatments") : null;
-                var finding = itemFinding ?? AgainstKnown(where, benefit.Describe(), lines, "benefit lines");
+                var benefit = tier.Benefits[b];
+                var field = $"{where}, benefit {b + 1}";
+                var itemFinding = benefit.Item is { } item ? AgainstKnown(field, item, treatments, "treatments") : null;
+                var finding = itemFinding ?? AgainstKnown(field, benefit.Describe(), lines, "benefit lines");
                 if (finding is not null) yield return finding;
             }
         }

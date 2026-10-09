@@ -262,7 +262,7 @@ public class KnownItemsTests
         var finding = Assert.Single(NearMisses(WithBenefit(new FreeItem(1, "Wellness Injecton", "per visit")), Knowing(Wellness)));
 
         Assert.Equal(Severity.Warning, finding.Severity);
-        Assert.Equal("Offer › Tier 1", finding.Location);
+        Assert.Equal("Offer › Tier 1, benefit 1", finding.Location);
         Assert.Equal("Did you mean 'Wellness injection'? It's in your known items.", finding.Message);
         Assert.Equal("Wellness Injecton", finding.Excerpt);
     }
@@ -313,8 +313,30 @@ public class KnownItemsTests
         var finding = Assert.Single(NearMisses(WithTier(new Tier("Platinum Member", 249m, [new BirthdayCredit(75m)])), Knowing(Platinum)));
 
         Assert.Equal(Severity.Warning, finding.Severity);
-        Assert.Equal("Offer › Tier 1", finding.Location);
+        Assert.Equal("Offer › Tier 1 price", finding.Location);
         Assert.Equal("'Platinum Member' is $299 in your known items; here it is $249.", finding.Message);
+    }
+
+    // The walkthrough's two notes that read alike, "Offer › Tier 2 Did you mean ...", one for the
+    // tier's name and one for its second benefit: each now names its field, and the benefit its number.
+    [Fact]
+    public void Each_note_names_its_field_and_a_benefit_its_number()
+    {
+        var campaign = new Campaign("Hello",
+        [
+            new OfferBlock("Offer", new Offer("Membership", "Join us.",
+            [
+                new Tier("Platinum Member", 299m, [new BirthdayCredit(75m)]),
+                new Tier("Platinum Membr", 349m, [new BirthdayCredit(75m), new FreeItem(1, "Wellness Injecton", "per visit"), new FreeItem(1, "Hydrafacial", "per visit")]),
+            ], IsRecurring: false, TermsUrl: null, TiersNote: null)),
+        ]);
+
+        var findings = NearMisses(campaign, Knowing(Platinum, Wellness));
+
+        Assert.Equal(
+            ["Offer › Tier 2 name", "Offer › Tier 2, benefit 2", "Offer › Tier 2, benefit 3"],
+            findings.Select(f => f.Location).ToArray());
+        Assert.Equal(findings.Count, findings.Select(f => $"{f.Location} {f.Message}").Distinct().Count());
     }
 
     [Fact]
@@ -414,6 +436,47 @@ public class KnownItemsTests
         Assert.Equal("Wellness injection", BenefitEditor.Standalone(new DiscountedItem(50, "Wellness injection", "per visit")).TreatmentToKnown()!.Name);
         Assert.Null(BenefitEditor.Standalone(new PercentOff(10, "any qualifying treatments")).TreatmentToKnown());
         Assert.Null(BenefitEditor.Standalone().TreatmentToKnown());
+    }
+
+    // Save is offered only beside the neutral note: never for a near miss, which draws "Did you mean"
+    // (the walkthrough was offered to save "Wellness Injecton" with "Wellness injection" known), and
+    // never for what she already has. With nothing of that kind known, everything is new.
+    [Fact]
+    public void Saving_a_treatment_is_offered_only_when_it_is_new_to_her_list()
+    {
+        var known = new KnownItems([Wellness]);
+        BenefitEditor Line(string item) => BenefitEditor.Standalone(new FreeItem(1, item, "per visit"));
+
+        Assert.Null(Line("Wellness Injecton").TreatmentToSave(known));
+        Assert.Null(Line("wellness injections").TreatmentToSave(known));
+        Assert.Equal("Hydrafacial", Line("Hydrafacial").TreatmentToSave(known)!.Name);
+        Assert.Equal("Wellness Injecton", Line("Wellness Injecton").TreatmentToSave(KnownItems.None)!.Name);
+        // The checks say the same: "Did you mean" for the one not offered, the neutral note for the other.
+        Assert.StartsWith("Did you mean", Assert.Single(NearMisses(WithBenefit(new FreeItem(1, "Wellness Injecton", "per visit")), Knowing(Wellness))).Message);
+        Assert.EndsWith("isn't one of your known treatments.", Assert.Single(NearMisses(WithBenefit(new FreeItem(1, "Hydrafacial", "per visit")), Knowing(Wellness))).Message);
+    }
+
+    // The same for a whole line and a tier: a near miss, or a line whose item is one, is not offered.
+    [Fact]
+    public void Saving_a_line_or_a_tier_is_not_offered_for_a_near_miss()
+    {
+        var known = new KnownItems([Wellness, TenOff, Platinum]);
+
+        Assert.False(BenefitEditor.Standalone(new PercentOff(10, "any qualifing treatments")).SaveOffered(known));
+        Assert.False(BenefitEditor.Standalone(new FreeItem(2, "Wellness Injecton", "per month")).SaveOffered(known));
+        Assert.False(BenefitEditor.Standalone(new PercentOff(10, "any qualifying treatments")).SaveOffered(known));
+        Assert.True(BenefitEditor.Standalone(new PercentOff(20, "any facial")).SaveOffered(known));
+        // Unfinished: still shown, and the button says to fill it in first.
+        Assert.True(BenefitEditor.Standalone().SaveOffered(known));
+
+        var tier = OfferOf(CampaignEditor.Start(DraftFixtures.Membership)).AddTier();
+        Assert.True(tier.SaveOffered(known));
+        tier.Name.Text = "Platinum Membr";
+        Assert.False(tier.SaveOffered(known));
+        tier.Name.Text = "Platinum Member";
+        Assert.False(tier.SaveOffered(known));
+        tier.Name.Text = "Diamond Member";
+        Assert.True(tier.SaveOffered(known));
     }
 
     // ---- A store that fails never ends her session
