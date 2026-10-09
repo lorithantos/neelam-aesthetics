@@ -28,6 +28,12 @@ public enum ActivityAction
     Approved,
     ApprovalWithdrawn,
 
+    /// <summary>
+    /// An approval carried to a new save that changed only her label, which is not part of what was
+    /// approved: the new save is approved by the same person at the same time.
+    /// </summary>
+    ApprovalCarriedToLabelOnlySave,
+
     /// <summary>A save marked undone: gone from every list, restorable for the grace period.</summary>
     Undone,
     Restored,
@@ -106,7 +112,10 @@ public sealed class ActivityRecorder(IActivityLog log, TimeProvider clock, ILogg
     /// <summary>A trail for one client and one actor, for the stores opened for a request.</summary>
     public ActivityTrail For(ClientName client, Actor actor) => new(this, client, actor);
 
-    /// <summary>Records an event now, in the server's UTC time. Never throws.</summary>
+    /// <summary>
+    /// Records an event now, in the server's UTC time. Never throws for a failed write; a cancellation
+    /// the caller asked for through <paramref name="ct"/> is not a failure, and goes on to the caller.
+    /// </summary>
     public async Task RecordAsync(
         ClientName client, ActivityEntity entity, string entityId, string? saveStamp, ActivityAction action, string actor,
         CancellationToken ct = default)
@@ -115,7 +124,7 @@ public sealed class ActivityRecorder(IActivityLog log, TimeProvider clock, ILogg
         {
             await log.RecordAsync(new ActivityEvent(client, entity, entityId, saveStamp, action, actor, clock.GetUtcNow()), ct);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (!(ex is OperationCanceledException && ct.IsCancellationRequested))
         {
             // Ids only, as in the event itself: the log never carries content either.
             logger.LogError(ex, "Could not record activity {Action} on {Entity} {EntityId} for {Client}; the action itself went ahead.",

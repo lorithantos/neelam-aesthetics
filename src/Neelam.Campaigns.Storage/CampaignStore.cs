@@ -163,6 +163,8 @@ public sealed class CampaignStore(
             throw new ArgumentException("An approval is kept only within one campaign.", nameof(later));
         if (await StandingApprovalAsync(approved, ct) is not { } row) return later;
         await approvals.PutAsync(row with { Stamp = SaveStamp.Of(later.SavedAt), WithdrawnAt = null }, ct);
+        // On the later save, by whoever saved it: ids only, as every event.
+        await RecordAsync(later, ActivityAction.ApprovalCarriedToLabelOnlySave, ct);
         return later with { Approval = row.Approval };
     }
 

@@ -110,6 +110,61 @@ public class ActivityTests
         Assert.All(Records.Activity.Events, e => Assert.Equal((id.ToString("N"), Stamp(saved)), (e.EntityId, e.SaveStamp)));
     }
 
+    // A save that changes only her label keeps the approval, and the trail says so: one event, on the
+    // new save, by whoever saved it, naming the campaign and the save by id only. With no approval
+    // standing to carry, nothing is carried and nothing is recorded.
+    [Fact]
+    public async Task An_approval_carried_to_a_label_only_save_is_one_event_on_the_new_save()
+    {
+        var store = Stores.Campaigns(Salon, Asha);
+        var id = Guid.NewGuid();
+        var draft = DraftFixtures.Finished();
+        var approved = await store.ApproveAsync(await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", draft), "Priya");
+        _clock.Now += TimeSpan.FromMinutes(1);
+        draft.Label = Label;
+        var later = await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", draft);
+        var before = Records.Activity.Events.Count;
+
+        Assert.NotNull((await store.KeepApprovalAsync(approved, later)).Approval);
+
+        var carried = Assert.Single(Records.Activity.Events.Skip(before));
+        Assert.Equal(
+            (Salon, ActivityEntity.Campaign, id.ToString("N"), Stamp(later), ActivityAction.ApprovalCarriedToLabelOnlySave, "Asha Patel"),
+            (carried.Client, carried.Entity, carried.EntityId, carried.SaveStamp, carried.Action, carried.Actor));
+
+        await store.WithdrawApprovalAsync(later);
+        _clock.Now += TimeSpan.FromMinutes(1);
+        var unapproved = await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", draft);
+        before = Records.Activity.Events.Count;
+        Assert.Null((await store.KeepApprovalAsync(later, unapproved)).Approval);
+        Assert.Equal(before, Records.Activity.Events.Count);
+    }
+
+    // A cancellation the caller asked for is not a failed write: it reaches the caller, as any
+    // cancelled operation does. A write that fails with a cancellation nobody asked for (a timeout
+    // inside the client) is still a failure, logged, and the action goes on.
+    [Fact]
+    public async Task A_cancellation_the_caller_asked_for_goes_back_to_the_caller()
+    {
+        var recorder = new ActivityRecorder(new CancellingLog(), _clock, Records.Log);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            recorder.RecordAsync(Salon, ActivityEntity.Campaign, "x", null, ActivityAction.Saved, "Asha Patel", cancelled.Token));
+        Assert.DoesNotContain(Records.Log.Entries, e => e.Level == LogLevel.Error);
+
+        await recorder.RecordAsync(Salon, ActivityEntity.Campaign, "x", null, ActivityAction.Saved, "Asha Patel");
+        Assert.IsType<TaskCanceledException>(Assert.Single(Records.Log.Entries, e => e.Level == LogLevel.Error).Error);
+    }
+
+    // Throws as a cancelled or timed-out table call does.
+    private sealed class CancellingLog : IActivityLog
+    {
+        public Task RecordAsync(ActivityEvent activity, CancellationToken cancellationToken = default) =>
+            throw new TaskCanceledException("The operation was canceled.");
+    }
+
     // Nothing is recorded for what did not happen: a refused approval, a restore past its grace.
     [Fact]
     public async Task Refused_actions_record_nothing()
@@ -294,6 +349,12 @@ public class ActivityTests
         await store.MarkUndoneAsync(saved);
         _clock.Now += Grace + TimeSpan.FromMinutes(1);
         await Stores.Campaigns(Salon, Actor.UndoSweep).SweepAsync();
+        // A label-only save carries an approval.
+        var relabelled = await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished);
+        await store.ApproveAsync(relabelled, "Priya");
+        _clock.Now += TimeSpan.FromMinutes(1);
+        finished.Label = Label + " (sent)";
+        await store.KeepApprovalAsync(relabelled, await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished));
         await Stores.SaveBaselineAsync(Salon, TemplateBaseline.Standard, Asha);
         await Stores.UseStandardBaselineAsync(Salon, Asha);
         var library = Stores.Images(Salon, Asha);
