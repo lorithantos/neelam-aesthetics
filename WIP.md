@@ -85,6 +85,7 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
    - Staying secret-free means a federated credential on the app's identity instead of a client secret.
    - Open: App Service built-in auth or Microsoft.Identity.Web? Either can put the group and app-role claims in the token.
    - Open: how clients' people get accounts with no setup of their own. Guests invited into the operator's directory, or Microsoft Entra External ID (an emailed code or an existing account)? External ID is likely kinder for non-technical users, but it is a separate setup.
+   - **Owner's constraint, 2026-10-09:** a client's people (Priya first) must not be made to sign in to an unfinished site and then to a new one later. Until the real site exists they see only public, no-data pages (`/how-it-works`); their first sign-in is one that lasts. That favours an identity that is theirs (their own email or existing account), the same for every deployment, and a site address that does not change at go-live.
 3. **Approval.** Is one approver enough, or must a second person approve before export? Must warnings be acknowledged individually, or do only blockers stop export (the current behaviour)?
 4. **Claude.** No answer yet. Options: call the Anthropic API directly, or go through Microsoft Foundry in the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
    - An API key, or another way to authenticate, is needed before the proofreader can be run on the two real sends.
