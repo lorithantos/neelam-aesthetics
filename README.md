@@ -126,7 +126,7 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients (each with its Entra group, and a description of the business that guides the AI proofread), support grants, approvals and dismissals | The app. The operator manages clients |
+| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants, approvals and dismissals | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json` | That client's members and the operator; the standard baseline is read for every client |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline if it saved one | The client's members. The operator only under a support grant |
 
@@ -235,6 +235,11 @@ both, and the tests pin which rules each trips.
 
 Restricted terms are warnings, not blockers, on purpose: whether "Beauty Bank" is acceptable is
 a business and legal call, not one for the tool to make.
+
+A later email signed off with "Snohomish, WA | 425-877-8646" while Square's record of the
+business had (425) 773-5261. The numbers a client may publish are part of its registration in
+the clients table, and `phone-registered` warns about any other number anywhere in the email,
+fixed template text and `tel:` links included. With no numbers registered it says nothing.
 
 ## Layout
 

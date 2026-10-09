@@ -8,8 +8,14 @@ namespace Neelam.Campaigns.Storage;
 /// </summary>
 public sealed record ClientRecord(ClientName Name, Guid GroupId, string DisplayName, string? Description = null)
 {
-    /// <summary>What the proofread is told about who is sending the email.</summary>
-    public BusinessContext Business => new(DisplayName, Description);
+    /// <summary>
+    /// The phone numbers the business may publish, such as a main line and a booking line. The
+    /// checks flag any other number in a campaign; with none registered, numbers are not checked.
+    /// </summary>
+    public PhoneNumbers Phones { get; init; } = PhoneNumbers.None;
+
+    /// <summary>What the checks and the proofread are told about who is sending the email.</summary>
+    public BusinessContext Business => new(DisplayName, Description) { Phones = Phones };
 }
 
 /// <summary>The clients table. The operator adds a client here when onboarding it.</summary>
@@ -21,7 +27,7 @@ public interface IClientDirectory
     Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Changes a client's display name and description. Its name and Entra group are who it is,
+    /// Changes a client's display name, description and phone numbers. Its name and Entra group are who it is,
     /// so an update naming an unknown client, or a different group, is refused.
     /// </summary>
     Task UpdateAsync(ClientRecord client, CancellationToken cancellationToken = default);

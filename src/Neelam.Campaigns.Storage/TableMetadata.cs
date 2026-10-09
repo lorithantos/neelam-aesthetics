@@ -78,14 +78,23 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore
         };
         // Left out rather than stored as null, like a standing grant's expiry.
         if (client.Description is { } description) row["Description"] = description;
+        // Each number as its digits with the country code, comma-separated; left out when none.
+        if (client.Phones.Count > 0) row["Phones"] = string.Join(",", client.Phones.Select(p => p.Digits));
         return row;
     }
 
+    // A row written before phone numbers were registered has none.
     internal static ClientRecord ToClient(TableEntity row) =>
         new(new ClientName(row.RowKey),
             row.GetGuid("GroupId") ?? throw new InvalidDataException($"Client {row.RowKey} has no Entra group."),
             row.GetString("DisplayName") ?? row.RowKey,
-            row.GetString("Description"));
+            row.GetString("Description"))
+        {
+            Phones = row.GetString("Phones") is { Length: > 0 } phones
+                ? new PhoneNumbers(phones.Split(',').Select(digits => PhoneNumber.FromDigits(digits)
+                    ?? throw new InvalidDataException($"Client {row.RowKey} has a phone number that is not one: '{digits}'.")))
+                : PhoneNumbers.None,
+        };
 
     // One partition per client; rows sort by when the grant was given, and the id keeps two grants
     // in the same instant apart.

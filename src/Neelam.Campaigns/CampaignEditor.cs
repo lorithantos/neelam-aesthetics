@@ -73,17 +73,19 @@ public sealed class CampaignEditor
     /// filled in (<see cref="DraftSoFar"/>), with each missing part marked in the preview; the
     /// missing parts still block. A rules-only review never allows export.
     /// </summary>
-    public DraftStatus Status(CampaignPolicy? policy = null)
+    /// <param name="policy">The client's check policy; the starting defaults when null.</param>
+    /// <param name="business">The client's registration, for the phone numbers it may publish.</param>
+    public DraftStatus Status(CampaignPolicy? policy = null, BusinessContext? business = null)
     {
         var built = Draft.Build();
         if (built.Campaign is { } campaign)
         {
-            var review = CampaignReview.Check(campaign, policy);
+            var review = CampaignReview.Check(campaign, policy, business);
             return new DraftStatus([], review.Findings, review, EditorExport.PreviewBlocks(campaign));
         }
         return new DraftStatus(
             built.Problems,
-            CampaignReview.Check(DraftSoFar.Campaign(Draft), policy).Findings,
+            CampaignReview.Check(DraftSoFar.Campaign(Draft), policy, business).Findings,
             null,
             DraftSoFar.Preview(Draft));
     }

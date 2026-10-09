@@ -35,7 +35,7 @@ else if (_session is not null)
 {
     var editor = _session.Editor;
     var errors = editor.Errors();
-    var status = editor.Status(_policy);
+    var status = editor.Status(_policy, _business);
 
     <h1>@Title</h1>
     <p><a href="campaigns">Back to campaigns</a>@(editor.TemplateName is { } template ? $" · From the template {template}" : "")</p>
@@ -243,6 +243,8 @@ else if (_session is not null)
     // A campaign whose every save is undone, while it can still be restored.
     private SaveRef? _undone;
     private CampaignPolicy _policy = CampaignPolicy.Default;
+    // The client's registration, for the phone numbers the checks hold the campaign to.
+    private BusinessContext? _business;
     private IReadOnlyList<string> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
@@ -271,6 +273,7 @@ else if (_session is not null)
             if (_session is null) _missing = "Template not found";
         }
         _policy = await Stores.PolicyInForceAsync(client);
+        _business = await Workspace.BusinessAsync(client);
         _photos = (await Stores.Images(client).ListAsync()).Select(i => i.Name).ToList();
     }
 

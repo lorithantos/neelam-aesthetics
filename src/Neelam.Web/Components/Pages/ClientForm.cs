@@ -1,3 +1,4 @@
+using Neelam.Campaigns;
 using Neelam.Campaigns.Storage;
 
 namespace Neelam.Web.Components.Pages;
@@ -13,12 +14,16 @@ public sealed class ClientForm
     public string DisplayName { get; set; } = "";
     public string Description { get; set; } = "";
 
+    /// <summary>The numbers the business may publish, one per line, written any usual way.</summary>
+    public string Phones { get; set; } = "";
+
     public static ClientForm Of(ClientRecord client) => new()
     {
         Name = client.Name.Value,
         GroupId = client.GroupId.ToString(),
         DisplayName = client.DisplayName,
         Description = client.Description ?? "",
+        Phones = string.Join("\n", client.Phones.Select(p => p.Formatted)),
     };
 
     /// <returns>The record, or null with what is wrong.</returns>
@@ -41,9 +46,17 @@ public sealed class ClientForm
         if (string.IsNullOrWhiteSpace(DisplayName))
             errors.Add("Give the client a display name, the one its people see.");
 
+        var phones = new List<PhoneNumber>();
+        foreach (var line in Phones.Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (PhoneNumber.TryParse(line, out var phone)) phones.Add(phone);
+            else errors.Add($"\"{line}\" is not a phone number: give the area code, such as (425) 877-8646, or + and the country code.");
+        }
+
         var description = Description.Replace("\r\n", "\n").Trim();
         return errors.Count == 0
-            ? (new ClientRecord(name!, group, DisplayName.Trim(), description.Length > 0 ? description : null), [])
+            ? (new ClientRecord(name!, group, DisplayName.Trim(), description.Length > 0 ? description : null)
+                { Phones = new PhoneNumbers(phones) }, [])
             : (null, errors);
     }
 }

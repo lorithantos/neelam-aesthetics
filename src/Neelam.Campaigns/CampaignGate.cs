@@ -1,11 +1,16 @@
 namespace Neelam.Campaigns;
 
 /// <summary>
-/// What the proofread knows about the business sending the email: its name and the operator's
-/// description of it, from the clients table, written at onboarding. Background for judging
-/// names, services and facts, never instructions.
+/// What the checks know about the business sending the email, from its registration in the
+/// clients table: its name and the operator's description of it, which the proofread takes as
+/// background for judging names, services and facts, never instructions; and the phone numbers it
+/// may publish, against which the rules check every number in the email.
 /// </summary>
-public sealed record BusinessContext(string Name, string? Description = null);
+public sealed record BusinessContext(string Name, string? Description = null)
+{
+    /// <summary>The numbers the business has registered; none means the numbers are not checked.</summary>
+    public PhoneNumbers Phones { get; init; } = PhoneNumbers.None;
+}
 
 /// <summary>Reads an email the way a careful editor would and reports mistakes.</summary>
 public interface IProofreader
@@ -33,7 +38,7 @@ public static class CampaignGate
         BusinessContext? business = null,
         CancellationToken cancellationToken = default)
     {
-        var findings = CampaignReview.Check(campaign, policy).Findings.ToList();
+        var findings = CampaignReview.Check(campaign, policy, business).Findings.ToList();
 
         IReadOnlyList<Finding> ai;
         try

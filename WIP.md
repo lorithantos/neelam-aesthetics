@@ -83,6 +83,15 @@ The parts every template should have, as a list of block types held as data (`Te
 - **UI:** the Templates page has a short "Every template should have" section (an interactive component, `BaselineSection`): the parts, whether it is the standard or her own, and under "Change it" a checklist with "Save as your own", "Save it empty: no warnings", and "Use the standard baseline" when she has her own. The template editor lists missing parts in its Save card. The checklist names block types as the editor does (Heading, Button, Image), not "Headline", "Call to action", "Photo".
 - **Not built:** no admin page to edit the standard baseline (thread item in the `neelam-aesthetics` area). Until one exists, the standard is changed by saving a document to `settings/_standard-baseline/`. No test drives the section's buttons in a Blazor circuit; the store calls behind them are tested.
 
+## Registered phone numbers (owner, 2026-10-09)
+
+Neelam's latest email signs off "Snohomish, WA | 425-877-8646"; Square's record of the business has (425) 773-5261 (likely a move from a personal number to a company one). Decided: the numbers a client may publish are **registration data**, and a rule flags any other.
+
+- **Where they live:** `ClientRecord.Phones` (`PhoneNumbers`, any number of them, e.g. a main and a booking line), a `Phones` property on the clients-table row as comma-separated digits with the country code (`14258778646`), left out when none; old rows read as none. The Clients page (`/admin/clients`) adds and edits them, one per line, written any usual way, and shows them formatted, "(425) 877-8646". `PhoneNumber` assumes +1 for ten digits.
+- **The rule:** `phone-registered`, a warning ("Worth a look"): "425-877-8646 isn't one of your registered numbers ((425) 773-5261)", at the block it is in. It reads every text fragment the other rules read (fixed template text included) plus button and terms links, for `tel:`. North American forms only: 425-877-8646, (425) 773-5261, 425.877.8646, +1 425 877 8646, tel:+14257735261. **No numbers registered, no finding.**
+- **How the rule gets them:** `ClientRecord.Business` (`BusinessContext`, which already carried the name and description to the proofread) now carries `Phones`; `CampaignReview.Check`, `CampaignEditor.Status` (both the complete and the `DraftSoFar` paths) and `CampaignGate.ReviewAsync` take it. The campaign page reads it with `ClientWorkspace.BusinessAsync`.
+- **Not done:** no number is registered anywhere: the owner confirms which are current. The template editor's advice (`TemplateAdvice.For`) is not given the registration, so a stale number in a template shows only once a campaign uses it. The proofread prompt is not told the numbers.
+
 ## Open decisions (the owner's to make)
 
 Do not settle these on the owner's behalf. Bring options with a recommendation.

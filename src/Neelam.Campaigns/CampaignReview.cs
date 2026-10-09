@@ -10,7 +10,11 @@ namespace Neelam.Campaigns;
 /// </summary>
 public static class CampaignReview
 {
-    public static ReviewReport Check(Campaign campaign, CampaignPolicy? policy = null)
+    /// <param name="business">
+    /// Who is sending it, from the clients table: the phone numbers it has registered are the only
+    /// ones the email may carry. Unknown, or with no numbers registered, numbers are not checked.
+    /// </param>
+    public static ReviewReport Check(Campaign campaign, CampaignPolicy? policy = null, BusinessContext? business = null)
     {
         policy ??= CampaignPolicy.Default;
         var text = CampaignText.Fragments(campaign);
@@ -35,8 +39,35 @@ public static class CampaignReview
         findings.AddRange(RepeatedPhrases(text, policy));
         findings.AddRange(EmojiSpacing(text));
         findings.AddRange(EmojiBudget(text, policy));
+        findings.AddRange(RegisteredPhones(campaign, text, business));
 
         return new ReviewReport(campaign, findings, Proofread: false);
+    }
+
+    /// <summary>
+    /// A phone number the business has not registered is stale or mistyped more often than not:
+    /// an email signed off with 425-877-8646 while Square had the business at (425) 773-5261. The
+    /// numbers come from the client's registration, so before any are registered nothing is said.
+    /// Links are read too, for a tel: button.
+    /// </summary>
+    private static IEnumerable<Finding> RegisteredPhones(
+        Campaign c, IReadOnlyList<TextFragment> text, BusinessContext? business)
+    {
+        var registered = business?.Phones ?? PhoneNumbers.None;
+        if (registered.Count == 0) yield break;
+
+        var links = c.BlocksOf<ButtonBlock>().Select(b => new TextFragment($"{b.Label} › Link", b.Action.Url.OriginalString))
+            .Concat(c.BlocksOf<OfferBlock>().Where(o => o.Offer.TermsUrl is not null)
+                .Select(o => new TextFragment($"{o.Label} › Terms link", o.Offer.TermsUrl!.OriginalString)));
+        var reported = new HashSet<(string, PhoneNumber)>();
+        foreach (var fragment in text.Concat(links))
+        foreach (var (written, number) in PhoneNumber.FindIn(fragment.Text))
+        {
+            if (registered.Contains(number) || !reported.Add((fragment.Location, number))) continue;
+            yield return new(Severity.Warning, "phone-registered", fragment.Location,
+                $"{written} isn't one of your registered numbers ({registered}). Check it before sending.",
+                Excerpt: written);
+        }
     }
 
     /// <summary>

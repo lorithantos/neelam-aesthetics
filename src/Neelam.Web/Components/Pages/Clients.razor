@@ -50,6 +50,11 @@ else
                         <textarea id="edit-description" @bind="_edit.Description"></textarea>
                         <span class="field-help">Given to the AI proofread as background about who is sending the email.</span>
                     </div>
+                    <div class="field">
+                        <label for="edit-phones">Registered phone numbers</label>
+                        <textarea id="edit-phones" @bind="_edit.Phones"></textarea>
+                        <span class="field-help">@PhonesHelp</span>
+                    </div>
                     <Problems Messages="_editErrors" />
                     <button class="button primary" @onclick="SaveEditAsync">Save</button>
                     <button class="button" @onclick="CancelEdit">Cancel</button>
@@ -59,6 +64,7 @@ else
                     <h2>@client.DisplayName</h2>
                     <p class="muted">@client.Name · Entra group @client.GroupId</p>
                     <p>@(client.Description ?? "No description yet.")</p>
+                    <p>@(client.Phones.Count > 0 ? $"Registered phone numbers: {client.Phones}" : "No phone numbers registered yet, so campaigns' numbers are not checked.")</p>
                     <button class="button" @onclick="() => StartEdit(client)">Edit</button>
                 }
             </section>
@@ -86,12 +92,20 @@ else
             <textarea id="new-description" @bind="_new.Description"></textarea>
             <span class="field-help">Given to the AI proofread as background about who is sending the email.</span>
         </div>
+        <div class="field">
+            <label for="new-phones">Registered phone numbers</label>
+            <textarea id="new-phones" @bind="_new.Phones"></textarea>
+            <span class="field-help">@PhonesHelp</span>
+        </div>
         <Problems Messages="_newErrors" />
         <button class="button primary" @onclick="AddAsync">Add client</button>
     </section>
 }
 
 @code {
+    private const string PhonesHelp =
+        "One per line, such as a main line and a booking line. The checks flag any other number in a campaign; with none registered, numbers are not checked.";
+
     private string? _denied;
     private IReadOnlyList<ClientRecord>? _clients;
     private ClientForm _new = new();
