@@ -7,13 +7,17 @@ public class CampaignReviewTests
     private static string[] Rules(ReviewReport r, Severity s) =>
         r.Findings.Where(f => f.Severity == s).Select(f => f.Rule).Distinct().Order().ToArray();
 
+    // The first send as it went out (checked against the sent email, 2026-10-09) named its options
+    // "Option 1 Platinum Member" and "Option 2 Platinum Member". It is still stopped for offering the
+    // same option twice, at the same price; but the names differ by "Option N", so tier-names-unique,
+    // which compares whole names, does not fire. Whether that rule should see past such a prefix is
+    // the owner's call (WIP, open decisions); until then this pins what the rules say.
     [Fact]
-    public void First_send_is_blocked_for_identical_offers_and_identical_names()
+    public void First_send_is_blocked_for_identical_offers()
     {
         var blockers = Rules(CampaignReview.Check(SampleCampaigns.FirstSend()), Severity.Blocker);
 
-        Assert.Contains("tier-content-distinct", blockers);
-        Assert.Contains("tier-names-unique", blockers);
+        Assert.Equal(["medical-disclaimer", "terms-required", "tier-content-distinct", "tier-prices-increase"], blockers);
     }
 
     // It had a button ("Come visit", to the clinic's site), so cta-required rightly stays quiet; that
