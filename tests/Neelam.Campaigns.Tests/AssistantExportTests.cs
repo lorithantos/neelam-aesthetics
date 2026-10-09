@@ -267,15 +267,17 @@ public class AssistantExportTests
     // ---- The content hash ----
 
     // Recomputed here from the file alone, by the recipe the schema documents: a consumer can tell
-    // whether anything in the blocks was edited after export.
+    // whether the subject, the preheader or anything in the blocks was edited after export.
     private static string RecomputedHash(JsonNode doc)
     {
         static string Field(JsonNode? n) => n?.GetValue<string>() ?? "";
-        var canonical = string.Join('\u001E', doc["blocks"]!.AsArray().Select(b => string.Join('\u001F',
+        var campaign = string.Join('\u001F', Field(doc["campaign"]!["subject"]), Field(doc["campaign"]!["preheader"]));
+        var blocks = doc["blocks"]!.AsArray().Select(b => string.Join('\u001F',
             Field(b!["id"]), Field(b["type"]),
             string.Join(',', b["formatting"]?.AsArray().Select(f => f!.GetValue<string>()) ?? []),
             Field(b["expected"]!["text"]), Field(b["expected"]!["link"]), Field(b["expected"]!["imageName"]),
-            Field(b["expected"]!["imageUrl"]), Field(b["expected"]!["altText"]))));
+            Field(b["expected"]!["imageUrl"]), Field(b["expected"]!["altText"])));
+        var canonical = string.Join('\u001E', new[] { campaign }.Concat(blocks));
         return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 
@@ -299,11 +301,54 @@ public class AssistantExportTests
         Assert.Matches("^sha256:[0-9a-f]{64}$", one);
     }
 
+    // The assistant checks Square's subject line and preview text against the file, so an edit to
+    // either in the file moves the hash, recomputed from the file alone, and the code reports it.
+    [Fact]
+    public void Editing_the_subject_or_preheader_in_the_file_is_detected()
+    {
+        var doc = Parse(Fullest());
+        var hash = doc["contentHash"]!.GetValue<string>();
+        Assert.Equal(hash, RecomputedHash(doc));
+        Assert.Equal("A year of you.", doc["campaign"]!["preheader"]!.GetValue<string>());
+
+        Action<JsonObject>[] edits =
+        [
+            c => c["subject"] = c["subject"]!.GetValue<string>() + "!",
+            c => c["preheader"] = "A year of savings.",
+            c => c.Remove("preheader"),
+        ];
+        foreach (var edit in edits)
+        {
+            var edited = doc.DeepClone();
+            edit(edited["campaign"]!.AsObject());
+            Assert.NotEqual(hash, RecomputedHash(edited));
+        }
+
+        var built = AssistantExport.Build(Demo(BeautyBankEmail.Corrected() with { Preheader = "A year of you." }), context: Context);
+        Assert.Empty(AssistantExport.Problems(built));
+        ExportedCampaign[] changed =
+        [
+            built.Campaign with { Subject = built.Campaign.Subject + "!" },
+            built.Campaign with { Preheader = "A year of savings." },
+            built.Campaign with { Preheader = null },
+        ];
+        foreach (var campaign in changed)
+        {
+            Assert.NotEqual(built.ContentHash, AssistantExport.ContentHash(campaign, built.Blocks));
+            Assert.Contains(AssistantExport.Problems(built with { Campaign = campaign }), p => p.StartsWith("/contentHash:"));
+        }
+        // A preheader added where there was none moves it too.
+        var none = AssistantExport.Build(Demo(BeautyBankEmail.Corrected()), context: Context);
+        Assert.Null(none.Campaign.Preheader);
+        Assert.Contains(AssistantExport.Problems(none with { Campaign = none.Campaign with { Preheader = "Hi" } }), p => p.StartsWith("/contentHash:"));
+    }
+
     [Fact]
     public void The_hash_changes_when_any_block_changes()
     {
-        var blocks = AssistantExport.Build(Demo(BeautyBankEmail.Corrected()), context: Context).Blocks;
-        var hash = AssistantExport.ContentHash(blocks);
+        var built = AssistantExport.Build(Demo(BeautyBankEmail.Corrected()), context: Context);
+        var (campaign, blocks) = (built.Campaign, built.Blocks);
+        var hash = AssistantExport.ContentHash(campaign, blocks);
 
         for (var i = 0; i < blocks.Count; i++)
         {
@@ -319,12 +364,12 @@ public class AssistantExportTests
                 b with { Expected = b.Expected with { AltText = "other" } },
             ];
             foreach (var changed in changes)
-                Assert.NotEqual(hash, AssistantExport.ContentHash(blocks.Select((x, j) => j == i ? changed : x)));
+                Assert.NotEqual(hash, AssistantExport.ContentHash(campaign, blocks.Select((x, j) => j == i ? changed : x)));
         }
         // Order and count are part of it: a block removed, one added, two swapped.
-        Assert.NotEqual(hash, AssistantExport.ContentHash(blocks.Skip(1)));
-        Assert.NotEqual(hash, AssistantExport.ContentHash([.. blocks, blocks[^1]]));
-        Assert.NotEqual(hash, AssistantExport.ContentHash([blocks[1], blocks[0], .. blocks.Skip(2)]));
+        Assert.NotEqual(hash, AssistantExport.ContentHash(campaign, blocks.Skip(1)));
+        Assert.NotEqual(hash, AssistantExport.ContentHash(campaign, [.. blocks, blocks[^1]]));
+        Assert.NotEqual(hash, AssistantExport.ContentHash(campaign, [blocks[1], blocks[0], .. blocks.Skip(2)]));
     }
 
     // The body photo has no Square address, so before the name was in `expected`, swapping it for
@@ -394,12 +439,19 @@ public class AssistantExportTests
     {
         { "button-text", "/blocks/7/text", true },
         { "button-url", "/blocks/7/url", true },
+        { "button-url-relative", "/blocks/7/url", true },
+        { "button-expected-text-empty", "/blocks/7/expected/text", false },
         { "image-name", "/blocks/6/image/name", true },
+        { "image-missing", "/blocks/6/image", true },
         { "image-expected-name", "/blocks/6/expected/imageName", true },
         { "image-with-text", "/blocks/6/text", true },
         { "text-empty", "/blocks/3/text", true },
+        { "text-expected-empty", "/blocks/3/expected/text", false },
         { "header-empty", "/blocks/0/text", true },
+        { "header-expected-empty", "/blocks/0/expected/text", false },
         { "spacer-with-text", "/blocks/1", true },
+        { "spacer-with-image", "/blocks/1", true },
+        { "spacer-with-url", "/blocks/1", true },
         { "unknown-type", "/blocks/2/type", true },
         { "unknown-formatting", "/blocks/2/formatting", true },
         { "empty-formatting", "/blocks/2/formatting", true },
@@ -409,7 +461,11 @@ public class AssistantExportTests
         { "version", "/schemaVersion", true },
         // What the schema cannot say: only the code holds these.
         { "id-out-of-place", "/blocks/3/id", false },
+        { "button-url-not-web", "/blocks/7/url", false },
+        { "button-link-not-url", "/blocks/7/expected/link", false },
         { "hash", "/contentHash", false },
+        { "subject-edited", "/contentHash", false },
+        { "preheader-edited", "/contentHash", false },
         { "instructions", "/instructions", false },
     };
 
@@ -418,18 +474,30 @@ public class AssistantExportTests
         AssistantExportDocument Block(int i, Func<ExportedBlock, ExportedBlock> change) =>
             doc with { Blocks = doc.Blocks.Select((b, j) => j == i ? change(b) : b).ToList() };
         // A broken block keeps its hash honest, so the one thing wrong is the one named.
-        AssistantExportDocument Rehashed(AssistantExportDocument d) => d with { ContentHash = AssistantExport.ContentHash(d.Blocks) };
+        AssistantExportDocument Rehashed(AssistantExportDocument d) => d with { ContentHash = AssistantExport.ContentHash(d.Campaign, d.Blocks) };
+        // A button whose url and expected link are both this address, so only the address is wrong.
+        AssistantExportDocument Linked(Uri url) =>
+            Rehashed(Block(7, b => b with { Url = url, Expected = b.Expected with { Link = url.OriginalString } }));
 
         return how switch
         {
             "button-text" => Rehashed(Block(7, b => b with { Text = "" })),
             "button-url" => Rehashed(Block(7, b => b with { Url = null, Expected = b.Expected with { Link = null } })),
+            "button-url-relative" => Linked(new Uri("/book", UriKind.Relative)),
+            "button-url-not-web" => Linked(new Uri("mailto:hello@example.com")),
+            "button-link-not-url" => Rehashed(Block(7, b => b with { Expected = b.Expected with { Link = "https://example.com/other" } })),
+            "button-expected-text-empty" => Rehashed(Block(7, b => b with { Expected = b.Expected with { Text = "" } })),
             "image-name" => Rehashed(Block(6, b => b with { Image = b.Image! with { Name = "" } })),
+            "image-missing" => Rehashed(Block(6, b => b with { Image = null })),
             "image-expected-name" => Rehashed(Block(6, b => b with { Expected = b.Expected with { ImageName = null } })),
             "image-with-text" => Rehashed(Block(6, b => b with { Text = "Principals seated" })),
             "text-empty" => Rehashed(Block(3, b => b with { Text = "" })),
+            "text-expected-empty" => Rehashed(Block(3, b => b with { Expected = b.Expected with { Text = "" } })),
             "header-empty" => Rehashed(Block(0, b => b with { Text = "" })),
+            "header-expected-empty" => Rehashed(Block(0, b => b with { Expected = b.Expected with { Text = "" } })),
             "spacer-with-text" => Rehashed(Block(1, b => b with { Text = "x" })),
+            "spacer-with-image" => Rehashed(Block(1, b => b with { Image = new ExportedImage("Principals seated", null, null) })),
+            "spacer-with-url" => Rehashed(Block(1, b => b with { Url = new Uri("https://example.com/book") })),
             "unknown-type" => Rehashed(Block(2, b => b with { Type = "Txt" })),
             "unknown-formatting" => Rehashed(Block(2, b => b with { Formatting = ["heading"] })),
             "empty-formatting" => Rehashed(Block(2, b => b with { Formatting = [] })),
@@ -439,6 +507,9 @@ public class AssistantExportTests
             "version" => doc with { SchemaVersion = 2 },
             "id-out-of-place" => Rehashed(Block(3, b => b with { Id = "b9" })),
             "hash" => doc with { ContentHash = "sha256:" + new string('0', 64) },
+            // Edited after export, as a person or an assistant could edit the file: the hash is left as it was.
+            "subject-edited" => doc with { Campaign = doc.Campaign with { Subject = doc.Campaign.Subject + "!" } },
+            "preheader-edited" => doc with { Campaign = doc.Campaign with { Preheader = "A year of savings." } },
             "instructions" => doc with { Instructions = [.. doc.Instructions.SkipLast(1)] },
             _ => throw new ArgumentOutOfRangeException(nameof(how)),
         };
@@ -450,6 +521,8 @@ public class AssistantExportTests
     {
         var good = AssistantExport.Build(Demo(BeautyBankEmail.Corrected()), context: Context);
         Assert.Empty(AssistantExport.Problems(good));
+        // The schema accepts the unbroken one, so a schema refusal below is the breakage's own.
+        Assert.Empty(ExportSchema.Problems(AssistantExport.Serialize(good)));
         Assert.Equal(["Header", "Spacer", "Text", "Text", "Text", "Text", "Image", "Button"], good.Blocks.Select(b => b.Type));
 
         var broken = Broken(good, how);

@@ -12,7 +12,7 @@
       "const": 1
     },
     "contentHash": {
-      "description": "SHA-256 over the blocks' expected content, so two exports can be compared and an edit to this file detected. For each block in order: its id, type, formatting (joined by \",\", empty when absent), and expected text, link, imageName, imageUrl and altText (each empty when absent), joined by U+001F; the blocks joined by U+001E; encoded as UTF-8; written \"sha256:\" and the lowercase hex digest.",
+      "description": "SHA-256 over everything the assistant checks Square against, so two exports can be compared and an edit to this file detected. The first record is campaign.subject and campaign.preheader (empty when absent), joined by U+001F. Then one record for each block in order: its id, type, formatting (joined by \",\", empty when absent), and expected text, link, imageName, imageUrl and altText (each empty when absent), joined by U+001F. The records are joined by U+001E, encoded as UTF-8, and written \"sha256:\" and the lowercase hex digest.",
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },

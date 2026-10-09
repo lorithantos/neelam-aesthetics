@@ -82,7 +82,8 @@ label, subject, preheader and template; each block with a stable id (`b1`, `b2`,
 widget name from the one mapping table `SquareWidgets.ByKind` (which the copy blocks name their
 kinds from too), what to paste, and the `expected` content as Square should show it (whitespace
 normalised, and the photo's library name on any block with a photo); a `contentHash` over the
-expected content, in order, so swapping one photo for another moves it; the review (proofread, approval,
+subject, the preheader and the expected content, in order -- everything the assistant checks
+Square against -- so editing the subject in the file, or swapping one photo for another, moves it; the review (proofread, approval,
 "Worth a look" findings, the demo notice); and fixed instructions. The instructions are data,
 never built from the campaign: fill in, read back and compare every block, treat order and count
 as part of the check, stop and report anything that cannot be placed or compared exactly, never

@@ -139,11 +139,13 @@ public static partial class AssistantExport
         widgets ??= SquareWidgets.ByKind;
 
         var exported = blocks.Select((b, i) => Block(b, i, widgets, context.SquareUrl)).ToList();
+        var campaign = new ExportedCampaign(
+            context.Id, Blank(context.Label), report.Campaign.Subject, Blank(report.Campaign.Preheader), Blank(context.TemplateName));
         return new AssistantExportDocument(
             SchemaVersion,
-            ContentHash(exported),
+            ContentHash(campaign, exported),
             Instructions,
-            new ExportedCampaign(context.Id, Blank(context.Label), report.Campaign.Subject, Blank(report.Campaign.Preheader), Blank(context.TemplateName)),
+            campaign,
             exported,
             new ExportedReview(
                 report.Proofread,
@@ -193,7 +195,8 @@ public static partial class AssistantExport
     /// empty when it may. The checks are in code, so the app needs no schema at run time: the
     /// version; the instructions, exactly the fixed list; a subject and an approver; every block in
     /// place (<c>b1</c> first), of a Square widget type and formatting from <see cref="SquareWidgets.ByKind"/>,
-    /// with what its type needs and nothing it must not have; and the content hash, recomputed.
+    /// with what its type needs and nothing it must not have (a button's link absolute http(s), and
+    /// its expected link the same); and the content hash, recomputed.
     /// The published schema says the same and more; the tests hold the two together.
     /// </summary>
     public static IReadOnlyList<string> Problems(AssistantExportDocument document)
@@ -234,8 +237,13 @@ public static partial class AssistantExport
                 case "Button":
                     if (Empty(b.Text)) Fail($"{at}/text", "is empty.");
                     if (b.Url is null) Fail($"{at}/url", "is missing.");
+                    // IsAbsoluteUri first: a relative Uri has no scheme to read.
+                    else if (!b.Url.IsAbsoluteUri || b.Url.Scheme is not ("http" or "https"))
+                        Fail($"{at}/url", $"\"{b.Url.OriginalString}\" is not an absolute http(s) address.");
                     if (Empty(b.Expected.Text)) Fail($"{at}/expected/text", "is empty.");
                     if (Empty(b.Expected.Link)) Fail($"{at}/expected/link", "is missing.");
+                    else if (b.Expected.Link != b.Url?.OriginalString)
+                        Fail($"{at}/expected/link", "is not the button's url.");
                     break;
                 case "Image":
                     if (b.Image is null) Fail($"{at}/image", "is missing.");
@@ -249,8 +257,8 @@ public static partial class AssistantExport
             }
         }
 
-        if (document.ContentHash != ContentHash(document.Blocks))
-            Fail("/contentHash", "does not match the blocks.");
+        if (document.ContentHash != ContentHash(document.Campaign, document.Blocks))
+            Fail("/contentHash", "does not match the subject, preheader and blocks.");
         return problems;
     }
 
@@ -278,18 +286,21 @@ public static partial class AssistantExport
     }
 
     /// <summary>
-    /// SHA-256 over the blocks' expected content, exactly as the file carries it, so two exports can
-    /// be compared and an edit detected: for each block in order its id, type, formatting (joined by
-    /// ","), and expected text, link, image name, image URL and alt text, each missing one as empty,
-    /// joined by U+001F; blocks joined by U+001E; UTF-8; written "sha256:" and lowercase hex. The
-    /// schema documents the same recipe. The image name is in it so that swapping one photo for
-    /// another moves the hash even when neither has a Square address.
+    /// SHA-256 over everything the assistant checks Square against, exactly as the file carries it,
+    /// so two exports can be compared and an edit detected. The first record is the campaign's
+    /// subject and preheader; then one record for each block in order: its id, type, formatting
+    /// (joined by ","), and expected text, link, image name, image URL and alt text. Within a record
+    /// the fields are joined by U+001F, each missing one as empty; the records are joined by U+001E;
+    /// UTF-8; written "sha256:" and lowercase hex. The schema documents the same recipe. The subject
+    /// and preheader are in it because the assistant compares them too; the image name, so that
+    /// swapping one photo for another moves the hash even when neither has a Square address.
     /// </summary>
-    public static string ContentHash(IEnumerable<ExportedBlock> blocks)
+    public static string ContentHash(ExportedCampaign campaign, IEnumerable<ExportedBlock> blocks)
     {
         var canonical = string.Join('\u001E', blocks.Select(b => string.Join('\u001F',
             b.Id, b.Type, string.Join(',', b.Formatting ?? []),
-            b.Expected.Text ?? "", b.Expected.Link ?? "", b.Expected.ImageName ?? "", b.Expected.ImageUrl ?? "", b.Expected.AltText ?? "")));
+            b.Expected.Text ?? "", b.Expected.Link ?? "", b.Expected.ImageName ?? "", b.Expected.ImageUrl ?? "", b.Expected.AltText ?? ""))
+            .Prepend(string.Join('\u001F', campaign.Subject ?? "", campaign.Preheader ?? "")));
         return "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)));
     }
 

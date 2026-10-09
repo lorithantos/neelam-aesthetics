@@ -200,9 +200,11 @@ addresses the app holds are the image URLs she already keeps in her library.
   notice). Each block has a stable id (`b1`...), a `type` and `formatting` from
   `SquareWidgets.ByKind`, its content, and `expected`: text, link, the photo's library name, Square
   image URL and alt text as Square should show them (`AssistantExport.Normalise`: line breaks as `\n`, runs of spaces
-  collapsed, at most one blank line). `contentHash` is SHA-256 over the expected content in order,
-  by the recipe in the schema; a test recomputes it from the file alone. The photo's name is in it
-  (2026-10-09, from review), so swapping a photo with no Square address still moves the hash.
+  collapsed, at most one blank line). `contentHash` is SHA-256 over the subject and preheader, then
+  the expected content in order, by the recipe in the schema; a test recomputes it from the file
+  alone. The photo's name is in it (2026-10-09, from review), so swapping a photo with no Square
+  address still moves the hash; the subject and preheader too (2026-10-09, from review), since the
+  assistant checks Square's against them. Changed in place under version 1: nothing consumes it yet.
 - **Square widget mapping, as data:** `SquareWidgets.ByKind` in `AssistantExport.cs`. The copy
   blocks name their kinds from it too. Header, Text (formatting `heading1` for a heading), Image,
   Button, Spacer: from the real sends, **still unverified against Square's editor**. Square's sent
@@ -212,7 +214,8 @@ addresses the app holds are the image URLs she already keeps in her library.
 - **Fail closed:** a block kind with no mapping refuses the export, naming it; the document is
   then checked in code (`AssistantExport.Problems`: version, fixed instructions, subject, approver,
   each block's id, widget type and formatting from the table, what its type needs -- text, button
-  link, image name -- and the hash recomputed), and a failure shows "No download for an assistant:
+  link (absolute http(s), and `expected.link` the same), image name -- and the hash recomputed),
+  and a failure shows "No download for an assistant:
   ..." with the reason instead of the link. **The app has no schema dependency** (owner,
   2026-10-09): JsonSchema.Net 7.4.0 is in the test project only, every export the tests make is
   validated against `docs/assistant-export.schema.json`, a test fails if code and schema drift
