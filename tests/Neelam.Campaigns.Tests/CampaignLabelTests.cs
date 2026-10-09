@@ -20,7 +20,9 @@ public class CampaignLabelTests
     private readonly InMemoryBlobBackend _container = new();
     private readonly ManualClock _clock = new(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
 
-    private CampaignStore Store => new(_container, _clock, Grace);
+    private TestRecords? _records;
+    private TestRecords Records => _records ??= new(_clock);
+    private CampaignStore Store => Records.Campaigns(_container, Grace);
 
     private static CampaignDraft Labelled(CampaignDraft draft, string? label = Label)
     {

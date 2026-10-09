@@ -239,7 +239,7 @@ public class RegisteredPhonePageTests(EnforcedApp app) : IClassFixture<EnforcedA
         if ((await app.Clients.ListAsync()).Count == 0)
         {
             await app.Clients.AddAsync(SalonOne);
-            await app.Stores.Campaigns(SalonOne.Name)
+            await app.Stores.Campaigns(SalonOne.Name, Actor.Demo)
                 .SaveTemplateAsync(Template, RegisteredPhoneTests.SignedOffWith("Snohomish, WA | 425-877-8646"));
         }
         var client = app.CreateClient(new() { AllowAutoRedirect = false });

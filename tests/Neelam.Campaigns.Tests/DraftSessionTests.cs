@@ -9,7 +9,9 @@ public class DraftSessionTests
 
     private static readonly TimeSpan Grace = TimeSpan.FromDays(1);
 
-    private CampaignStore Store => new(_container, _clock, Grace);
+    private TestRecords? _records;
+    private TestRecords Records => _records ??= new(_clock);
+    private CampaignStore Store => Records.Campaigns(_container, Grace);
 
     private async Task<Guid> SavedTemplate()
     {

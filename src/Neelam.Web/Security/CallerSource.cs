@@ -16,7 +16,7 @@ public interface ICallerSource
 
 /// <summary>
 /// While prototyping: one fixed caller, the operator and a member of exactly one client, named by
-/// <c>Prototype:Client</c>. Registered only with <see cref="AccessMode.Prototype"/>, which is
+/// <c>Prototype:Client</c>. It has no name, since nobody signs in: the activity trail says "demo user". Registered only with <see cref="AccessMode.Prototype"/>, which is
 /// refused in Production, so it never stands in for a real sign-in where real data lives.
 /// </summary>
 public sealed class PrototypeCallerSource(ClientName client) : ICallerSource

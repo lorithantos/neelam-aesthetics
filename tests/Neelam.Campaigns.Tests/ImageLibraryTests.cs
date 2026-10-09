@@ -11,7 +11,9 @@ public class ImageLibraryTests
     private static readonly BinaryData Png = new(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xFF, 0x10 });
 
     private readonly InMemoryBlobBackend _container = new();
-    private ImageLibrary Library => new(_container, new ManualClock(Start));
+    private TestRecords? _records;
+    private TestRecords Records => _records ??= new(new ManualClock(Start));
+    private ImageLibrary Library => Records.Images(_container);
 
     [Fact]
     public async Task A_photo_comes_back_byte_for_byte_with_its_type()
@@ -121,7 +123,8 @@ public class ImageLibraryTests
         Assert.Equal(address, Assert.Single(await Library.ListAsync()).SquareUrl!.AbsoluteUri);
     }
 
-    // Kept the way an upload's name is kept, in the blob's metadata: no image bytes are stored.
+    // Kept the way an upload's name is kept, in the blob's metadata: no image bytes are stored. The
+    // entry's random id is what the activity trail calls it, since its name is content.
     [Fact]
     public async Task A_Square_photo_stores_only_its_name_and_address()
     {
@@ -130,8 +133,9 @@ public class ImageLibraryTests
         var (name, (blob, metadata)) = Assert.Single(_container.Blobs);
         Assert.Equal("images/Principals%20toasting", name);
         Assert.Equal(0, blob.Content.ToMemory().Length);
-        Assert.Equal(["added", "name", "square"], metadata.Keys.Order());
+        Assert.Equal(["added", "entry", "name", "square"], metadata.Keys.Order());
         Assert.Equal(Toasting, Uri.UnescapeDataString(metadata["square"]));
+        Assert.True(Guid.TryParseExact(metadata["entry"], "N", out _));
     }
 
     // A photo added before Square photos existed has no address, and reads as the upload it is.

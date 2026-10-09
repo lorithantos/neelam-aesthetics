@@ -5,6 +5,7 @@
 @attribute [Authorize(Policy = Features.Operator)]
 @rendermode InteractiveServer
 @inject IClientDirectory Directory
+@inject ClientRegistry Registry
 @inject ICallerSource Callers
 @inject TimeProvider Clock
 
@@ -113,6 +114,8 @@ else
     private ClientName? _editing;
     private ClientForm? _edit;
     private IReadOnlyList<string> _editErrors = [];
+    // Who the activity trail says registered or changed a client.
+    private Actor _actor = Actor.Demo;
 
     protected override async Task OnInitializedAsync()
     {
@@ -125,6 +128,7 @@ else
             _denied = $"You cannot manage clients: {decision.Reason}.";
             return;
         }
+        _actor = Actor.Of(caller!);
         await LoadAsync();
     }
 
@@ -138,7 +142,7 @@ else
         if (client is null) return;
         try
         {
-            await Directory.AddAsync(client);
+            await Registry.AddAsync(client, _actor);
         }
         catch (InvalidOperationException ex)
         {
@@ -169,7 +173,7 @@ else
         if (client is null) return;
         try
         {
-            await Directory.UpdateAsync(client);
+            await Registry.UpdateAsync(client, _actor);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {

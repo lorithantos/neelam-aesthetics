@@ -12,7 +12,9 @@ public class CampaignStoreTests
     private static readonly TimeSpan Grace = TimeSpan.FromDays(1);
 
     private readonly ManualClock _clock = new(Start);
-    private CampaignStore Store => new(_blobs, _clock, Grace);
+    private TestRecords? _records;
+    private TestRecords Records => _records ??= new(_clock);
+    private CampaignStore Store => Records.Campaigns(_blobs, Grace);
 
     [Fact]
     public async Task Each_save_is_a_new_date_time_stamped_blob()

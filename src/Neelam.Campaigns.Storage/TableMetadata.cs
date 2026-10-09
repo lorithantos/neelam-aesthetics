@@ -11,21 +11,44 @@ namespace Neelam.Campaigns.Storage;
 /// budget. The mapping to and from table rows is separate and static, so it is tested without a
 /// network.
 /// </summary>
-public sealed class TableMetadata : IClientDirectory, ISupportGrantStore
+public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IApprovalStore, IActivityLog
 {
     internal const string ClientsTable = "clients";
     internal const string GrantsTable = "supportGrants";
+    internal const string ApprovalsTable = "approvals";
+    internal const string ActivityTable = "activity";
     private const string ClientPartition = "client";
 
     private readonly TableClient _clients;
     private readonly TableClient _grants;
+    private readonly TableClient _approvals;
+    private readonly TableClient _activity;
 
     /// <param name="storage">The app's storage clients, built once at startup.</param>
     public TableMetadata(StorageClients storage)
     {
         _clients = storage.Tables.GetTableClient(ClientsTable);
         _grants = storage.Tables.GetTableClient(GrantsTable);
+        _approvals = storage.Tables.GetTableClient(ApprovalsTable);
+        _activity = storage.Tables.GetTableClient(ActivityTable);
     }
+
+    public async Task<IReadOnlyList<ApprovalRecord>> ForCampaignAsync(
+        ClientName client, Guid campaignId, CancellationToken cancellationToken = default)
+    {
+        var approvals = new List<ApprovalRecord>();
+        await foreach (var row in _approvals.QueryAsync<TableEntity>(
+                           ApprovalsFilter(client, campaignId), cancellationToken: cancellationToken))
+            approvals.Add(ToApproval(row));
+        return approvals;
+    }
+
+    public Task PutAsync(ApprovalRecord approval, CancellationToken cancellationToken = default) =>
+        // Replace, not merge, so approving again after a withdrawal clears the withdrawal.
+        _approvals.UpsertEntityAsync(FromApproval(approval), TableUpdateMode.Replace, cancellationToken);
+
+    public Task RecordAsync(ActivityEvent activity, CancellationToken cancellationToken = default) =>
+        _activity.AddEntityAsync(FromActivity(activity, Guid.NewGuid()), cancellationToken);
 
     public async Task<IReadOnlyList<ClientRecord>> ListAsync(CancellationToken cancellationToken = default)
     {
@@ -118,4 +141,64 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore
             row.GetString("Reason") ?? "",
             row.GetDateTimeOffset("GivenAt") ?? throw new InvalidDataException("A support grant has no time."),
             row.GetDateTimeOffset("Expires"));
+
+    // The client's own partition, and only the rows of this one campaign: their keys start with its id.
+    internal static string ApprovalsFilter(ClientName client, Guid campaignId) =>
+        TableClient.CreateQueryFilter(
+            $"PartitionKey eq {client.Value} and RowKey ge {$"{campaignId:N}_"} and RowKey lt {$"{campaignId:N}`"}");
+
+    // One partition per client; the row is one save of one campaign, {campaign id}_{save stamp}.
+    internal static TableEntity FromApproval(ApprovalRecord approval)
+    {
+        var row = new TableEntity(approval.Client.Value, $"{approval.CampaignId:N}_{approval.Stamp}")
+        {
+            ["ApprovedBy"] = approval.ApprovedBy,
+            ["ApprovedAt"] = approval.ApprovedAt,
+            ["Withdrawn"] = approval.Withdrawn,
+        };
+        if (approval.WithdrawnAt is { } withdrawnAt) row["WithdrawnAt"] = withdrawnAt;
+        return row;
+    }
+
+    internal static ApprovalRecord ToApproval(TableEntity row)
+    {
+        var key = row.RowKey.Split('_', 2);
+        if (key.Length != 2 || !Guid.TryParseExact(key[0], "N", out var campaignId))
+            throw new InvalidDataException($"An approval row has a key that names no campaign save: '{row.RowKey}'.");
+        var withdrawnAt = row.GetDateTimeOffset("WithdrawnAt");
+        // Withdrawn with no time still counts as withdrawn: it fails closed.
+        if (withdrawnAt is null && row.GetBoolean("Withdrawn") == true)
+            withdrawnAt = row.GetDateTimeOffset("ApprovedAt") ?? DateTimeOffset.MinValue;
+        return new ApprovalRecord(
+            new ClientName(row.PartitionKey), campaignId, key[1],
+            row.GetString("ApprovedBy") ?? throw new InvalidDataException("An approval has no approver."),
+            row.GetDateTimeOffset("ApprovedAt") ?? throw new InvalidDataException("An approval has no time."),
+            withdrawnAt);
+    }
+
+    // One partition per client; rows sort by time, and the id keeps two events in the same instant
+    // apart. Ids, names of kinds and actions, and times only: never content.
+    internal static TableEntity FromActivity(ActivityEvent activity, Guid id)
+    {
+        var row = new TableEntity(activity.Client.Value,
+            $"{activity.At.UtcDateTime.ToString("yyyyMMdd'T'HHmmss'.'fffffff'Z'", CultureInfo.InvariantCulture)}-{id:N}")
+        {
+            ["Entity"] = activity.Entity.ToString(),
+            ["EntityId"] = activity.EntityId,
+            ["Action"] = activity.Action.ToString(),
+            ["Actor"] = activity.Actor,
+            ["At"] = activity.At,
+        };
+        if (activity.SaveStamp is { } stamp) row["SaveStamp"] = stamp;
+        return row;
+    }
+
+    internal static ActivityEvent ToActivity(TableEntity row) =>
+        new(new ClientName(row.PartitionKey),
+            Enum.Parse<ActivityEntity>(row.GetString("Entity") ?? throw new InvalidDataException("An event has no entity.")),
+            row.GetString("EntityId") ?? "",
+            row.GetString("SaveStamp"),
+            Enum.Parse<ActivityAction>(row.GetString("Action") ?? throw new InvalidDataException("An event has no action.")),
+            row.GetString("Actor") ?? "",
+            row.GetDateTimeOffset("At") ?? throw new InvalidDataException("An event has no time."));
 }

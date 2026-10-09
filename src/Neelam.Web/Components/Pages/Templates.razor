@@ -49,7 +49,7 @@ else if (_templates is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(_client);
-        _templates = (await Stores.Campaigns(_client).LatestAsync(DocumentKind.Template))
+        _templates = (await Stores.Campaigns(_client, await Workspace.ActorAsync()).LatestAsync(DocumentKind.Template))
             .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
 }

@@ -33,25 +33,38 @@ public sealed class ClientStores
     private readonly Func<string, IBlobBackend> _container;
     private readonly TimeProvider _clock;
     private readonly TimeSpan _undoGracePeriod;
+    private readonly IApprovalStore _approvals;
+    private readonly ActivityRecorder _activity;
 
     /// <param name="storage">The app's storage clients, built once at startup.</param>
     /// <param name="undoGracePeriod">How long an undone draft or template can be restored (<see cref="UndoOptions"/>).</param>
-    public ClientStores(StorageClients storage, TimeProvider clock, TimeSpan undoGracePeriod)
-        : this(container => new AzureBlobBackend(storage, container), clock, undoGracePeriod)
+    /// <param name="approvals">The approvals table.</param>
+    /// <param name="activity">Writes the activity trail; a failed write never fails an action.</param>
+    public ClientStores(
+        StorageClients storage, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityRecorder activity)
+        : this(container => new AzureBlobBackend(storage, container), clock, undoGracePeriod, approvals, activity)
     {
     }
 
     // Any backend per container name, so the layout, and the pages above it, are tested without
     // Azure. Internal: outside this assembly a client's container is reached only through Azure.
-    internal ClientStores(Func<string, IBlobBackend> container, TimeProvider clock, TimeSpan undoGracePeriod)
+    internal ClientStores(
+        Func<string, IBlobBackend> container, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals,
+        ActivityRecorder activity)
     {
         _container = container;
         _clock = clock;
         _undoGracePeriod = undoGracePeriod;
+        _approvals = approvals;
+        _activity = activity;
     }
 
-    /// <summary>The client's drafts and templates.</summary>
-    public CampaignStore Campaigns(ClientName client) => new(_container(client.Value), _clock, _undoGracePeriod);
+    /// <summary>
+    /// The client's drafts and templates, with their approvals; what <paramref name="actor"/> does
+    /// through it goes on the client's activity trail.
+    /// </summary>
+    public CampaignStore Campaigns(ClientName client, Actor actor) =>
+        new(_container(client.Value), _clock, _undoGracePeriod, _approvals, _activity.For(client, actor));
 
     /// <summary>The procedures and medications the client offers.</summary>
     public DocumentStore<ClientCatalog> Catalog(ClientName client) => CatalogIn(_container(client.Value), _clock);
@@ -59,8 +72,12 @@ public sealed class ClientStores
     /// <summary>The client's own check policy: restricted terms, medical terms, emoji limit.</summary>
     public DocumentStore<CampaignPolicy> Policy(ClientName client) => PolicyIn(_container(client.Value), _clock);
 
-    /// <summary>The client's photos, for blocks to choose from.</summary>
-    public ImageLibrary Images(ClientName client) => new(_container(client.Value), _clock);
+    /// <summary>
+    /// The client's photos, for blocks to choose from; adding and removing one goes on the client's
+    /// activity trail against <paramref name="actor"/>.
+    /// </summary>
+    public ImageLibrary Images(ClientName client, Actor actor) =>
+        new(_container(client.Value), _clock, _activity.For(client, actor));
 
     /// <summary>How the site looks for the client's people.</summary>
     public DocumentStore<ClientLook> Look(ClientName client) => LookIn(_container(SettingsContainer), client, _clock);
@@ -95,12 +112,29 @@ public sealed class ClientStores
             ? new BaselineInForce(mine, IsOwn: true)
             : new BaselineInForce(await standard.CurrentAsync(ct) ?? TemplateBaseline.Standard, IsOwn: false);
 
+    /// <summary>Saves the client's own baseline, which replaces the standard one for it, on its activity trail.</summary>
+    public async Task<DocumentVersion> SaveBaselineAsync(
+        ClientName client, TemplateBaseline baseline, Actor actor, CancellationToken ct = default)
+    {
+        var version = await Baseline(client).SaveAsync(baseline, ct);
+        await _activity.For(client, actor).RecordAsync(
+            ActivityEntity.Baseline, BaselineEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.BaselineSaved, ct);
+        return version;
+    }
+
     /// <summary>
     /// Deletes every version of the client's own baseline, so the standard one applies again. Like
-    /// any deleted save, it leaves no record.
+    /// any deleted save, nothing of its contents remains; the activity trail says it was reset, and when.
     /// </summary>
-    public Task UseStandardBaselineAsync(ClientName client, CancellationToken ct = default) =>
-        DeleteEveryVersionAsync(Baseline(client), ct);
+    public async Task UseStandardBaselineAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    {
+        await DeleteEveryVersionAsync(Baseline(client), ct);
+        await _activity.For(client, actor).RecordAsync(
+            ActivityEntity.Baseline, BaselineEntityId, null, ActivityAction.BaselineResetToStandard, ct);
+    }
+
+    /// <summary>A client has one baseline of its own, so its events name it by this rather than by an id.</summary>
+    internal const string BaselineEntityId = "baseline";
 
     internal static async Task DeleteEveryVersionAsync<T>(DocumentStore<T> document, CancellationToken ct) where T : class
     {

@@ -56,13 +56,21 @@ builder.Services.AddOptions<UndoOptions>()
         "Undo:GracePeriod (required) and Undo:SweepInterval must be positive time spans, such as 1.00:00:00, " +
         "and Undo:SweepInterval at most 49 days.")
     .ValidateOnStart();
-builder.Services.AddSingleton(services => new ClientStores(
-    storageClients, services.GetRequiredService<TimeProvider>(),
-    services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod));
-builder.Services.AddHostedService<UndoSweep>();
 var metadata = new TableMetadata(storageClients);
 builder.Services.AddSingleton<IClientDirectory>(metadata);
 builder.Services.AddSingleton<ISupportGrantStore>(metadata);
+// Approvals in the approvals table, and every action as an activity event, deletions included,
+// never with the content (owner, 2026-10-09). A failed activity write is logged and the action
+// carries on (ActivityRecorder).
+builder.Services.AddSingleton<IApprovalStore>(metadata);
+builder.Services.AddSingleton<IActivityLog>(metadata);
+builder.Services.AddSingleton<ActivityRecorder>();
+builder.Services.AddSingleton<ClientRegistry>();
+builder.Services.AddSingleton(services => new ClientStores(
+    storageClients, services.GetRequiredService<TimeProvider>(),
+    services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,
+    services.GetRequiredService<IApprovalStore>(), services.GetRequiredService<ActivityRecorder>()));
+builder.Services.AddHostedService<UndoSweep>();
 
 // THE ROLLOUT SWITCH. Every page and endpoint already names its policy; Prototype lets everyone
 // through (and refuses to start in Production), Enforced requires the Entra app role. Moving to

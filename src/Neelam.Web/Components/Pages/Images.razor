@@ -99,7 +99,7 @@ else if (_images is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(client);
-        _library = Stores.Images(client);
+        _library = Stores.Images(client, await Workspace.ActorAsync());
         _images = await _library.ListAsync();
     }
 

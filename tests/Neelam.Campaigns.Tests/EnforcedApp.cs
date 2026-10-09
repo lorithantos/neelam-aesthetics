@@ -53,6 +53,8 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
     internal InMemoryContainers Containers { get; } = new();
     internal InMemoryClientDirectory Clients { get; } = new();
     internal InMemorySupportGrants Grants { get; } = new();
+    internal InMemoryApprovals Approvals { get; } = new();
+    internal InMemoryActivityLog Activity { get; } = new();
     internal ManualClock Clock { get; } = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
     /// <summary>The app's own stores, over <see cref="Containers"/>.</summary>
@@ -71,8 +73,11 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
 
             services.RemoveAll<TimeProvider>().AddSingleton<TimeProvider>(Clock);
             // In memory, with the grace period the app is configured with, as Program wires it.
+            services.RemoveAll<IApprovalStore>().AddSingleton<IApprovalStore>(Approvals);
+            services.RemoveAll<IActivityLog>().AddSingleton<IActivityLog>(Activity);
             services.RemoveAll<ClientStores>().AddSingleton(provider => new ClientStores(
-                Containers.For, Clock, provider.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod));
+                Containers.For, Clock, provider.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,
+                Approvals, provider.GetRequiredService<ActivityRecorder>()));
             services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(Clients);
             services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(Grants);
         });

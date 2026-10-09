@@ -15,6 +15,9 @@ public sealed class DraftSession
     // The draft as last saved or opened, to tell an edit since then; null before the first save.
     private string? _saved;
 
+    // The same, without her label: what an approval is of (ContentOf).
+    private string? _savedContent;
+
     private DraftSession(
         CampaignStore store, Guid? id, CampaignEditor editor, SaveRef? latest, SaveRef? restorable = null, SaveRef? superseded = null)
     {
@@ -24,7 +27,31 @@ public sealed class DraftSession
         Latest = latest;
         Restorable = restorable;
         SupersededApproval = superseded;
-        _saved = latest is null ? null : CampaignJson.SerializeDraft(editor.Draft);
+        if (latest is not null) MarkSaved();
+    }
+
+    private void MarkSaved()
+    {
+        _saved = CampaignJson.SerializeDraft(Editor.Draft);
+        _savedContent = ContentOf(Editor.Draft);
+    }
+
+    /// <summary>
+    /// The draft as an approval sees it: its JSON with the client's label left out. The label is hers
+    /// alone, never in the email, never checked or exported, so changing it changes nothing approved.
+    /// </summary>
+    internal static string ContentOf(CampaignDraft draft)
+    {
+        var label = draft.Label;
+        draft.Label = null;
+        try
+        {
+            return CampaignJson.SerializeDraft(draft);
+        }
+        finally
+        {
+            draft.Label = label;
+        }
     }
 
     /// <summary>The campaign's id; null until a new campaign is first saved.</summary>
@@ -47,9 +74,13 @@ public sealed class DraftSession
 
     /// <summary>
     /// The approval in force: <see cref="Latest"/>'s, while the form still holds exactly what was
-    /// approved. Null once anything is edited or saved since, and when nobody approved it.
+    /// approved, her label aside. Null once anything else is edited or saved since, and when nobody
+    /// approved it.
     /// </summary>
-    public Approval? CurrentApproval => HasUnsavedChanges ? null : Latest?.Approval;
+    public Approval? CurrentApproval =>
+        _savedContent is null || Editor.Errors().Count > 0 || ContentOf(Editor.Draft) != _savedContent
+            ? null
+            : Latest?.Approval;
 
     /// <summary>
     /// An earlier version's approval that a later save has left behind, so the page can say the
@@ -72,8 +103,9 @@ public sealed class DraftSession
     }
 
     /// <summary>
-    /// Approves the saved version as it stands, in the approver's name, now. Recorded with the save
-    /// itself, so a later edit or save is not approved, and undoing the save drops it.
+    /// Approves the saved version as it stands, in the approver's name, now. Recorded in the approvals
+    /// table against that one save, so a later edit or save is not approved, and undoing the save
+    /// withdraws it.
     /// </summary>
     /// <exception cref="InvalidOperationException">It cannot be approved; <see cref="CannotApprove"/> says why.</exception>
     public async Task<Approval> ApproveAsync(
@@ -157,12 +189,18 @@ public sealed class DraftSession
     {
         Id ??= Guid.NewGuid();
         var before = Latest;
+        // Only her label changed since an approved save: what was approved is what is saved, so the
+        // approval goes with it to the new save.
+        var keeps = before?.Approval is not null && CurrentApproval == before.Approval ? before : null;
         Latest = await _store.SaveDraftAsync(Id.Value, Editor.Title, Editor.Draft, ct);
-        _saved = CampaignJson.SerializeDraft(Editor.Draft);
+        MarkSaved();
         // Saved over: an undone version below the new one is no longer offered back.
         Restorable = null;
-        // A new version is not approved, whatever the one before it was.
-        if (before?.Approval is not null) SupersededApproval = before;
+        if (keeps is not null)
+            Latest = await _store.KeepApprovalAsync(keeps, Latest, ct);
+        // Otherwise a new version is not approved, whatever the one before it was.
+        else if (before?.Approval is not null)
+            SupersededApproval = before;
         return Latest;
     }
 
@@ -205,11 +243,11 @@ public sealed class DraftSession
         Restorable = await _store.RestorableAsync(DocumentKind.Draft, Id.Value, ct);
         if (Latest is null)
         {
-            _saved = null;
+            _saved = _savedContent = null;
             return false;
         }
         Editor = CampaignEditor.Open(await _store.LoadDraftAsync(Latest, ct));
-        _saved = CampaignJson.SerializeDraft(Editor.Draft);
+        MarkSaved();
         return true;
     }
 }

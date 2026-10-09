@@ -74,7 +74,7 @@ else if (_campaigns is not null && _templates is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(_client);
-        var store = Stores.Campaigns(_client);
+        var store = Stores.Campaigns(_client, await Workspace.ActorAsync());
         _campaigns = await DraftSession.ListLabelledAsync(store);
         _templates = (await store.LatestAsync(DocumentKind.Template))
             .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();

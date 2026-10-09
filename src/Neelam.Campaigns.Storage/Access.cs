@@ -22,6 +22,12 @@ public enum Area
 public sealed record Caller(string UserId, bool IsOperator, IReadOnlyList<ClientName> MemberOf)
 {
     public bool IsMemberOf(ClientName client) => MemberOf.Contains(client);
+
+    /// <summary>
+    /// The user's name from the sign-in, for the activity trail; null where nobody signs in
+    /// (Prototype), whose trail says "demo user" (<see cref="Actor.Of"/>).
+    /// </summary>
+    public string? Name { get; init; }
 }
 
 /// <summary>

@@ -29,6 +29,21 @@ public class CallerClaimsTests
         Assert.False(caller.IsOperator);
     }
 
+    // The activity trail names the signed-in user: the token's display name, else the sign-in name,
+    // else the object ID. Only a caller with none, the prototype's, is "demo user".
+    [Fact]
+    public void The_activity_trail_names_the_signed_in_user()
+    {
+        Caller Signed(params (string, string)[] claims) =>
+            CallerClaims.FromClaims(SignedIn([("oid", "user-1"), .. claims]), Clients).Caller!;
+
+        Assert.Equal(new Actor("Priya Sharma", true),
+            Actor.Of(Signed(("name", "Priya Sharma"), ("preferred_username", "priya@example.com"))));
+        Assert.Equal(new Actor("priya@example.com", true), Actor.Of(Signed(("preferred_username", "priya@example.com"))));
+        Assert.Equal(new Actor("user-1", true), Actor.Of(Signed()));
+        Assert.Equal(Actor.Demo, Actor.Of(new Caller("prototype", IsOperator: true, [])));
+    }
+
     [Theory]
     [InlineData("roles")]
     [InlineData(ClaimTypes.Role)]

@@ -40,7 +40,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         Assert.Equal(TimeSpan.FromDays(1), undo.GracePeriod);
         Assert.Equal(TimeSpan.FromHours(1), undo.SweepInterval);
-        Assert.Equal(TimeSpan.FromDays(1), app.Stores.Campaigns(SalonOne.Name).UndoGracePeriod);
+        Assert.Equal(TimeSpan.FromDays(1), app.Stores.Campaigns(SalonOne.Name, Actor.Demo).UndoGracePeriod);
         Assert.Single(app.Services.GetServices<IHostedService>().OfType<UndoSweep>());
     }
 
@@ -51,7 +51,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         await Onboarded();
         using var configured = app.WithWebHostBuilder(builder => builder.ConfigureAppConfiguration(
             (_, config) => config.AddInMemoryCollection(new Dictionary<string, string?> { ["Undo:GracePeriod"] = "02:00:00" })));
-        var store = configured.Services.GetRequiredService<ClientStores>().Campaigns(SalonOne.Name);
+        var store = configured.Services.GetRequiredService<ClientStores>().Campaigns(SalonOne.Name, Actor.Demo);
         var save = await store.SaveDraftAsync(Guid.NewGuid(), "Configured", DraftFixtures.Finished());
         var undone = await store.MarkUndoneAsync(save);
 
@@ -102,14 +102,14 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         await Onboarded();
         var stores = app.Stores;
-        var expiredOne = await stores.Campaigns(SalonOne.Name).MarkUndoneAsync(
-            await stores.Campaigns(SalonOne.Name).SaveDraftAsync(Guid.NewGuid(), "One, undone", DraftFixtures.Finished()));
-        var expiredTwo = await stores.Campaigns(SalonTwo.Name).MarkUndoneAsync(
-            await stores.Campaigns(SalonTwo.Name).SaveTemplateAsync(Guid.NewGuid(), DraftFixtures.Membership));
-        var inUse = await stores.Campaigns(SalonTwo.Name).SaveDraftAsync(Guid.NewGuid(), "Two, in use", DraftFixtures.Finished());
+        var expiredOne = await stores.Campaigns(SalonOne.Name, Actor.Demo).MarkUndoneAsync(
+            await stores.Campaigns(SalonOne.Name, Actor.Demo).SaveDraftAsync(Guid.NewGuid(), "One, undone", DraftFixtures.Finished()));
+        var expiredTwo = await stores.Campaigns(SalonTwo.Name, Actor.Demo).MarkUndoneAsync(
+            await stores.Campaigns(SalonTwo.Name, Actor.Demo).SaveTemplateAsync(Guid.NewGuid(), DraftFixtures.Membership));
+        var inUse = await stores.Campaigns(SalonTwo.Name, Actor.Demo).SaveDraftAsync(Guid.NewGuid(), "Two, in use", DraftFixtures.Finished());
         app.Clock.Now += TimeSpan.FromDays(1);
-        var fresh = await stores.Campaigns(SalonOne.Name).MarkUndoneAsync(
-            await stores.Campaigns(SalonOne.Name).SaveDraftAsync(Guid.NewGuid(), "One, just undone", DraftFixtures.Finished()));
+        var fresh = await stores.Campaigns(SalonOne.Name, Actor.Demo).MarkUndoneAsync(
+            await stores.Campaigns(SalonOne.Name, Actor.Demo).SaveDraftAsync(Guid.NewGuid(), "One, just undone", DraftFixtures.Finished()));
 
         await SweepOf(app.Services).SweepOnceAsync();
 
@@ -127,8 +127,8 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var blobs = new InMemoryContainers();
         var clock = new ManualClock(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
-        var stores = new ClientStores(blobs.For, clock, TimeSpan.FromDays(1));
-        var store = stores.Campaigns(SalonOne.Name);
+        var stores = new ClientStores(blobs.For, clock, TimeSpan.FromDays(1), new InMemoryApprovals(), TestRecords.Unwatched);
+        var store = stores.Campaigns(SalonOne.Name, Actor.Demo);
         var undone = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
         clock.Now += TimeSpan.FromDays(2);
         var sweep = SweepOver(stores, new InMemoryClientDirectory(SalonOne), clock);
@@ -158,7 +158,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task The_prototype_client_is_swept_with_no_row_in_the_clients_table()
     {
         var (containers, clock, stores) = Isolated();
-        var store = stores.Campaigns(SalonOne.Name);
+        var store = stores.Campaigns(SalonOne.Name, Actor.Demo);
         var expired = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
         clock.Now += TimeSpan.FromDays(1);
         var fresh = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Just undone", DraftFixtures.Finished()));
@@ -182,7 +182,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var containers = new InMemoryContainers();
         var opened = new List<string>();
         var clock = new ManualClock(Noon);
-        var stores = new ClientStores(name => { lock (opened) opened.Add(name); return containers.For(name); }, clock, TimeSpan.FromDays(1));
+        var stores = new ClientStores(name => { lock (opened) opened.Add(name); return containers.For(name); }, clock, TimeSpan.FromDays(1), new InMemoryApprovals(), TestRecords.Unwatched);
 
         await SweepOver(stores, new InMemoryClientDirectory(SalonOne, SalonTwo), clock, new PrototypeCallerSource(SalonOne.Name))
             .SweepOnceAsync();
@@ -197,8 +197,9 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var (containers, clock, _) = Isolated();
         var stores = new ClientStores(
-            name => name == SalonOne.Name.Value ? new UnreachableContainer() : containers.For(name), clock, TimeSpan.FromDays(1));
-        var store = stores.Campaigns(SalonTwo.Name);
+            name => name == SalonOne.Name.Value ? new UnreachableContainer() : containers.For(name), clock, TimeSpan.FromDays(1),
+            new InMemoryApprovals(), TestRecords.Unwatched);
+        var store = stores.Campaigns(SalonTwo.Name, Actor.Demo);
         var expired = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
         clock.Now += TimeSpan.FromDays(1);
 
@@ -213,7 +214,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var containers = new InMemoryContainers();
         var clock = new ManualClock(Noon);
-        return (containers, clock, new ClientStores(containers.For, clock, TimeSpan.FromDays(1)));
+        return (containers, clock, new ClientStores(containers.For, clock, TimeSpan.FromDays(1), new InMemoryApprovals(), TestRecords.Unwatched));
     }
 
     private static UndoSweep SweepOver(

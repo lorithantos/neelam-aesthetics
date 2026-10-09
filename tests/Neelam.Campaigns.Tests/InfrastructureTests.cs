@@ -50,6 +50,19 @@ public class InfrastructureTests
         Assert.Equal(["clientContainers[i]", "settingsContainer", "tables[i]"], dataScopes);
     }
 
+    // The metadata tables, each with the site's table role scoped to it (tables[i], above). The
+    // activity table was added on 2026-10-09 for the activity trail: changing this list is a live
+    // infrastructure deploy, so it is pinned here and changed deliberately.
+    [Fact]
+    public void The_metadata_tables_are_exactly_these()
+    {
+        var list = Regex.Match(Bicep, @"var tableNames = \[(.*?)\]", RegexOptions.Singleline).Groups[1].Value;
+        string[] tables = Regex.Matches(list, @"'([^']*)'").Select(m => m.Groups[1].Value).ToArray();
+        Assert.Equal(["clients", "supportGrants", "approvals", "activity"], tables);
+        Assert.Matches(new Regex(@"for name in tableNames: \{\s*parent: tableService\s*name: name\s"), Bicep);
+        Assert.Matches(new Regex(@"for \(name, i\) in tableNames: \{\s*name: guid\(tables\[i\]\.id, site\.id, tableDataContributor\)\s*scope: tables\[i\]\s"), Bicep);
+    }
+
     // No person holds data access in production. On the test deployment, whose clients are made
     // up, the developer holds blob and table data access to the whole account; the template grants
     // it only when the environment is Test, and only the test parameter file names a developer.

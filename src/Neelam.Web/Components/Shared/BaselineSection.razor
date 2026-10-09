@@ -76,22 +76,22 @@
 
     private async Task SaveOwnAsync()
     {
-        await Stores.Baseline(_client!).SaveAsync(
-            new TemplateBaseline(BlockGuide.All.Select(g => g.Type).Where(_chosen.Contains)));
+        await Stores.SaveBaselineAsync(
+            _client!, new TemplateBaseline(BlockGuide.All.Select(g => g.Type).Where(_chosen.Contains)), await Workspace.ActorAsync());
         await LoadAsync();
         _message = "Saved as your own baseline.";
     }
 
     private async Task SaveEmptyAsync()
     {
-        await Stores.Baseline(_client!).SaveAsync(TemplateBaseline.None);
+        await Stores.SaveBaselineAsync(_client!, TemplateBaseline.None, await Workspace.ActorAsync());
         await LoadAsync();
         _message = "Saved empty: templates get no baseline warnings.";
     }
 
     private async Task UseStandardAsync()
     {
-        await Stores.UseStandardBaselineAsync(_client!);
+        await Stores.UseStandardBaselineAsync(_client!, await Workspace.ActorAsync());
         await LoadAsync();
         _message = "Your own baseline is deleted; the standard one applies.";
     }

@@ -27,14 +27,23 @@ public sealed record LibraryImage(
 /// preview can never drift from hers. A Square photo's blob is empty: its name and address are its
 /// metadata, as an upload's name and alt text are. Deleting one removes only that reference here;
 /// nothing at Square is touched, and nothing here could touch it.
+/// <para>
+/// Adding and removing an entry go on the client's activity trail. A photo's name is content, so
+/// the trail names an entry by a random id of its own, kept in the entry's metadata (<c>entry</c>),
+/// never by its name.
+/// </para>
 /// </remarks>
-public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider clock)
+public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider clock, ActivityTrail activity)
 {
     private const string Prefix = "images/";
     private const string NameKey = "name";
     private const string AltKey = "alt";
     private const string AddedKey = "added";
     private const string SquareKey = "square";
+    private const string EntryKey = "entry";
+
+    /// <summary>What the trail calls an entry added before entries had ids of their own.</summary>
+    internal const string UnidentifiedEntry = "unidentified";
 
     /// <summary>What a preview and a photo field say for a name the library does not hold.</summary>
     public const string NotInLibrary = "There is no photo by this name in the image library yet.";
@@ -175,8 +184,21 @@ public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider cloc
     /// Permanently deletes a photo. Blocks that named it will no longer find it. For a photo on
     /// Square, only the reference here goes; the image at Square is not touched.
     /// </summary>
-    public Task<bool> DeleteAsync(string name, CancellationToken ct = default) =>
-        clientContainer.DeleteAsync(BlobName(name.Trim()), ct);
+    public async Task<bool> DeleteAsync(string name, CancellationToken ct = default)
+    {
+        var blobName = BlobName(name.Trim());
+        string? entry = null;
+        await foreach (var blob in clientContainer.ListAsync(blobName, ct))
+        {
+            if (blob.Name == blobName) entry = EntryId(blob.Metadata);
+        }
+        if (!await clientContainer.DeleteAsync(blobName, ct)) return false;
+        await activity.RecordAsync(ActivityEntity.ImageEntry, entry ?? UnidentifiedEntry, null, ActivityAction.ImageEntryRemoved, ct);
+        return true;
+    }
+
+    private static string? EntryId(IReadOnlyDictionary<string, string> metadata) =>
+        metadata.TryGetValue(EntryKey, out var entry) && entry.Length > 0 ? entry : null;
 
     private static string RequireName(string name)
     {
@@ -195,8 +217,12 @@ public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider cloc
         string name, BinaryData content, string contentType, Dictionary<string, string> metadata, CancellationToken ct)
     {
         var blobName = BlobName(name);
+        var entry = Guid.NewGuid().ToString("N");
+        metadata[EntryKey] = entry;
         if (!await clientContainer.TryCreateAsync(blobName, content, contentType, metadata, ct))
             throw new InvalidOperationException($"The library already has a photo called \"{name}\".");
+        // An entry is not a save, so it has no stamp; its id is all the trail knows of it.
+        await activity.RecordAsync(ActivityEntity.ImageEntry, entry, null, ActivityAction.ImageEntryAdded, ct);
         return blobName;
     }
 

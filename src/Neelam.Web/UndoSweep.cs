@@ -63,7 +63,7 @@ public sealed class UndoSweep(
         {
             try
             {
-                deleted += await stores.Campaigns(client).SweepAsync(ct);
+                deleted += await stores.Campaigns(client, Actor.UndoSweep).SweepAsync(ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {

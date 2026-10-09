@@ -391,7 +391,8 @@ else if (_session is not null)
         if (AuthenticationState is not null)
             _canReview = (await Authorization.AuthorizeAsync((await AuthenticationState).User, Features.Review)).Succeeded;
 
-        var store = _store = Stores.Campaigns(client);
+        var actor = await Workspace.ActorAsync();
+        var store = _store = Stores.Campaigns(client, actor);
         if (Id is { } id)
         {
             _session = await DraftSession.OpenAsync(store, id);
@@ -405,7 +406,7 @@ else if (_session is not null)
         }
         _policy = await Stores.PolicyInForceAsync(client);
         _business = await Workspace.BusinessAsync(client);
-        _photos = await Stores.Images(client).ListAsync();
+        _photos = await Stores.Images(client, actor).ListAsync();
     }
 
     private async Task SaveAsync()

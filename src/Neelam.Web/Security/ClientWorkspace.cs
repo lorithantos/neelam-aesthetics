@@ -28,6 +28,16 @@ public sealed class ClientWorkspace(
     public async Task<BusinessContext?> BusinessAsync(ClientName client, CancellationToken ct = default) =>
         (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client)?.Business;
 
+    /// <summary>
+    /// Who the activity trail says is acting: the signed-in user's name, or in Prototype, where
+    /// nobody signs in, "demo user" (an approval then goes against the name typed for it).
+    /// </summary>
+    public async Task<Actor> ActorAsync(CancellationToken ct = default)
+    {
+        var (caller, _) = await callers.CurrentAsync(ct);
+        return caller is null ? Actor.Demo : Actor.Of(caller);
+    }
+
     /// <returns>The client, or null with the reason the page cannot show one.</returns>
     public async Task<(ClientName? Client, string Reason)> ClientDataAsync(CancellationToken ct = default)
     {

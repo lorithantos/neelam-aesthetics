@@ -51,6 +51,19 @@ public class ClientWorkspaceTests
         Assert.Null((await For(new Caller("u", false, [SalonOne, SalonTwo]))).Client);
     }
 
+    // Who the pages put on the activity trail: the signed-in user's name, or the prototype's "demo user".
+    [Fact]
+    public async Task The_actor_is_the_signed_in_user_or_the_demo_user()
+    {
+        static Task<Actor> ActorOf(ICallerSource callers) =>
+            new ClientWorkspace(callers, new InMemorySupportGrants(), new InMemoryClientDirectory(), Clock).ActorAsync();
+
+        Assert.Equal(new Actor("Priya Sharma", true),
+            await ActorOf(new FixedCaller(new Caller("u", false, [SalonOne]) { Name = "Priya Sharma" })));
+        Assert.Equal(Actor.Demo, await ActorOf(new PrototypeCallerSource(SalonOne)));
+        Assert.Equal(Actor.Demo, await ActorOf(new FixedCaller(null)));
+    }
+
     private sealed class FixedCaller(Caller? caller) : ICallerSource
     {
         public Task<(Caller? Caller, string Reason)> CurrentAsync(CancellationToken ct = default) =>

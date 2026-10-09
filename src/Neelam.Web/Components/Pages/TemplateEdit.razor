@@ -280,7 +280,8 @@ else if (_session is not null)
             return;
         }
 
-        var store = _store = Stores.Campaigns(client);
+        var actor = await Workspace.ActorAsync();
+        var store = _store = Stores.Campaigns(client, actor);
         _session = Id is { } id ? await TemplateSession.OpenAsync(store, id)
             : From is { } from ? await TemplateSession.CopyAsync(store, from)
             : TemplateSession.New(store);
@@ -288,7 +289,7 @@ else if (_session is not null)
         _missing = _session is null && _undone is null;
         _policy = await Stores.PolicyInForceAsync(client);
         _baseline = (await Stores.BaselineInForceAsync(client)).Baseline;
-        _photos = await Stores.Images(client).ListAsync();
+        _photos = await Stores.Images(client, actor).ListAsync();
     }
 
     private async Task SaveAsync()

@@ -25,10 +25,16 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 - An AI finding whose quoted excerpt isn't actually in the email is downgraded to a warning
   rather than trusted.
 - **A person approves** a saved campaign with nothing left to fix: no missing part and no "Must
-  fix" finding. The approval (a name and the UTC time) is kept in that save blob's own metadata,
-  so it belongs to that exact version and is deleted with it. Any edit or later save is not
-  approved; undoing a save drops its approval; an approval can be withdrawn. Approving takes the
-  `Campaigns.Review` feature. Until sign-in exists the approver types their name.
+  fix" finding. The approval (a name and the UTC time) is a row in the approvals table, keyed by
+  client, campaign and that save's stamp, so it belongs to that exact version; the row stays as
+  the record when the save is undone or deleted. Any edit or later save is not approved, except a
+  change to the client's own label, which is never in the email; undoing a save withdraws its
+  approval; an approval can be withdrawn. Approving takes the `Campaigns.Review` feature. Until
+  sign-in exists the approver types their name.
+- **Every action is on the activity trail**: saves, approvals and withdrawals, undo, restore, the
+  sweep's deletions, baselines, image entries and client registrations, one row each in the
+  client's partition of the activity table, with who and when. Never the content: things are named
+  by id only, so a deleted save's contents stay unrecoverable while the fact of its deletion is kept.
 
 **The demo exception (owner, 2026-10-09).** The test site is a full demo for a client to walk
 every step on, and it runs Prototype access, which is refused in Production. There, and only
@@ -147,7 +153,7 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants and dismissals. Approvals are not here: each lives in its save's own metadata | The app. The operator manages clients |
+| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants, dismissals, approvals (one row per approved save) and the activity trail (one row per action, ids only, never content), each client's in its own partition | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json` | That client's members and the operator; the standard baseline is read for every client |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline if it saved one | The client's members. The operator only under a support grant |
 

@@ -9,8 +9,9 @@ public enum DocumentKind { Draft, Template }
 /// <param name="Title">Shown in lists; stored in the blob's own metadata.</param>
 /// <param name="UndoneAt">When the save was undone, or null for a save in use. Stored in the blob's own metadata.</param>
 /// <param name="Approval">
-/// Who approved this exact save, and when; null when nobody has. Stored in the blob's own metadata,
-/// so it goes wherever the save goes, and is deleted with it.
+/// Who approved this exact save, and when; null when nobody has, or the approval was withdrawn. Read
+/// from the approvals table (<see cref="IApprovalStore"/>) for one campaign's history
+/// (<see cref="CampaignStore.HistoryAsync"/>); lists across campaigns leave it null.
 /// </param>
 public sealed record SaveRef(
     DocumentKind Kind, Guid Id, DateTimeOffset SavedAt, string Title, string BlobName, DateTimeOffset? UndoneAt = null,
@@ -20,30 +21,40 @@ public sealed record SaveRef(
 /// Saves drafts and templates as date/time-stamped blobs:
 /// <c>drafts/{id}/{yyyyMMddTHHmmss.fffffffZ}.json</c>. Every save is a new blob and nothing is
 /// ever overwritten. There is no index, manifest or database: lists are read from the blob names
-/// themselves and the title travels in the blob's metadata. So deleting a blob leaves no record of
-/// it anywhere — delete the newest save and the one before it becomes the latest; delete them all
-/// and the campaign is gone.
+/// themselves and the title travels in the blob's metadata. So deleting a blob leaves nothing of
+/// its contents anywhere — delete the newest save and the one before it becomes the latest; delete
+/// them all and the campaign is gone.
 /// </summary>
 /// <remarks>
 /// Undo does not delete. It marks the save undone in that blob's own metadata, with the time, and
 /// from then on every list, history and latest leaves the save out, so to its client it is gone.
 /// Until the grace period has passed the mark can be cleared again (restore); after it, the sweep
-/// deletes the blob, and the save leaves no record as before. There is still no index: the sweep
+/// deletes the blob, and nothing of the save's contents remains, as before. There is still no index: the sweep
 /// finds marks by listing the blobs and reading their metadata.
+/// <para>
+/// Approvals live in the approvals table, keyed by client, campaign and the save's stamp (owner,
+/// 2026-10-09), and every action here is recorded as an activity event, deletions by the sweep
+/// included. Neither ever holds the save's content, so a deleted save's contents still cannot be
+/// recovered; what remains is that it existed, was approved, and was deleted when.
+/// </para>
 /// </remarks>
 /// <param name="undoGracePeriod">How long an undone save can be restored before the sweep may delete it.</param>
-public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSpan undoGracePeriod)
+/// <param name="approvals">The approvals table; read and written only in <paramref name="activity"/>'s client's partition.</param>
+/// <param name="activity">The trail for this client and whoever is acting. A failed write never fails an action.</param>
+public sealed class CampaignStore(
+    IBlobBackend blobs, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityTrail activity)
 {
     private const string TitleKey = "title";
     private const string UndoneKey = "undone";
-    private const string ApprovedByKey = "approvedby";
-    private const string ApprovedAtKey = "approvedat";
 
     public Task<SaveRef> SaveDraftAsync(Guid id, string title, CampaignDraft draft, CancellationToken ct = default) =>
         SaveAsync(DocumentKind.Draft, id, title, CampaignJson.SerializeDraft(draft), ct);
 
     public Task<SaveRef> SaveTemplateAsync(Guid id, CampaignTemplate template, CancellationToken ct = default) =>
         SaveAsync(DocumentKind.Template, id, template.Name, CampaignJson.SerializeTemplate(template), ct);
+
+    /// <summary>The client this store belongs to.</summary>
+    public ClientName Client => activity.Client;
 
     /// <summary>How long an undone save can be restored.</summary>
     public TimeSpan UndoGracePeriod => undoGracePeriod;
@@ -52,9 +63,21 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
     public async Task<IReadOnlyList<SaveRef>> ListAsync(DocumentKind kind, CancellationToken ct = default) =>
         InUse(await ListPrefixAsync(kind, $"{Prefix(kind)}/", ct));
 
-    /// <summary>Every save of one campaign or template, newest first. Undone saves are left out.</summary>
-    public async Task<IReadOnlyList<SaveRef>> HistoryAsync(DocumentKind kind, Guid id, CancellationToken ct = default) =>
-        InUse(await ListPrefixAsync(kind, $"{Prefix(kind)}/{id:N}/", ct));
+    /// <summary>
+    /// Every save of one campaign or template, newest first. Undone saves are left out. A campaign's
+    /// saves carry their approvals, from the approvals table.
+    /// </summary>
+    public async Task<IReadOnlyList<SaveRef>> HistoryAsync(DocumentKind kind, Guid id, CancellationToken ct = default)
+    {
+        var saves = InUse(await ListPrefixAsync(kind, $"{Prefix(kind)}/{id:N}/", ct));
+        if (kind != DocumentKind.Draft || saves.Count == 0) return saves;
+        var standing = (await approvals.ForCampaignAsync(Client, id, ct))
+            .Where(a => !a.Withdrawn && a.Client == Client && a.CampaignId == id)
+            .ToDictionary(a => a.Stamp, StringComparer.Ordinal);
+        return saves
+            .Select(s => standing.TryGetValue(SaveStamp.Of(s.SavedAt), out var a) ? s with { Approval = a.Approval } : s)
+            .ToList();
+    }
 
     /// <summary>The newest save of each campaign or template, newest first.</summary>
     public async Task<IReadOnlyList<SaveRef>> LatestAsync(DocumentKind kind, CancellationToken ct = default) =>
@@ -75,18 +98,26 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
     {
         var blob = await FindAsync(save, ct) ?? throw new InvalidOperationException("That save is already gone.");
         var at = clock.GetUtcNow();
-        // An undone save drops its approval with it: restored, it comes back unapproved.
-        var metadata = blob.Metadata.Where(m => !IsApprovalKey(m.Key)).ToDictionary(m => m.Key, m => m.Value);
-        metadata[UndoneKey] = at.ToString("o", CultureInfo.InvariantCulture);
+        // An undone save loses its approval: restored, it comes back unapproved. The row stays, as
+        // the record that it was approved, marked withdrawn from the moment of the undo. Withdrawn
+        // first, so a failure between the two leaves the save unapproved rather than approved.
+        if (save.Kind == DocumentKind.Draft && await StandingApprovalAsync(save, ct) is { } approved)
+            await approvals.PutAsync(approved with { WithdrawnAt = at }, ct);
+        var metadata = new Dictionary<string, string>(blob.Metadata)
+        {
+            [UndoneKey] = at.ToString("o", CultureInfo.InvariantCulture),
+        };
         if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct))
             throw new InvalidOperationException("That save is already gone.");
+        await RecordAsync(save, ActivityAction.Undone, ct);
         return save with { UndoneAt = at, Approval = null };
     }
 
     /// <summary>
-    /// Records that <paramref name="approvedBy"/> approved this exact draft save, now, in the save's
-    /// own metadata: no table or list of approvals, so deleting the save deletes its approval too.
-    /// Whether the campaign may be approved is the caller's to decide (<see cref="DraftSession"/>).
+    /// Records that <paramref name="approvedBy"/> approved this exact draft save, now, in the approvals
+    /// table. The row is keyed by the save, so a later save is not approved, and it stays when the save
+    /// is undone or deleted, as the record. Whether the campaign may be approved is the caller's to
+    /// decide (<see cref="DraftSession"/>).
     /// </summary>
     /// <exception cref="InvalidOperationException">The save is gone or undone.</exception>
     public async Task<SaveRef> ApproveAsync(SaveRef save, string approvedBy, CancellationToken ct = default)
@@ -99,30 +130,56 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
             throw new InvalidOperationException("That save is gone, so it cannot be approved.");
 
         var approval = new Approval(approvedBy.Trim(), clock.GetUtcNow());
-        var metadata = new Dictionary<string, string>(blob.Metadata)
-        {
-            [ApprovedByKey] = Uri.EscapeDataString(approval.By),
-            [ApprovedAtKey] = approval.At.ToString("o", CultureInfo.InvariantCulture),
-        };
-        if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct))
-            throw new InvalidOperationException("That save is gone, so it cannot be approved.");
+        await approvals.PutAsync(
+            new ApprovalRecord(Client, save.Id, SaveStamp.Of(save.SavedAt), approval.By, approval.At), ct);
+        await RecordAsync(save, ActivityAction.Approved, ct, activity.Actor.NameFor(approval.By));
         return current with { Approval = approval };
     }
 
-    /// <summary>Takes an approval back: the save stays, unapproved.</summary>
-    /// <exception cref="InvalidOperationException">The save is gone.</exception>
+    /// <summary>Takes an approval back: the save stays, unapproved, and the row stays, marked withdrawn.</summary>
+    /// <exception cref="InvalidOperationException">The save is gone, or it has no approval to withdraw.</exception>
     public async Task<SaveRef> WithdrawApprovalAsync(SaveRef save, CancellationToken ct = default)
     {
         var blob = await FindAsync(save, ct);
         if (blob is null || !TryParse(save.Kind, blob, out var current))
             throw new InvalidOperationException("That save is already gone.");
-        var metadata = blob.Metadata.Where(m => !IsApprovalKey(m.Key)).ToDictionary(m => m.Key, m => m.Value);
-        if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct))
-            throw new InvalidOperationException("That save is already gone.");
+        var approved = await StandingApprovalAsync(save, ct)
+                       ?? throw new InvalidOperationException("There is no approval to withdraw.");
+        await approvals.PutAsync(approved with { WithdrawnAt = clock.GetUtcNow() }, ct);
+        await RecordAsync(save, ActivityAction.ApprovalWithdrawn, ct);
         return current with { Approval = null };
     }
 
-    private static bool IsApprovalKey(string key) => key is ApprovedByKey or ApprovedAtKey;
+    /// <summary>
+    /// Carries an approval from one save to a later save of the same campaign whose content is the
+    /// same, the client's label aside (<see cref="DraftSession"/> decides that): a row for the later
+    /// save with the same approver and time. The earlier row stays as it is. Unchanged when the
+    /// earlier save's approval no longer stands.
+    /// </summary>
+    public async Task<SaveRef> KeepApprovalAsync(SaveRef approved, SaveRef later, CancellationToken ct = default)
+    {
+        Expect(later, DocumentKind.Draft);
+        if (approved.Id != later.Id)
+            throw new ArgumentException("An approval is kept only within one campaign.", nameof(later));
+        if (await StandingApprovalAsync(approved, ct) is not { } row) return later;
+        await approvals.PutAsync(row with { Stamp = SaveStamp.Of(later.SavedAt), WithdrawnAt = null }, ct);
+        return later with { Approval = row.Approval };
+    }
+
+    // This save's approval, while it stands.
+    private async Task<ApprovalRecord?> StandingApprovalAsync(SaveRef save, CancellationToken ct)
+    {
+        var stamp = SaveStamp.Of(save.SavedAt);
+        return (await approvals.ForCampaignAsync(Client, save.Id, ct))
+            .FirstOrDefault(a => a.Client == Client && a.CampaignId == save.Id && a.Stamp == stamp && !a.Withdrawn);
+    }
+
+    // Never throws: the trail is wanted, but never at the cost of the action it records.
+    private Task RecordAsync(SaveRef save, ActivityAction action, CancellationToken ct, string? actorName = null) =>
+        activity.RecordAsync(Entity(save.Kind), save.Id.ToString("N"), SaveStamp.Of(save.SavedAt), action, ct, actorName);
+
+    private static ActivityEntity Entity(DocumentKind kind) =>
+        kind == DocumentKind.Draft ? ActivityEntity.Campaign : ActivityEntity.Template;
 
     /// <summary>When an undone save can no longer be restored, and the sweep may delete it.</summary>
     public DateTimeOffset? RestorableUntil(SaveRef save) => save.UndoneAt + undoGracePeriod;
@@ -150,14 +207,17 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
         if (blob is null || !TryParse(save.Kind, blob, out var current) || !CanRestore(current))
             return false;
         var metadata = blob.Metadata.Where(m => m.Key != UndoneKey).ToDictionary(m => m.Key, m => m.Value);
-        return await blobs.SetMetadataAsync(save.BlobName, metadata, ct);
+        if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct)) return false;
+        await RecordAsync(current, ActivityAction.Restored, ct);
+        return true;
     }
 
     /// <summary>
-    /// Deletes for good every draft and template undone longer ago than the grace period, leaving
-    /// no record. Finds them by listing the blobs and reading their marks, so it holds no state:
-    /// running it twice, or again after a crash part-way, only finishes the job. Returns how many
-    /// it deleted.
+    /// Deletes for good every draft and template undone longer ago than the grace period: its
+    /// contents cannot be recovered, and what remains is an activity event saying which save was
+    /// deleted, and when. Finds them by listing the blobs and reading their marks, so it holds no
+    /// state: running it twice, or again after a crash part-way, only finishes the job. Returns how
+    /// many it deleted.
     /// </summary>
     /// <remarks>
     /// Each delete holds only if the blob is still as listed (its ETag): a save restored, or undone
@@ -171,7 +231,10 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
             foreach (var (save, etag) in await ListEntriesAsync(kind, $"{Prefix(kind)}/", ct))
             {
                 if (save.UndoneAt is not null && !CanRestore(save) && await blobs.DeleteIfUnchangedAsync(save.BlobName, etag, ct))
+                {
                     deleted++;
+                    await RecordAsync(save, ActivityAction.DeletedBySweep, ct);
+                }
             }
         }
         return deleted;
@@ -196,7 +259,9 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
         var metadata = new Dictionary<string, string> { [TitleKey] = Uri.EscapeDataString(title) };
         var (name, at) = await SaveStamp.CreateAsync(
             blobs, stamp => BlobName(kind, id, stamp), json, metadata, clock.GetUtcNow(), ct);
-        return new SaveRef(kind, id, at, title, name);
+        var save = new SaveRef(kind, id, at, title, name);
+        await RecordAsync(save, ActivityAction.Saved, ct);
+        return save;
     }
 
     // Every save under the prefix, undone ones included, newest first.
@@ -242,13 +307,8 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
                                  && DateTimeOffset.TryParse(u, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var when)
             ? when
             : null;
-        // Half an approval, or one that cannot be read, is no approval: it fails closed.
-        var approval = blob.Metadata.TryGetValue(ApprovedByKey, out var by) && by.Length > 0
-                       && blob.Metadata.TryGetValue(ApprovedAtKey, out var a)
-                       && DateTimeOffset.TryParse(a, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var approvedAt)
-            ? new Approval(Uri.UnescapeDataString(by), approvedAt)
-            : null;
-        save = new SaveRef(kind, id, at, title, blob.Name, undone, approval);
+        // Approvals are the approvals table's, never the blob's: HistoryAsync adds them.
+        save = new SaveRef(kind, id, at, title, blob.Name, undone);
         return true;
     }
 

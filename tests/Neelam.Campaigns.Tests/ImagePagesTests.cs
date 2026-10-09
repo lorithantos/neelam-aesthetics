@@ -37,11 +37,11 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             await app.Clients.AddAsync(SalonTwo);
             foreach (var salon in new[] { SalonOne, SalonTwo })
             {
-                var store = app.Stores.Campaigns(salon.Name);
+                var store = app.Stores.Campaigns(salon.Name, Actor.Demo);
                 await store.SaveTemplateAsync(Membership, DraftFixtures.Membership);
                 await store.SaveDraftAsync(Finished, "WE’RE TURNING ONE!", DraftFixtures.Finished());
             }
-            var images = app.Stores.Images(SalonOne.Name);
+            var images = app.Stores.Images(SalonOne.Name, Actor.Demo);
             await images.AddFromSquareAsync("Principals toasting", Toasting);
             await images.AddFromSquareAsync("Principals seated", Seated);
         }

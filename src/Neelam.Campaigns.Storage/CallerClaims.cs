@@ -23,6 +23,13 @@ public static class CallerClaims
             return (null, reading.Reason);
 
         var memberOf = clients.Where(c => user.IsInGroup(c.GroupId)).Select(c => c.Name).ToList();
-        return (new Caller(user.ObjectId, user.HasAppRole(OperatorRole), memberOf), reading.Reason);
+        return (new Caller(user.ObjectId, user.HasAppRole(OperatorRole), memberOf) { Name = NameOf(principal, user.ObjectId) },
+            reading.Reason);
     }
+
+    // Who the activity trail says acted: the sign-in's display name, else the sign-in name, else the
+    // object ID, so a signed-in caller is never anonymous there.
+    private static string NameOf(ClaimsPrincipal principal, string objectId) =>
+        new[] { principal.FindFirst("name")?.Value, principal.FindFirst("preferred_username")?.Value, principal.Identity?.Name }
+            .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? objectId;
 }

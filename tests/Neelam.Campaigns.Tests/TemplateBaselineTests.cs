@@ -15,7 +15,9 @@ public class TemplateBaselineTests
     private readonly InMemoryContainers _containers = new();
     private readonly ManualClock _clock = new(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
 
-    private ClientStores Stores => new(_containers.For, _clock, TimeSpan.FromDays(1));
+    private TestRecords? _records;
+    private TestRecords Records => _records ??= new(_clock);
+    private ClientStores Stores => Records.Stores(_containers.For, TimeSpan.FromDays(1));
 
     private static CampaignTemplate Template(params TemplateBlock[] blocks) => new("Closed Monday", blocks);
 
@@ -65,7 +67,7 @@ public class TemplateBaselineTests
         _clock.Now += TimeSpan.FromMinutes(1);
         await Stores.Baseline(Neelam).SaveAsync(new TemplateBaseline([BlockType.Offer]));
 
-        await Stores.UseStandardBaselineAsync(Neelam);
+        await Stores.UseStandardBaselineAsync(Neelam, Actor.Demo);
 
         var inForce = await Stores.BaselineInForceAsync(Neelam);
         Assert.False(inForce.IsOwn);
@@ -89,7 +91,7 @@ public class TemplateBaselineTests
     [Fact]
     public async Task A_template_missing_a_part_saves_and_warns()
     {
-        var session = TemplateSession.New(Stores.Campaigns(Neelam));
+        var session = TemplateSession.New(Stores.Campaigns(Neelam, Actor.Demo));
         session.Editor.Name = "Closed Monday";
         session.Editor.Add(BlockType.Header);
         session.Editor.Add(BlockType.Heading);
@@ -142,7 +144,7 @@ public class TemplateBaselineTests
     {
         await Stores.Baseline(Neelam).SaveAsync(TemplateBaseline.None);
         var opened = new List<string>();
-        var stores = new ClientStores(name => { opened.Add(name); return _containers.For(name); }, _clock, TimeSpan.FromDays(1));
+        var stores = new ClientStores(name => { opened.Add(name); return _containers.For(name); }, _clock, TimeSpan.FromDays(1), new InMemoryApprovals(), TestRecords.Unwatched);
 
         var inForce = await stores.BaselineInForceAsync(Other);
 
@@ -188,7 +190,7 @@ public class TemplatesPageBaselineTests(EnforcedApp app) : IClassFixture<Enforce
     [Fact]
     public async Task It_shows_the_baseline_in_force_and_where_it_comes_from()
     {
-        await app.Stores.UseStandardBaselineAsync(SalonOne.Name);
+        await app.Stores.UseStandardBaselineAsync(SalonOne.Name, Actor.Demo);
         var standard = await TemplatesPage();
 
         Assert.Contains("Every template should have", standard);
@@ -199,7 +201,7 @@ public class TemplatesPageBaselineTests(EnforcedApp app) : IClassFixture<Enforce
 
         await app.Stores.Baseline(SalonOne.Name).SaveAsync(new TemplateBaseline([BlockType.Greeting]));
         var own = await TemplatesPage();
-        await app.Stores.UseStandardBaselineAsync(SalonOne.Name);
+        await app.Stores.UseStandardBaselineAsync(SalonOne.Name, Actor.Demo);
 
         Assert.Contains("Your own baseline.", own);
         Assert.Contains("<li>Greeting</li>", own);

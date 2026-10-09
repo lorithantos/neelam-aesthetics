@@ -82,7 +82,7 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
 
     private const string NotProofread = "Not proofread by AI yet";
 
-    private CampaignStore Store => app.Stores.Campaigns(DemoApp.Client);
+    private CampaignStore Store => app.Stores.Campaigns(DemoApp.Client, Actor.Demo);
 
     private async Task<string> Get(string path)
     {
@@ -217,7 +217,7 @@ public class EnforcedIsNotTheDemoTests(EnforcedApp app) : IClassFixture<Enforced
 
     private async Task<SaveRef> Approved()
     {
-        var store = app.Stores.Campaigns(SalonOne.Name);
+        var store = app.Stores.Campaigns(SalonOne.Name, Actor.Demo);
         var save = await store.SaveDraftAsync(Guid.NewGuid(), "WE’RE TURNING ONE!", DraftFixtures.Finished());
         return await store.ApproveAsync(save, "Priya");
     }
@@ -251,7 +251,7 @@ public class EnforcedIsNotTheDemoTests(EnforcedApp app) : IClassFixture<Enforced
     [Fact]
     public async Task Approving_takes_the_review_feature()
     {
-        var save = await app.Stores.Campaigns(SalonOne.Name)
+        var save = await app.Stores.Campaigns(SalonOne.Name, Actor.Demo)
             .SaveDraftAsync(Guid.NewGuid(), "WE’RE TURNING ONE!", DraftFixtures.Finished());
 
         var writer = await Get($"/campaigns/{save.Id}", Features.Campaigns);

@@ -30,7 +30,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             await app.Clients.AddAsync(SalonOne);
             await app.Clients.AddAsync(SalonTwo);
             var stores = app.Stores;
-            var one = stores.Campaigns(SalonOne.Name);
+            var one = stores.Campaigns(SalonOne.Name, Actor.Demo);
             await one.SaveTemplateAsync(Membership, DraftFixtures.Membership);
             await one.SaveDraftAsync(Replayed, "Second send, replayed", DraftFixtures.SecondSendReplayed());
             var finished = DraftFixtures.Finished();
@@ -40,7 +40,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             // Salon two has a campaign and no templates.
             var salonTwos = DraftFixtures.StartAndFillText();
             salonTwos.Label = SalonTwoLabel;
-            await stores.Campaigns(SalonTwo.Name).SaveDraftAsync(SalonTwoCampaign, "Salon two’s own campaign", salonTwos);
+            await stores.Campaigns(SalonTwo.Name, Actor.Demo).SaveDraftAsync(SalonTwoCampaign, "Salon two’s own campaign", salonTwos);
         }
         var client = app.CreateClient(new() { AllowAutoRedirect = false });
         if (roles.Length > 0) client.SignedIn(roles, groups ?? [SalonOne.GroupId]);
@@ -201,7 +201,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task An_undone_campaign_is_gone_from_the_list_and_its_page_offers_restore()
     {
         await Get("/campaigns", [Features.Campaigns]);
-        var store = app.Stores.Campaigns(SalonOne.Name);
+        var store = app.Stores.Campaigns(SalonOne.Name, Actor.Demo);
         var onlySave = await store.SaveDraftAsync(Guid.NewGuid(), "Undone, all of it", DraftFixtures.Finished());
         var partly = Guid.NewGuid();
         await store.SaveDraftAsync(partly, "Kept version", DraftFixtures.Finished());
@@ -248,7 +248,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task An_undone_save_s_label_is_not_shown()
     {
         await Get("/campaigns", [Features.Campaigns]);
-        var store = app.Stores.Campaigns(SalonOne.Name);
+        var store = app.Stores.Campaigns(SalonOne.Name, Actor.Demo);
         var id = Guid.NewGuid();
         var kept = DraftFixtures.Finished();
         kept.Label = "Label of the kept save";
