@@ -311,12 +311,15 @@ public class CampaignEditorTests
     }
 
     // A price with cents keeps them, in the finished email and in the one so far alike; a whole
-    // price has none. Pinned as it reads in US English, the clinic's.
-    [Fact]
-    public void A_price_with_cents_is_shown_with_its_cents()
+    // price has none. It reads as in US English, the clinic's, whatever the server's culture: a
+    // German one writes "149,50" unless told otherwise.
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public void A_price_with_cents_is_shown_with_its_cents(string serverCulture)
     {
         var culture = System.Globalization.CultureInfo.CurrentCulture;
-        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo(serverCulture);
         try
         {
             var draft = DraftFixtures.Finished();

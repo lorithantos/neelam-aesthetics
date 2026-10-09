@@ -40,6 +40,21 @@ public class CallerSourceTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.False(AccessCheck.Decide(caller, Area.ClientData, SalonTwo, [], DateTimeOffset.UtcNow).Allowed);
     }
 
+    // The undo sweep finds the prototype's client through the prototype caller, registered as
+    // itself; Enforced takes it away with the caller.
+    [Fact]
+    public void Only_the_prototype_registers_its_client_for_the_undo_sweep()
+    {
+        var services = new ServiceCollection().AddLogging()
+            .AddFeatureAccess(AccessMode.Prototype, new NamedEnvironment("Test"), Settings(("Prototype:Client", "test-salon-one")));
+
+        Assert.Equal(SalonOne, Assert.Single(services.BuildServiceProvider().GetServices<PrototypeCallerSource>()).Client);
+
+        services.AddFeatureAccess(AccessMode.Enforced, new NamedEnvironment("Test"), Settings());
+        Assert.Empty(services.BuildServiceProvider().GetServices<PrototypeCallerSource>());
+        Assert.Empty(app.Services.GetServices<PrototypeCallerSource>());
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

@@ -113,6 +113,57 @@ public class CampaignStoreTests
         Assert.Contains(template.BlobName, _blobs.Blobs.Keys);
     }
 
+    // Restore read the mark a moment before the period ended, and its write lands after the sweep
+    // listed the save as expired: the sweep's delete finds the blob changed and leaves it.
+    [Fact]
+    public async Task A_save_restored_between_the_sweeps_listing_and_its_delete_survives()
+    {
+        var save = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        var undone = await Store.MarkUndoneAsync(save);
+        _clock.Now = Start + Grace;
+        _blobs.BeforeDelete = async _ =>
+        {
+            _blobs.BeforeDelete = null;
+            _clock.Now = Start + Grace - TimeSpan.FromTicks(1);
+            Assert.True(await Store.RestoreAsync(undone));
+            _clock.Now = Start + Grace;
+        };
+
+        Assert.Equal(0, await Store.SweepAsync());
+
+        Assert.Contains(save.BlobName, _blobs.Blobs.Keys);
+        Assert.Equal(save, Assert.Single(await Store.HistoryAsync(DocumentKind.Draft, Id)));
+        Assert.Equal(0, await Store.SweepAsync());
+        Assert.Contains(save.BlobName, _blobs.Blobs.Keys);
+    }
+
+    // Several undos in a row take the saves back newest first, so Restore brings them back in the
+    // reverse order: always the one undone last, the oldest of the undone saves above the newest in
+    // use, which is the next one back in history. Restoring the newest first would put it back
+    // over a save still undone.
+    [Fact]
+    public async Task After_several_undos_restore_offers_the_one_undone_last()
+    {
+        var first = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.SecondSendReplayed());
+        _clock.Now = Start.AddMinutes(5);
+        var second = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        _clock.Now = Start.AddMinutes(10);
+        var third = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        _clock.Now = Start.AddMinutes(15);
+        var thirdUndone = await Store.MarkUndoneAsync(third);
+        _clock.Now = Start.AddMinutes(20);
+        var secondUndone = await Store.MarkUndoneAsync(second);
+
+        Assert.Equal(secondUndone, await Store.RestorableAsync(DocumentKind.Draft, Id));
+        Assert.True(await Store.RestoreAsync(secondUndone));
+        Assert.Equal([second, first], await Store.HistoryAsync(DocumentKind.Draft, Id));
+
+        Assert.Equal(thirdUndone, await Store.RestorableAsync(DocumentKind.Draft, Id));
+        Assert.True(await Store.RestoreAsync(thirdUndone));
+        Assert.Equal([third, second, first], await Store.HistoryAsync(DocumentKind.Draft, Id));
+        Assert.Null(await Store.RestorableAsync(DocumentKind.Draft, Id));
+    }
+
     [Fact]
     public async Task Restoring_within_the_grace_period_puts_the_save_back_in_use()
     {

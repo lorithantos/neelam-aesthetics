@@ -3,7 +3,8 @@ using Janet.Azure.Storage;
 namespace Neelam.Campaigns.Storage;
 
 /// <summary>A blob as listed: its name and metadata, without content.</summary>
-public sealed record BlobEntry(string Name, IReadOnlyDictionary<string, string> Metadata);
+/// <param name="ETag">The blob's version when it was listed; any change to it, metadata included, gives a new one.</param>
+public sealed record BlobEntry(string Name, IReadOnlyDictionary<string, string> Metadata, string ETag);
 
 /// <summary>
 /// The blob operations the stores need, in bytes: text is a thin layer on top
@@ -31,6 +32,12 @@ public interface IBlobBackend
 
     /// <summary>Deletes the blob. False if it was already gone.</summary>
     Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes the blob only if it is still the version listed with <paramref name="etag"/>. False
+    /// if it is gone, or has changed since (its metadata included), in which case it is left as it is.
+    /// </summary>
+    Task<bool> DeleteIfUnchangedAsync(string name, string etag, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -33,7 +33,8 @@ public sealed class AzureBlobBackend : IBlobBackend
         await foreach (var item in _container.GetBlobsAsync(
                            BlobTraits.Metadata, BlobStates.None, prefix, cancellationToken))
         {
-            yield return new BlobEntry(item.Name, new Dictionary<string, string>(item.Metadata));
+            yield return new BlobEntry(
+                item.Name, new Dictionary<string, string>(item.Metadata), item.Properties.ETag?.ToString() ?? "");
         }
     }
 
@@ -68,5 +69,23 @@ public sealed class AzureBlobBackend : IBlobBackend
         var result = await _container.GetBlobClient(name)
             .DeleteIfExistsAsync(DeleteSnapshotsOption.IncludeSnapshots, cancellationToken: cancellationToken);
         return result.Value;
+    }
+
+    // If-Match on the listed ETag: a blob changed since, such as a save restored in the meantime,
+    // fails the precondition (412) and is left alone.
+    public async Task<bool> DeleteIfUnchangedAsync(string name, string etag, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(etag);
+        try
+        {
+            var result = await _container.GetBlobClient(name).DeleteIfExistsAsync(
+                DeleteSnapshotsOption.IncludeSnapshots, new BlobRequestConditions { IfMatch = new ETag(etag) },
+                cancellationToken);
+            return result.Value;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 412)
+        {
+            return false;
+        }
     }
 }

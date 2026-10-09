@@ -99,6 +99,18 @@ the client's own container (see [Clients and access](#clients-and-access)):
   metadata. The tables hold clients, members and approvals, never a list of saves. Deleting a
   blob therefore leaves no record of it: delete the newest save and the previous one becomes the
   latest; delete them all and the campaign is gone.
+- **Undo marks a save; a sweep deletes it a day later.** Undo on a draft or template does not
+  delete at once. It writes the time into that blob's own metadata (`undone`), and from then on
+  every list, history, check and preview leaves the save out, so to the client it is gone.
+  For the grace period (`Undo:GracePeriod`, a day) the editor offers Restore, which clears the
+  mark. A background sweep, at startup and then hourly (`Undo:SweepInterval`, at most 49 days),
+  lists each client's blobs, reads the marks, and deletes every save undone longer ago than the
+  grace period. It covers every client in the clients table, and in Prototype mode the
+  `Prototype:Client` as well. It keeps no state, so a run cut short is finished by the next, and
+  each delete holds only if the blob is unchanged since listed (If-Match on its ETag), so a save
+  restored in the meantime survives. This is a deliberate, bounded exception to the rule below:
+  for the grace period an undone save still exists; once swept, it leaves no record. A client's
+  catalog, policy and look have no undo page yet and still delete outright.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed

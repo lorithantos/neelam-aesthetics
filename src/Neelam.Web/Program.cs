@@ -53,7 +53,8 @@ builder.Services.AddSingleton(storageClients);
 builder.Services.AddOptions<UndoOptions>()
     .Bind(builder.Configuration.GetSection(UndoOptions.Section))
     .Validate(undo => undo.Problem() is null,
-        "Undo:GracePeriod (required) and Undo:SweepInterval must be positive time spans, such as 1.00:00:00.")
+        "Undo:GracePeriod (required) and Undo:SweepInterval must be positive time spans, such as 1.00:00:00, " +
+        "and Undo:SweepInterval at most 49 days.")
     .ValidateOnStart();
 builder.Services.AddSingleton(services => new ClientStores(
     storageClients, services.GetRequiredService<TimeProvider>(),

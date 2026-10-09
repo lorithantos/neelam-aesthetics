@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Neelam.Campaigns.Storage;
 using Neelam.Web;
+using Neelam.Web.Security;
 
 namespace Neelam.Campaigns.Tests;
 
@@ -75,6 +76,26 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Null(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }.Problem());
     }
 
+    // The sweep's timer throws on an interval it cannot wait (over about 49.7 days, or under a
+    // millisecond), which would stop the app; such a setting is refused at startup instead.
+    [Fact]
+    public void A_sweep_interval_the_timer_cannot_wait_is_refused()
+    {
+        UndoOptions With(TimeSpan interval) => new() { GracePeriod = TimeSpan.FromDays(1), SweepInterval = interval };
+
+        Assert.Contains("at most 49", With(TimeSpan.FromDays(50)).Problem());
+        Assert.NotNull(With(TimeSpan.FromDays(49) + TimeSpan.FromTicks(1)).Problem());
+        Assert.NotNull(With(TimeSpan.FromTicks(1)).Problem());
+        Assert.Null(With(UndoOptions.LongestSweepInterval).Problem());
+        Assert.Null(With(TimeSpan.FromMilliseconds(1)).Problem());
+
+        // The bound is the timer's own: what is allowed it takes, what is not it refuses.
+        new PeriodicTimer(UndoOptions.LongestSweepInterval).Dispose();
+        new PeriodicTimer(TimeSpan.FromMilliseconds(1)).Dispose();
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PeriodicTimer(TimeSpan.FromDays(50)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PeriodicTimer(TimeSpan.FromTicks(1)));
+    }
+
     // Every client in the clients table is swept, and only what has been undone long enough goes.
     [Fact]
     public async Task One_sweep_covers_every_client_and_deletes_only_expired_undos()
@@ -110,8 +131,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var store = stores.Campaigns(SalonOne.Name);
         var undone = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
         clock.Now += TimeSpan.FromDays(2);
-        var sweep = new UndoSweep(stores, new InMemoryClientDirectory(SalonOne),
-            Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }), clock, NullLogger<UndoSweep>.Instance);
+        var sweep = SweepOver(stores, new InMemoryClientDirectory(SalonOne), clock);
 
         // The service runs off the startup path, so the test waits for it, a few seconds at most;
         // the next run would be an hour away.
@@ -127,10 +147,109 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     [Fact]
     public async Task A_sweep_that_cannot_read_the_clients_table_deletes_nothing_and_does_not_throw()
     {
-        var sweep = new UndoSweep(app.Stores, new UnreadableDirectory(),
-            Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }), app.Clock, NullLogger<UndoSweep>.Instance);
+        var sweep = SweepOver(app.Stores, new UnreadableDirectory(), app.Clock);
 
         Assert.Equal(0, await sweep.SweepOnceAsync());
+    }
+
+    // In Prototype mode the site works in Prototype:Client whether or not the clients table has a
+    // row for it, so its undone saves are swept either way; not even an unreadable table stops that.
+    [Fact]
+    public async Task The_prototype_client_is_swept_with_no_row_in_the_clients_table()
+    {
+        var (containers, clock, stores) = Isolated();
+        var store = stores.Campaigns(SalonOne.Name);
+        var expired = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
+        clock.Now += TimeSpan.FromDays(1);
+        var fresh = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Just undone", DraftFixtures.Finished()));
+        var keys = containers.For(SalonOne.Name.Value).Blobs.Keys;
+        var prototype = new PrototypeCallerSource(SalonOne.Name);
+
+        Assert.Equal(0, await SweepOver(stores, new InMemoryClientDirectory(), clock).SweepOnceAsync());
+        Assert.Equal(1, await SweepOver(stores, new InMemoryClientDirectory(), clock, prototype).SweepOnceAsync());
+        Assert.DoesNotContain(expired.BlobName, keys);
+        Assert.Contains(fresh.BlobName, keys);
+
+        clock.Now += TimeSpan.FromDays(1);
+        Assert.Equal(1, await SweepOver(stores, new UnreadableDirectory(), clock, prototype).SweepOnceAsync());
+        Assert.Empty(keys);
+    }
+
+    // A prototype client that also has a row is still swept once a run, not twice.
+    [Fact]
+    public async Task A_prototype_client_with_a_row_is_swept_once()
+    {
+        var containers = new InMemoryContainers();
+        var opened = new List<string>();
+        var clock = new ManualClock(Noon);
+        var stores = new ClientStores(name => { lock (opened) opened.Add(name); return containers.For(name); }, clock, TimeSpan.FromDays(1));
+
+        await SweepOver(stores, new InMemoryClientDirectory(SalonOne, SalonTwo), clock, new PrototypeCallerSource(SalonOne.Name))
+            .SweepOnceAsync();
+
+        Assert.Equal([SalonOne.Name.Value, SalonTwo.Name.Value], opened.Order(StringComparer.Ordinal));
+    }
+
+    // One client whose container cannot be reached is logged and left for the next run; the
+    // clients after it are still swept.
+    [Fact]
+    public async Task One_client_failing_does_not_stop_the_sweep_of_the_others()
+    {
+        var (containers, clock, _) = Isolated();
+        var stores = new ClientStores(
+            name => name == SalonOne.Name.Value ? new UnreachableContainer() : containers.For(name), clock, TimeSpan.FromDays(1));
+        var store = stores.Campaigns(SalonTwo.Name);
+        var expired = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
+        clock.Now += TimeSpan.FromDays(1);
+
+        // Salon One is listed first, so it fails before Salon Two is reached.
+        Assert.Equal(1, await SweepOver(stores, new InMemoryClientDirectory(SalonOne, SalonTwo), clock).SweepOnceAsync());
+        Assert.DoesNotContain(expired.BlobName, containers.For(SalonTwo.Name.Value).Blobs.Keys);
+    }
+
+    private static readonly DateTimeOffset Noon = new(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
+
+    private static (InMemoryContainers Containers, ManualClock Clock, ClientStores Stores) Isolated()
+    {
+        var containers = new InMemoryContainers();
+        var clock = new ManualClock(Noon);
+        return (containers, clock, new ClientStores(containers.For, clock, TimeSpan.FromDays(1)));
+    }
+
+    private static UndoSweep SweepOver(
+        ClientStores stores, IClientDirectory clients, TimeProvider clock, params PrototypeCallerSource[] prototype) =>
+        new(stores, clients, prototype, Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }), clock,
+            NullLogger<UndoSweep>.Instance);
+
+    private sealed class UnreachableContainer : IBlobBackend
+    {
+        private static HttpRequestException Unreachable() => new("No such host is known.");
+
+        public async IAsyncEnumerable<BlobEntry> ListAsync(
+            string prefix, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            throw Unreachable();
+#pragma warning disable CS0162 // An iterator needs a yield, though this one never reaches it.
+            yield break;
+#pragma warning restore CS0162
+        }
+
+        public Task<bool> TryCreateAsync(
+            string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata,
+            CancellationToken cancellationToken = default) => throw Unreachable();
+
+        public Task<Janet.Azure.Storage.BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
+            throw Unreachable();
+
+        public Task<bool> SetMetadataAsync(
+            string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default) =>
+            throw Unreachable();
+
+        public Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default) => throw Unreachable();
+
+        public Task<bool> DeleteIfUnchangedAsync(string name, string etag, CancellationToken cancellationToken = default) =>
+            throw Unreachable();
     }
 
     private sealed class UnreadableDirectory : IClientDirectory

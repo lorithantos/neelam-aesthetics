@@ -70,8 +70,15 @@ public static class AccessPolicies
         // Whichever mode registered last is the one pages get, so the tests' switch to Enforced
         // replaces the app's prototype caller as well as its policies.
         services.RemoveAll<ICallerSource>();
+        services.RemoveAll<PrototypeCallerSource>();
         if (mode == AccessMode.Prototype)
-            services.AddSingleton<ICallerSource>(new PrototypeCallerSource(PrototypeClient(configuration)));
+        {
+            // Also as itself, so the undo sweep covers the prototype's client even with no row in
+            // the clients table.
+            var prototype = new PrototypeCallerSource(PrototypeClient(configuration));
+            services.AddSingleton(prototype);
+            services.AddSingleton<ICallerSource>(prototype);
+        }
         else
             services.AddScoped<ICallerSource, SignInCallerSource>();
 

@@ -109,14 +109,18 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
     /// running it twice, or again after a crash part-way, only finishes the job. Returns how many
     /// it deleted.
     /// </summary>
+    /// <remarks>
+    /// Each delete holds only if the blob is still as listed (its ETag): a save restored, or undone
+    /// again, between the listing and the delete has changed, so it is skipped and left to the next run.
+    /// </remarks>
     public async Task<int> SweepAsync(CancellationToken ct = default)
     {
         var deleted = 0;
         foreach (var kind in Enum.GetValues<DocumentKind>())
         {
-            foreach (var save in await ListPrefixAsync(kind, $"{Prefix(kind)}/", ct))
+            foreach (var (save, etag) in await ListEntriesAsync(kind, $"{Prefix(kind)}/", ct))
             {
-                if (save.UndoneAt is not null && !CanRestore(save) && await blobs.DeleteAsync(save.BlobName, ct))
+                if (save.UndoneAt is not null && !CanRestore(save) && await blobs.DeleteIfUnchangedAsync(save.BlobName, etag, ct))
                     deleted++;
             }
         }
@@ -146,14 +150,18 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
     }
 
     // Every save under the prefix, undone ones included, newest first.
-    private async Task<List<SaveRef>> ListPrefixAsync(DocumentKind kind, string prefix, CancellationToken ct)
+    private async Task<List<SaveRef>> ListPrefixAsync(DocumentKind kind, string prefix, CancellationToken ct) =>
+        (await ListEntriesAsync(kind, prefix, ct)).Select(e => e.Save).ToList();
+
+    // The same, each with the blob's ETag as listed.
+    private async Task<List<(SaveRef Save, string ETag)>> ListEntriesAsync(DocumentKind kind, string prefix, CancellationToken ct)
     {
-        var saves = new List<SaveRef>();
+        var saves = new List<(SaveRef Save, string ETag)>();
         await foreach (var blob in blobs.ListAsync(prefix, ct))
         {
-            if (TryParse(kind, blob, out var save)) saves.Add(save);
+            if (TryParse(kind, blob, out var save)) saves.Add((save, blob.ETag));
         }
-        return saves.OrderByDescending(s => s.SavedAt).ToList();
+        return saves.OrderByDescending(s => s.Save.SavedAt).ToList();
     }
 
     private static string Prefix(DocumentKind kind) => kind switch
