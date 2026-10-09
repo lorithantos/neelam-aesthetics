@@ -271,6 +271,73 @@ public class CampaignEditorTests
             && f.Message == "Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart.");
     }
 
+    // The client's own policy is what the checks run with while parts are missing, as once the
+    // draft builds: a term she restricts is flagged in what is filled in so far.
+    [Fact]
+    public void With_a_part_missing_the_checks_use_the_client_s_own_policy()
+    {
+        var editor = CampaignEditor.Open(DraftFixtures.SameNamesNoTerms());
+        var policy = CampaignPolicy.Default with
+        {
+            RestrictedTerms = new Dictionary<string, string> { ["platinum"] = "Platinum is a partner's trademark." },
+        };
+
+        var own = editor.Status(policy);
+        var defaults = editor.Status();
+
+        Assert.NotEmpty(own.Missing);
+        Assert.Contains(own.Findings, f => f.Rule == "restricted-term" && f.Message.Contains("Platinum is a partner's trademark."));
+        // Hers replaces the defaults rather than adding to them.
+        Assert.DoesNotContain(own.Findings, f => f.Rule == "restricted-term" && f.Message.StartsWith("'bank'"));
+        Assert.Contains(defaults.Findings, f => f.Rule == "restricted-term" && f.Message.StartsWith("'bank'"));
+    }
+
+    // An optional part left empty is left out of the preview so far, as it would be sent, rather
+    // than marked as something still to fill in.
+    [Fact]
+    public void With_a_part_missing_an_empty_optional_photo_has_no_placeholder()
+    {
+        var draft = DraftFixtures.Finished();
+        draft.Offer("Offer").TermsUrl.Clear();
+        var editor = CampaignEditor.Open(draft);
+        Block<ImageBlockEditor>(editor, "Photo").PhotoName = "";
+
+        var status = editor.Status();
+
+        Assert.NotEmpty(status.Missing);
+        Assert.DoesNotContain(status.Preview, b => b.Kind == BlockKind.Image);
+        Assert.DoesNotContain(status.Preview, b => b.Text.Contains("‹Photo"));
+        Assert.Contains(status.Preview, b => b.Text.Contains("‹Offer › Terms link: not filled in yet›"));
+    }
+
+    // A price with cents keeps them, in the finished email and in the one so far alike; a whole
+    // price has none. Pinned as it reads in US English, the clinic's.
+    [Fact]
+    public void A_price_with_cents_is_shown_with_its_cents()
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+        try
+        {
+            var draft = DraftFixtures.Finished();
+            draft.Offer("Offer").Tiers[0].MonthlyPrice.Set(149.50m);
+            var finished = string.Join("\n", CampaignEditor.Open(draft).Status().Preview.Select(b => b.Text));
+            draft.Offer("Offer").TermsUrl.Clear();
+            var soFar = string.Join("\n", CampaignEditor.Open(draft).Status().Preview.Select(b => b.Text));
+
+            foreach (var text in new[] { finished, soFar })
+            {
+                Assert.Contains("🤍 $149.50/month", text);
+                Assert.Contains("🤍 $299/month", text);
+            }
+            Assert.Contains("not filled in yet", soFar);
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+        }
+    }
+
     [Fact]
     public void The_preview_marks_each_missing_part_and_shows_the_rest_as_the_export_would()
     {

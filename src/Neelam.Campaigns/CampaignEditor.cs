@@ -95,7 +95,8 @@ public sealed class CampaignEditor
 /// </param>
 /// <param name="Review">
 /// The rule checks' report, only once the draft builds; never proofread, so never exportable. Null
-/// while anything is missing, so no report over part of an email ever exists.
+/// while anything is missing: the checks over part of an email do build a report, but only its
+/// findings are kept and the report is dropped, so none over part of an email is ever handed out.
 /// </param>
 /// <param name="Preview">
 /// The email's blocks, for showing only; while parts are missing, each is a placeholder.
