@@ -73,7 +73,7 @@ else if (_session is not null)
                         @if (block.IsFixed)
                         {
                             <p class="field-help">Written once, in the template. It goes out like this:</p>
-                            <EmailPreview Blocks="block.FixedPreview" />
+                            <EmailPreview Blocks="block.FixedPreview" Library="_photos" />
                         }
                         else
                         {
@@ -226,7 +226,7 @@ else if (_session is not null)
             <section class="card">
                 <h2>Preview</h2>
                 <p class="field-help">The email's blocks as Square will show them@(status.Missing.Count > 0 ? "; each part still to fill in is marked ‹like this›" : "").</p>
-                <EmailPreview Blocks="status.Preview" />
+                <EmailPreview Blocks="status.Preview" Library="_photos" />
             </section>
 
             <section class="card">
@@ -359,7 +359,7 @@ else if (_session is not null)
     private CampaignPolicy _policy = CampaignPolicy.Default;
     // The client's registration, for the phone numbers the checks hold the campaign to.
     private BusinessContext? _business;
-    private IReadOnlyList<string> _photos = [];
+    private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
 
@@ -397,7 +397,7 @@ else if (_session is not null)
         }
         _policy = await Stores.PolicyInForceAsync(client);
         _business = await Workspace.BusinessAsync(client);
-        _photos = (await Stores.Images(client).ListAsync()).Select(i => i.Name).ToList();
+        _photos = await Stores.Images(client).ListAsync();
     }
 
     private async Task SaveAsync()

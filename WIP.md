@@ -94,6 +94,36 @@ Neelam's latest email signs off "Snohomish, WA | 425-877-8646"; Square's record 
 - **How the rule gets them:** `ClientRecord.Business` (`BusinessContext`, which already carried the name and description to the proofread) now carries `Phones`; `CampaignReview.Check`, `CampaignEditor.Status` (both the complete and the `DraftSoFar` paths) and `CampaignGate.ReviewAsync` take it. The campaign page reads it with `ClientWorkspace.BusinessAsync`.
 - **Not done:** no number is registered anywhere: the owner confirms which are current. The template editor's advice (`TemplateAdvice.For`) is not given the registration, so a stale number in a template shows only once a campaign uses it. The proofread prompt is not told the numbers.
 
+## Images hosted on Square (owner, 2026-10-09)
+
+**Decided:** an image-library entry can reference an image hosted on Square instead of an
+uploaded copy. Square is where the client's images live (she pastes the email into Square and
+picks images from Square's own library), so referencing Square's copy keeps our preview from
+drifting from hers, and no image file is copied or stored here.
+
+- **Entry:** `LibraryImage.SquareUrl` (null for an upload). `ImageLibrary.AddFromSquareAsync(name, address)`
+  stores an empty blob at `images/{escaped name}` in the client's own container, its name and
+  address in metadata as an upload's name and alt text are. Old entries read unchanged, as uploads.
+- **Hosts, as data:** `ImageLibrary.SquareHosts` = `postoffice-production-f.squarecdn.com`,
+  `square-web-production-f.squarecdn.com`, `square-postoffice-production.s3.amazonaws.com`;
+  https only, any other host refused with a message naming it. Checked again on read. The
+  query string is kept whole: Square crops and sizes through it (`?enable=upscale&height=196&width=640`, `crop=1:1`).
+- **Previews:** the template page, the campaign page (preview and fixed parts) look photos up
+  by name in the client's library (`ImageLibrary.Find`) and show a Square photo from its
+  address (`PreviewPhoto`). A name the library does not hold shows the same plain message on
+  both pages and in the photo field (`ImageLibrary.NotInLibrary`), which fixes the report that
+  the template page said "no photo by this name" while the campaign preview showed "Photo: …".
+  How it works passes no library and shows names, as before. An upload is still shown by name:
+  nothing serves upload bytes yet.
+- **Page:** `/images` (Image library, policy `Campaigns`, client layout, "Images" in the
+  header) lists the client's photos and has **Add from Square** (name and address). Deleting a
+  Square entry removes only the reference here, never anything at Square, and the page says so.
+  There is still no upload page. This supersedes "No page uses it yet" in the Built table.
+- **Not done:** no entries added on the live or test site; that waits for the owner's approval
+  after deploy. The Beauty Bank sample names "Principals toasting" (header) and "Principals
+  seated" (body photo) with no Square addresses, so adding them needs the addresses from her
+  Square library.
+
 ## Open decisions (the owner's to make)
 
 Do not settle these on the owner's behalf. Bring options with a recommendation.

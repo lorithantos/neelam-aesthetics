@@ -243,7 +243,7 @@ else if (_session is not null)
             <section class="card">
                 <h2>Preview</h2>
                 <p class="field-help">The email's blocks as Square will show them. Grey text is what each campaign fills in.</p>
-                <EmailPreview Blocks="editor.Preview()" />
+                <EmailPreview Blocks="editor.Preview()" Library="_photos" />
             </section>
         </aside>
     </div>
@@ -265,7 +265,7 @@ else if (_session is not null)
     private SaveRef? _undone;
     private CampaignPolicy _policy = CampaignPolicy.Default;
     private TemplateBaseline _baseline = TemplateBaseline.None;
-    private IReadOnlyList<string> _photos = [];
+    private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
 
@@ -288,7 +288,7 @@ else if (_session is not null)
         _missing = _session is null && _undone is null;
         _policy = await Stores.PolicyInForceAsync(client);
         _baseline = (await Stores.BaselineInForceAsync(client)).Baseline;
-        _photos = (await Stores.Images(client).ListAsync()).Select(i => i.Name).ToList();
+        _photos = await Stores.Images(client).ListAsync();
     }
 
     private async Task SaveAsync()

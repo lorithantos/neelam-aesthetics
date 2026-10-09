@@ -6,16 +6,17 @@
     <datalist id="library-photos-@Index">
         @foreach (var photo in Photos)
         {
-            <option value="@photo"></option>
+            <option value="@photo.Name"></option>
         }
     </datalist>
-    @if (!string.IsNullOrWhiteSpace(Block.PhotoName) && !Photos.Contains(Block.PhotoName.Trim(), StringComparer.OrdinalIgnoreCase))
+    @if (!string.IsNullOrWhiteSpace(Block.PhotoName) && ImageLibrary.Find(Photos, Block.PhotoName) is null)
     {
-        <span class="field-help">There is no photo by this name in the image library yet.</span>
+        @* The preview says the same, in the same words: one lookup, one message. *@
+        <span class="field-help">@ImageLibrary.NotInLibrary</span>
     }
     else
     {
-        <span class="field-help">The photo's name in the image library.</span>
+        <span class="field-help">The photo's name in the <a href="images">image library</a>.</span>
     }
 </div>
 <div class="field">
@@ -26,7 +27,7 @@
 @code {
     [Parameter, EditorRequired] public IPhotoChoice Block { get; set; } = null!;
     [Parameter, EditorRequired] public int Index { get; set; }
-    [Parameter, EditorRequired] public IReadOnlyList<string> Photos { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<LibraryImage> Photos { get; set; } = [];
     [Parameter] public bool Optional { get; set; }
 
     /// <summary>Told after every change here, so the page around it can follow what is typed.</summary>

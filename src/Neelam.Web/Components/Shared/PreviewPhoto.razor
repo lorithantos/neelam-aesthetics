@@ -1,0 +1,25 @@
+@* One photo in a preview, looked up by name in the client's image library: a photo on Square is
+   shown from Square's own address, so the preview is the image she will pick there; an upload is
+   named. Where the page knows the library, a name it does not hold says so, in the same words as
+   the photo field. Without a library (sample content, such as How it works) the name is shown. *@
+@if (_entry?.SquareUrl is { } url)
+{
+    <img class="preview-image" src="@url.AbsoluteUri" alt="@(Image.AltText ?? "")" />
+}
+<span>Photo: @Image.Name</span>
+@if (Library is not null && _entry is null)
+{
+    <span class="field-help">@ImageLibrary.NotInLibrary</span>
+}
+
+@code {
+    [Parameter, EditorRequired] public ImageRef Image { get; set; } = null!;
+
+    /// <summary>The client's image library, or null where there is none to look in.</summary>
+    [Parameter] public IReadOnlyList<LibraryImage>? Library { get; set; }
+
+    private LibraryImage? _entry;
+
+    protected override void OnParametersSet() =>
+        _entry = Library is null ? null : ImageLibrary.Find(Library, Image.Name);
+}

@@ -1,0 +1,133 @@
+@page "/images"
+@* The client's image library: the photos her templates and campaigns name. A photo can be one
+   hosted on Square, by its address there (owner, 2026-10-09): her images live in Square's library,
+   so the preview shows Square's own copy and nothing is copied here. The access check decides
+   whose library, on top of the policy. *@
+@attribute [Authorize(Policy = Features.Campaigns)]
+@rendermode InteractiveServer
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+
+<PageTitle>Image library</PageTitle>
+
+<h1>Image library</h1>
+
+@if (_denied is not null)
+{
+    <p>You cannot see the image library here: @_denied.</p>
+}
+else if (_images is not null)
+{
+    <p class="muted">The photos @_displayName's templates and campaigns name. A photo block names one of these by its name.</p>
+
+    @if (_images.Count == 0)
+    {
+        <p>No photos yet. Add one from Square below.</p>
+    }
+    @foreach (var image in _images)
+    {
+        <section class="card" aria-label="@image.Name">
+            <h2>@image.Name</h2>
+            @if (image.SquareUrl is { } url)
+            {
+                <img class="library-image" src="@url.AbsoluteUri" alt="@image.Name" />
+                <p class="muted">On Square: <span class="library-address">@url.AbsoluteUri</span></p>
+            }
+            else
+            {
+                <p class="muted">Uploaded@(image.AddedAt > DateTimeOffset.MinValue ? $" {image.AddedAt:d MMM yyyy}" : "").</p>
+            }
+            @if (_confirming == image.Name)
+            {
+                <p>@(image.IsOnSquare
+                    ? "Delete this photo from the library? Only the reference here goes; the image stays in your Square library, untouched. Blocks that name it will no longer find it."
+                    : "Delete this photo? It is deleted for good. Blocks that name it will no longer find it.")</p>
+                <button class="button danger" @onclick="() => DeleteAsync(image)">Delete it</button>
+                <button class="button" @onclick="() => _confirming = null">Keep it</button>
+            }
+            else
+            {
+                <button class="button" @onclick="() => _confirming = image.Name">Delete</button>
+            }
+        </section>
+    }
+
+    <h2>Add from Square</h2>
+    <section class="card">
+        <p class="field-help">
+            In your Square image library, copy the image's address. Only addresses on Square's own image
+            hosts are accepted. Any size or crop in the address is kept, so the photo shows as Square will
+            send it. Nothing is copied here: the library keeps the name and the address, and deleting it
+            later removes only that, never anything at Square.
+        </p>
+        <div class="field">
+            <label for="square-name">Name</label>
+            <input id="square-name" @bind="_newName" />
+            <span class="field-help">What blocks call it, such as "Principals toasting".</span>
+        </div>
+        <div class="field">
+            <label for="square-url">Address on Square</label>
+            <input id="square-url" type="url" @bind="_newAddress" />
+            <span class="field-help">Starts https://, on @string.Join(", ", ImageLibrary.SquareHosts).</span>
+        </div>
+        <Problems Messages="_errors" />
+        <button class="button primary" @onclick="AddFromSquareAsync">Add from Square</button>
+        @if (_message is not null)
+        {
+            <p role="status">@_message</p>
+        }
+    </section>
+}
+
+@code {
+    private string? _denied;
+    private ImageLibrary? _library;
+    private string? _displayName;
+    private IReadOnlyList<LibraryImage>? _images;
+    private string? _newName;
+    private string? _newAddress;
+    private IReadOnlyList<string> _errors = [];
+    private string? _message;
+    private string? _confirming;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (client, reason) = await Workspace.ClientDataAsync();
+        if (client is null)
+        {
+            _denied = reason;
+            return;
+        }
+        _displayName = await Workspace.DisplayNameAsync(client);
+        _library = Stores.Images(client);
+        _images = await _library.ListAsync();
+    }
+
+    private async Task AddFromSquareAsync()
+    {
+        _message = null;
+        try
+        {
+            var added = await _library!.AddFromSquareAsync(_newName ?? "", _newAddress ?? "");
+            _errors = [];
+            _message = $"Added \"{added.Name}\".";
+            _newName = _newAddress = null;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            _errors = [ex.Message];
+            return;
+        }
+        _images = await _library.ListAsync();
+    }
+
+    private async Task DeleteAsync(LibraryImage image)
+    {
+        _confirming = null;
+        await _library!.DeleteAsync(image.Name);
+        _message = image.IsOnSquare
+            ? $"\"{image.Name}\" is out of the library. The image is still in your Square library."
+            : $"\"{image.Name}\" is deleted.";
+        _images = await _library.ListAsync();
+    }
+}

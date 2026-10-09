@@ -57,7 +57,7 @@ new kind of email down into one on request.
 | Sign-off | Valediction, sender, tagline | Text checks |
 | Fine print | Disclaimers and terms | Answers the medical-disclaimer rule |
 | Header | The business's name, over an optional photo | Text checks |
-| Image | A photo from the client's image library, by name, with alt text | Alt text gets the text checks |
+| Image | A photo from the client's image library, by name, with alt text. A library photo is either uploaded or a reference to one hosted on Square, shown in previews from Square's own address | Alt text gets the text checks |
 | Spacer | Nothing | — |
 
 The export pastes into Square the way the real emails are built: Square's header, heading-style

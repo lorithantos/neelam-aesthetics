@@ -13,7 +13,7 @@
                     <PreviewText Text="@block.Text" />
                     @if (block.Image is not null)
                     {
-                        <p class="preview-photo">Photo: @block.Image.Name</p>
+                        <p class="preview-photo"><PreviewPhoto Image="block.Image" Library="Library" /></p>
                     }
                 </div>
                 break;
@@ -23,7 +23,14 @@
             case BlockKind.Image:
                 var placeholder = TemplatePreview.IsPlaceholder(block.Image!.Name);
                 <div class="preview-block preview-photo @(placeholder ? "placeholder" : null)">
-                    @(placeholder ? block.Image.Name : $"Photo: {block.Image.Name}")
+                    @if (placeholder)
+                    {
+                        @block.Image.Name
+                    }
+                    else
+                    {
+                        <PreviewPhoto Image="block.Image" Library="Library" />
+                    }
                 </div>
                 break;
             case BlockKind.Button:
@@ -45,4 +52,12 @@
 @code {
     [Parameter, EditorRequired]
     public IReadOnlyList<EditorBlock> Blocks { get; set; } = [];
+
+    /// <summary>
+    /// The client's image library, to show each photo as the client's pages know it: from Square
+    /// when Square hosts it, and marked when the library has no photo by that name. Every page
+    /// showing a client's email passes it, so they all agree; null for sample content.
+    /// </summary>
+    [Parameter]
+    public IReadOnlyList<LibraryImage>? Library { get; set; }
 }

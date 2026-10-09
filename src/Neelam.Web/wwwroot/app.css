@@ -478,6 +478,29 @@ label.check {
     font-style: italic;
 }
 
+/* A photo hosted on Square, shown from Square's own address, with its name under it. */
+.preview-image {
+    display: block;
+    margin: 0 auto 0.25rem;
+}
+
+.preview-photo .field-help {
+    display: block;
+    font-style: normal;
+}
+
+/* Image library: each photo as Square will send it, and its address in full. */
+.library-image {
+    display: block;
+    max-height: 16rem;
+    width: auto;
+    margin-bottom: 0.5rem;
+}
+
+.library-address {
+    overflow-wrap: anywhere;
+}
+
 .preview-button {
     display: flex;
     flex-direction: column;

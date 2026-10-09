@@ -79,6 +79,112 @@ public class ImageLibraryTests
         Assert.Empty(await Library.ListAsync());
     }
 
+    // Photos hosted on Square (owner, 2026-10-09): a name and Square's address, never the image.
+
+    private const string Toasting =
+        "https://postoffice-production-f.squarecdn.com/images/principals-toasting.jpg?enable=upscale&height=196&width=640";
+
+    [Theory]
+    [InlineData("postoffice-production-f.squarecdn.com")]
+    [InlineData("square-web-production-f.squarecdn.com")]
+    [InlineData("square-postoffice-production.s3.amazonaws.com")]
+    public async Task Each_of_Square_s_image_hosts_is_accepted(string host)
+    {
+        var image = await Library.AddFromSquareAsync("Principals toasting", $"https://{host}/photo.jpg");
+
+        Assert.Equal(host, image.SquareUrl!.Host);
+        Assert.Equal(host, Assert.Single(await Library.ListAsync()).SquareUrl!.Host);
+    }
+
+    [Theory]
+    [InlineData("https://example.com/photo.jpg", "example.com is not one of Square's image hosts")]
+    [InlineData("https://postoffice-production-f.squarecdn.com.example.com/photo.jpg", "is not one of Square's image hosts")]
+    [InlineData("https://squarecdn.com/photo.jpg", "squarecdn.com is not one of Square's image hosts")]
+    [InlineData("http://postoffice-production-f.squarecdn.com/photo.jpg", "starts https://")]
+    [InlineData("postoffice-production-f.squarecdn.com/photo.jpg", "not a web address")]
+    public async Task Any_other_address_is_refused_with_a_clear_message(string address, string says)
+    {
+        var refused = await Assert.ThrowsAsync<ArgumentException>(() => Library.AddFromSquareAsync("Principals toasting", address));
+
+        Assert.Contains(says, refused.Message);
+        Assert.Empty(_container.Blobs);
+    }
+
+    // Square crops and sizes an image through its query string, so the address is kept whole.
+    [Theory]
+    [InlineData(Toasting)]
+    [InlineData("https://square-web-production-f.squarecdn.com/files/abc123/original.jpeg?crop=1:1")]
+    public async Task The_address_keeps_its_query_string(string address)
+    {
+        Assert.Equal(address, (await Library.AddFromSquareAsync("Principals toasting", address)).SquareUrl!.AbsoluteUri);
+
+        Assert.Equal(address, Assert.Single(await Library.ListAsync()).SquareUrl!.AbsoluteUri);
+    }
+
+    // Kept the way an upload's name is kept, in the blob's metadata: no image bytes are stored.
+    [Fact]
+    public async Task A_Square_photo_stores_only_its_name_and_address()
+    {
+        await Library.AddFromSquareAsync("Principals toasting", Toasting);
+
+        var (name, (blob, metadata)) = Assert.Single(_container.Blobs);
+        Assert.Equal("images/Principals%20toasting", name);
+        Assert.Equal(0, blob.Content.ToMemory().Length);
+        Assert.Equal(["added", "name", "square"], metadata.Keys.Order());
+        Assert.Equal(Toasting, Uri.UnescapeDataString(metadata["square"]));
+    }
+
+    // A photo added before Square photos existed has no address, and reads as the upload it is.
+    [Fact]
+    public async Task A_photo_saved_before_Square_photos_still_reads_as_an_upload()
+    {
+        _container.Put("images/Principals%20seated", "", new Dictionary<string, string>
+        {
+            ["name"] = "Principals%20seated", ["alt"] = "Seated", ["added"] = "20261003T090000.0000000Z",
+        });
+
+        var image = Assert.Single(await Library.ListAsync());
+
+        Assert.Equal("Principals seated", image.Name);
+        Assert.Equal("Seated", image.AltText);
+        Assert.Equal(Start, image.AddedAt);
+        Assert.False(image.IsOnSquare);
+    }
+
+    [Fact]
+    public async Task A_Square_photo_cannot_take_an_uploaded_photo_s_name()
+    {
+        await Library.AddAsync("Principals toasting", Png, "image/png");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Library.AddFromSquareAsync("principals TOASTING", Toasting));
+    }
+
+    // Deleting removes the reference and nothing else: the other photos stay, and nothing here
+    // could reach Square.
+    [Fact]
+    public async Task Add_list_then_delete_removes_only_that_entry()
+    {
+        await Library.AddFromSquareAsync("Principals toasting", Toasting);
+        await Library.AddAsync("Principals seated", Png, "image/png");
+        Assert.Equal(["Principals seated", "Principals toasting"], (await Library.ListAsync()).Select(i => i.Name));
+
+        Assert.True(await Library.DeleteAsync("Principals toasting"));
+
+        Assert.Equal("Principals seated", Assert.Single(await Library.ListAsync()).Name);
+        Assert.Equal(["images/Principals%20seated"], _container.Blobs.Keys);
+        Assert.Equal(Png.ToArray(), (await Library.ReadAsync("Principals seated")).Content.ToArray());
+    }
+
+    [Fact]
+    public void A_block_s_photo_is_found_by_name_ignoring_case_and_spaces()
+    {
+        var images = new[] { new LibraryImage("Principals toasting", "", null, Start, "images/x", new Uri(Toasting)) };
+
+        Assert.Same(images[0], ImageLibrary.Find(images, "  principals TOASTING "));
+        Assert.Null(ImageLibrary.Find(images, "Principals seated"));
+        Assert.Null(ImageLibrary.Find(images, " "));
+    }
+
     // The library shares the client's container with saves and documents, and never mixes with them.
     [Fact]
     public async Task Photos_and_documents_keep_to_their_own_prefixes()
