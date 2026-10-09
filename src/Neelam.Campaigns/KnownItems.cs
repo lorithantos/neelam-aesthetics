@@ -62,6 +62,9 @@ public sealed record KnownTier(string Id, string Name, decimal Price, IReadOnlyL
 
     /// <summary>The price as the form shows it, such as 299 or 149.50.</summary>
     public string PriceText => Price.ToString("0.##", CultureInfo.InvariantCulture);
+
+    /// <summary>The price as the campaign shows it, such as $299/month or $149.50/month.</summary>
+    public string PriceShown => EditorExport.PriceText(Price, isRecurring: true);
 }
 
 /// <summary>A client's known items, each kind in the order lists show it: alphabetical by its text.</summary>

@@ -40,6 +40,30 @@ public class ClientWorkspaceTests
             new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>()).BusinessAsync(SalonOne));
     }
 
+    // Two registered clients, each with its own phones and description: each campaign is checked
+    // against its own client's registration only, whichever row the table lists first.
+    [Fact]
+    public async Task Each_client_s_registration_is_its_own()
+    {
+        static PhoneNumbers Phones(params string[] written) =>
+            new(written.Select(w => PhoneNumber.TryParse(w, out var n) ? n : throw new FormatException(w)));
+        var one = new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics", "Medical aesthetics in Snohomish")
+            { Phones = Phones("425-877-8646") };
+        var two = new ClientRecord(SalonTwo, Guid.NewGuid(), "Salon Two Spa", "Hair and nails in Everett")
+            { Phones = Phones("(425) 555-0100", "425-555-0199") };
+
+        foreach (var table in new[] { new[] { one, two }, new[] { two, one } })
+        {
+            var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
+                new InMemoryClientDirectory(table), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>());
+
+            Assert.Equal(one.Business, await workspace.BusinessAsync(SalonOne));
+            Assert.Equal(two.Business, await workspace.BusinessAsync(SalonTwo));
+            Assert.Equal("Medical aesthetics in Snohomish", (await workspace.BusinessAsync(SalonOne))!.Description);
+            Assert.Equal("Hair and nails in Everett", (await workspace.BusinessAsync(SalonTwo))!.Description);
+        }
+    }
+
     // The name her pages call her business by is data in the clients table, whoever the client is.
     [Fact]
     public async Task A_client_is_called_by_its_display_name_from_the_clients_table()

@@ -55,12 +55,21 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("What Salon One writes again and again, spelled once.", page);
         Assert.Contains("<span>Wellness injection</span>", page);
         Assert.Contains("<span>$75 birthday credit during your birth month</span>", page);
-        Assert.Contains("<h3>Diamond Member, $499</h3>", page);
+        // The price as the campaign shows it: a tier is a monthly price.
+        Assert.Contains("<h3>Diamond Member, $499/month</h3>", page);
         Assert.Contains("<li>$100 birthday credit during your birth month</li>", page);
         foreach (var add in new[] { "Add treatment", "Add benefit line", "Add tier" })
             Assert.Contains($"{add}</button>", page);
         Assert.Contains("id=\"tier-pick-new\"", page);
     }
+
+    // A known tier's price reads as the campaign's preview and export write it, cents and all.
+    [Theory]
+    [InlineData("299", "$299/month")]
+    [InlineData("149.5", "$149.50/month")]
+    public void A_known_tier_s_price_is_shown_as_the_campaign_shows_it(string price, string shown) =>
+        Assert.Equal(shown, new KnownTier(KnownItem.NewId(), "Platinum Member",
+            decimal.Parse(price, System.Globalization.CultureInfo.InvariantCulture), []).PriceShown);
 
     [Fact]
     public async Task Another_client_s_items_are_never_shown()
