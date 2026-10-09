@@ -33,6 +33,11 @@
     <h1>Campaigns</h1>
     <p>You cannot write campaigns here: @_denied.</p>
 }
+else if (_unreadable is not null)
+{
+    <h1>This campaign can't be checked yet</h1>
+    <p>@_unreadable <a href="campaigns">Back to campaigns</a></p>
+}
 else if (_missing is not null)
 {
     <h1>@(Id is null ? "This template couldn't be opened" : "This campaign couldn't be opened")</h1>
@@ -391,6 +396,8 @@ else
 
     private string? _denied;
     private string? _missing;
+    // The client's registration could not be read: said instead of an editor whose checks would be wrong.
+    private string? _unreadable;
     private CampaignStore? _store;
     private DraftSession? _session;
     // A campaign whose every save is undone, while it can still be restored.
@@ -460,7 +467,17 @@ else
             if (_session is null) _missing = "Template not found";
         }
         _policy = await Stores.PolicyInForceAsync(client);
-        _business = await Workspace.BusinessAsync(client);
+        try
+        {
+            _business = await Workspace.BusinessAsync(client);
+        }
+        catch (RegistrationUnreadableException ex)
+        {
+            // Logged by the workspace. Without the registration the checks would pass numbers they
+            // should flag, so the campaign is not shown as checked.
+            _unreadable = ex.Message;
+            return;
+        }
         _photos = await Stores.Images(client, actor).ListAsync();
     }
 

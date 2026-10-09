@@ -497,6 +497,40 @@ public class KnownItemsTests
         Assert.IsType<Azure.RequestFailedException>(Assert.Single(log.Entries).Error);
     }
 
+    // Each way a row can be malformed is left out and logged by its key, never its content; the good
+    // row is kept. A row of another client's partition is refused outright, never shown.
+    [Fact]
+    public void A_malformed_row_is_left_out_and_logged_by_its_key_alone()
+    {
+        Azure.Data.Tables.TableEntity Row(string id, params (string Key, object Value)[] columns)
+        {
+            var row = new Azure.Data.Tables.TableEntity(SalonOne.Value, id);
+            foreach (var (key, value) in columns) row[key] = value;
+            return row;
+        }
+        var good = KnownItemTable.FromItem(SalonOne, Wellness);
+        var bad = new[]
+        {
+            Row(KnownItem.NewId(), ("Kind", "Treatment")),                                           // no text
+            Row(KnownItem.NewId(), ("Kind", "Voucher"), ("Text", "Secret one")),                    // no such kind
+            Row(KnownItem.NewId(), ("Kind", "Tier"), ("Text", "Secret two"), ("Price", "lots"), ("Benefits", "[]")),
+            Row(KnownItem.NewId(), ("Kind", "Tier"), ("Text", "Secret three"), ("Price", "299"), ("Benefits", "{not json")),
+            Row(KnownItem.NewId(), ("Kind", "Benefit"), ("Text", "Secret four"), ("Benefit", "[]")), // no benefit in it
+        };
+        var log = new ListLogger<KnownItemTable>();
+
+        var items = KnownItemTable.ReadAll(SalonOne, [good, .. bad], log);
+
+        Assert.Equal([Wellness.Id], items.All.Select(i => i.Id));
+        Assert.Equal(bad.Select(r => r.RowKey).Order(), log.Entries.Select(e => bad.Single(r => e.Message.Contains(r.RowKey)).RowKey).Order());
+        Assert.All(log.Entries, e => Assert.Null(e.Error));
+        Assert.All(log.Entries, e => Assert.DoesNotContain("Secret", e.Message));
+        Assert.All(log.Entries, e => Assert.DoesNotContain("lots", e.Message));
+
+        var elsewhere = KnownItemTable.FromItem(SalonTwo, Wellness);
+        Assert.Throws<InvalidDataException>(() => KnownItemTable.ReadAll(SalonOne, [good, elsewhere], log));
+    }
+
     // The known items table, failing on demand as the real one does when it is unreachable.
     private sealed class FailingKnownItems : IKnownItemStore
     {

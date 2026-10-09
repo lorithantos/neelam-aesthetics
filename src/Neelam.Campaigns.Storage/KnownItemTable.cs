@@ -1,7 +1,9 @@
 using System.Globalization;
 using Azure;
 using Azure.Data.Tables;
+using System.Text.Json;
 using Janet.Azure.Storage;
+using Microsoft.Extensions.Logging;
 
 namespace Neelam.Campaigns.Storage;
 
@@ -52,9 +54,10 @@ public static class KnownItemStoreRules
 /// The known items table in Azure Table Storage, reached through the app's <see cref="StorageClients"/>
 /// like the other metadata tables (<see cref="TableMetadata"/>): an Entra ID token only. One table,
 /// one partition per client: PartitionKey is the client's name, RowKey the item's id. The mapping to
-/// and from rows is separate and static, so it is tested without a network.
+/// and from rows is separate and static, so it is tested without a network. A row that cannot be
+/// read is left out and logged by its key (<see cref="ReadAll"/>), so one bad row never takes a page down.
 /// </summary>
-public sealed class KnownItemTable(StorageClients storage) : IKnownItemStore
+public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTable> log) : IKnownItemStore
 {
     internal const string Table = "knownItems";
 
@@ -62,9 +65,37 @@ public sealed class KnownItemTable(StorageClients storage) : IKnownItemStore
 
     public async Task<KnownItems> ForClientAsync(ClientName client, CancellationToken cancellationToken = default)
     {
-        var items = new List<KnownItem>();
+        var rows = new List<TableEntity>();
         await foreach (var row in _table.QueryAsync<TableEntity>(PartitionFilter(client), cancellationToken: cancellationToken))
-            items.Add(ToItem(client, row));
+            rows.Add(row);
+        return ReadAll(client, rows, log);
+    }
+
+    /// <summary>
+    /// A client's items from their rows. A row that cannot be read as an item (a missing column, a kind
+    /// or price that is not one, benefits that are not valid JSON) is left out and logged by its row key
+    /// and the kind of failure, never its content: the rest are still offered and checked against. A
+    /// row from another client's partition is refused outright, as <see cref="ToItem"/> does.
+    /// </summary>
+    internal static KnownItems ReadAll(ClientName client, IEnumerable<TableEntity> rows, ILogger log)
+    {
+        var items = new List<KnownItem>();
+        foreach (var row in rows)
+        {
+            if (row.PartitionKey != client.Value)
+                throw new InvalidDataException($"A known item of another client was read for {client}.");
+            try
+            {
+                items.Add(ToItem(client, row));
+            }
+            catch (Exception ex) when (ex is InvalidDataException or JsonException or FormatException or OverflowException
+                                           or InvalidOperationException or ArgumentException or NotSupportedException)
+            {
+                // The exception's own message can quote the bad value, so only its type is logged.
+                log.LogError("Known item {RowKey} of {Client} cannot be read ({Failure}); it is left out.",
+                    row.RowKey, client.Value, ex.GetType().Name);
+            }
+        }
         return new KnownItems(items);
     }
 

@@ -247,7 +247,17 @@ misses.
   JSON) or `Price` (text, so it is exact) and `Benefits` (the tier's typed lines as JSON). The site's
   identity gets Storage Table Data Contributor on it through the same `tables[i]` loop as every table.
   Until it is deployed, the Known items page fails to open; campaign pages log the failed read
-  (`ClientWorkspace.BusinessAsync`) and go on with no known items.
+  (`ClientWorkspace.BusinessAsync`) and go on with no known items. **Malformed rows** (2026-10-09): a
+  known-items row that cannot be read (missing column, unknown kind, a price or benefits that do not
+  parse) is left out by the store (`KnownItemTable.ReadAll`) and logged by its row key and the failure's
+  type, never its content; the rest are kept. A row from another client's partition is still refused
+  outright, and `BusinessAsync` takes any failure to read known items as none. A clients-table row that
+  cannot be read makes `BusinessAsync` log it and throw `RegistrationUnreadableException`; the campaign
+  page then says "This campaign can't be checked yet" with "Your business's details couldn't be read, so
+  this campaign can't be checked yet. Nothing has been changed, and the problem has been logged for
+  fixing." rather than checking it as if no phone numbers were registered. Untested in a circuit, as the
+  rest of the page; the workspace behaviour is tested. Other pages that read the clients table
+  (sign-in, Campaigns list, Clients page) still fail on such a row.
 - **Benefits stay typed.** The campaign model has no free-text benefit (README "Why": "50% Complimentary"
   cannot be expressed), so a known benefit is a typed `Benefit`, its text the sentence it reads as.
   Picking one puts the same kind and values in the form.

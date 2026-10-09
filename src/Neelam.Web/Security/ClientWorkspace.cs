@@ -32,18 +32,32 @@ public sealed class ClientWorkspace(
     /// The client's registration as the checks take it: its name, description and the phone numbers
     /// it may publish, with its known items. Null when the clients table has no row for it and it has
     /// no known items, so nothing is checked against either; with items and no row, the business is
-    /// named by its client name. Known items that cannot be read (the table not deployed yet, say) are
-    /// logged and taken as none: they help, but a campaign page must not fail for want of them.
+    /// named by its client name. Known items that cannot be read (the table not deployed yet, or a row
+    /// the store cannot make sense of) are logged and taken as none: they help, but a campaign page must
+    /// not fail for want of them; the store itself leaves out a single bad row and keeps the rest.
     /// </summary>
+    /// <exception cref="RegistrationUnreadableException">
+    /// The clients table holds a row that cannot be read. The registration decides which phone numbers
+    /// the email may carry, so the checks do not go on as though there were none; the page says so.
+    /// </exception>
     public async Task<BusinessContext?> BusinessAsync(ClientName client, CancellationToken ct = default)
     {
-        var registered = (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client)?.Business;
+        BusinessContext? registered;
+        try
+        {
+            registered = (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client)?.Business;
+        }
+        catch (Exception ex) when (IsMalformedRow(ex))
+        {
+            log.LogError(ex, "The clients table has a row that cannot be read, so the registration of {Client} is unknown.", client.Value);
+            throw new RegistrationUnreadableException(ex);
+        }
         KnownItems known;
         try
         {
             known = await knownItems.ForClientAsync(client, ct);
         }
-        catch (Azure.RequestFailedException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
             log.LogError(ex, "Could not read the known items of {Client}; the checks go on without them.", client.Value);
             known = KnownItems.None;
@@ -51,6 +65,12 @@ public sealed class ClientWorkspace(
         if (known.IsEmpty) return registered;
         return (registered ?? new BusinessContext(client.ToString())) with { Known = known };
     }
+
+    // What reading a row the code cannot make sense of throws: a missing or mistyped column, a client
+    // name or phone number that is not one. Not an outage or a cancellation, which are other failures.
+    private static bool IsMalformedRow(Exception ex) =>
+        ex is InvalidDataException or System.Text.Json.JsonException or FormatException
+            or InvalidOperationException or ArgumentException;
 
     /// <summary>
     /// Who the activity trail says is acting: the signed-in user's name, or in Prototype, where
@@ -78,3 +98,11 @@ public sealed class ClientWorkspace(
         return decision.Allowed ? (client, decision.Reason) : (null, decision.Reason);
     }
 }
+
+/// <summary>
+/// The client's registration could not be read from the clients table, so a campaign cannot be
+/// checked against it. Its message is what the page tells her; the cause is logged where it is thrown.
+/// </summary>
+public sealed class RegistrationUnreadableException(Exception inner) : Exception(
+    "Your business's details couldn't be read, so this campaign can't be checked yet. Nothing has been changed, and the problem has been logged for fixing.",
+    inner);

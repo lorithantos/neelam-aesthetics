@@ -179,12 +179,19 @@ internal sealed class InMemoryKnownItems : IKnownItemStore
         get { lock (_rows) return _rows.Values.ToList(); }
     }
 
+    /// <summary>What the table's reading logged: rows it left out.</summary>
+    public ListLogger<KnownItemTable> Log { get; } = new();
+
+    /// <summary>Puts a row in as it is, however malformed, as someone editing the table by hand might.</summary>
+    public void PutRow(Azure.Data.Tables.TableEntity row)
+    {
+        lock (_rows) _rows[(row.PartitionKey, row.RowKey)] = row;
+    }
+
     public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken cancellationToken = default)
     {
         lock (_rows)
-            return Task.FromResult(new KnownItems(_rows.Values
-                .Where(r => r.PartitionKey == client.Value)
-                .Select(r => KnownItemTable.ToItem(client, r))));
+            return Task.FromResult(KnownItemTable.ReadAll(client, _rows.Values.Where(r => r.PartitionKey == client.Value).ToList(), Log));
     }
 
     public async Task AddAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default)

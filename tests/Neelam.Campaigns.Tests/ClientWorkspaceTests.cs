@@ -106,10 +106,86 @@ public class ClientWorkspaceTests
         Assert.IsType<Azure.RequestFailedException>(entry.Error);
     }
 
-    private sealed class UnreadableKnownItems : IKnownItemStore
+    // One bad known-items row does not take the campaign page down: it is left out, logged by its
+    // row key and never its content, and the rest still reach the checks.
+    [Fact]
+    public async Task A_malformed_known_item_is_left_out_and_the_rest_reach_the_checks()
+    {
+        var known = new InMemoryKnownItems();
+        await known.AddAsync(SalonOne, new KnownTreatment(KnownItem.NewId(), "Wellness injection"));
+        var bad = KnownItem.NewId();
+        known.PutRow(new Azure.Data.Tables.TableEntity(SalonOne.Value, bad)
+        {
+            ["Kind"] = "Tier", ["Text"] = "Secret Tier", ["Price"] = "two hundred", ["Benefits"] = "[]",
+        });
+        var log = new ListLogger<ClientWorkspace>();
+        var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
+            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")), known, Clock, log);
+
+        var business = await workspace.BusinessAsync(SalonOne);
+
+        Assert.Equal(["Wellness injection"], business!.Known.All.Select(i => i.Text));
+        Assert.Empty(log.Entries);
+        var entry = Assert.Single(known.Log.Entries);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, entry.Level);
+        Assert.Contains(bad, entry.Message);
+        Assert.DoesNotContain("Secret Tier", entry.Message);
+        Assert.DoesNotContain("two hundred", entry.Message);
+    }
+
+    // Anything else the known-items read throws (here a row of the wrong partition, which the store
+    // refuses outright) leaves the page with no known items rather than no page.
+    [Fact]
+    public async Task Known_items_that_fail_in_any_way_are_logged_and_taken_as_none()
+    {
+        var log = new ListLogger<ClientWorkspace>();
+        var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
+            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")),
+            new UnreadableKnownItems(new InvalidDataException("A known item of another client was read for test-salon-one.")), Clock, log);
+
+        var business = await workspace.BusinessAsync(SalonOne);
+
+        Assert.True(business!.Known.IsEmpty);
+        Assert.IsType<InvalidDataException>(Assert.Single(log.Entries).Error);
+    }
+
+    // A malformed client row is not skipped: the registration decides which phone numbers the email
+    // may carry, so the page says it cannot check the campaign rather than checking it as if none.
+    [Fact]
+    public async Task A_malformed_client_record_fails_with_a_clear_message_and_is_logged()
+    {
+        var log = new ListLogger<ClientWorkspace>();
+        var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
+            new UnreadableClients(), new InMemoryKnownItems(), Clock, log);
+
+        var ex = await Assert.ThrowsAsync<RegistrationUnreadableException>(() => workspace.BusinessAsync(SalonOne));
+
+        Assert.Equal("Your business's details couldn't be read, so this campaign can't be checked yet. Nothing has been changed, and the problem has been logged for fixing.", ex.Message);
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, entry.Level);
+        Assert.IsType<InvalidDataException>(entry.Error);
+    }
+
+    // The clients table with a row the real mapping refuses: a client with no Entra group.
+    private sealed class UnreadableClients : IClientDirectory
+    {
+        public async Task<IReadOnlyList<ClientRecord>> ListAsync(CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            return [TableMetadata.ToClient(new Azure.Data.Tables.TableEntity("client", SalonOne.Value)
+            {
+                ["DisplayName"] = "Neelam Aesthetics",
+            })];
+        }
+
+        public Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(ClientRecord client, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class UnreadableKnownItems(Exception? failure = null) : IKnownItemStore
     {
         public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken cancellationToken = default) =>
-            throw new Azure.RequestFailedException(404, "The table specified does not exist.");
+            throw failure ?? new Azure.RequestFailedException(404, "The table specified does not exist.");
 
         public Task AddAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task UpdateAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
