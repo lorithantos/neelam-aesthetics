@@ -34,7 +34,7 @@ public class RegisteredPhoneTests
             "4258778646"
         },
         {
-            "Closing ¶2",
+            "Closing, paragraph 2",
             new Campaign("Hello", [new ParagraphsBlock("Closing", ["See you soon.", "Book at (425) 773-5261 today."])]),
             "(425) 773-5261",
             "4257735261"
@@ -66,7 +66,9 @@ public class RegisteredPhoneTests
         Assert.Equal(Severity.Warning, finding.Severity);
         Assert.Equal(location, finding.Location);
         Assert.Equal(written, finding.Excerpt);
-        Assert.StartsWith($"{written} isn't one of your registered numbers ((425) 000-0000)", finding.Message);
+        // One number registered: named once, with no brackets around its own ("((425) 000-0000)").
+        Assert.Equal($"{written} isn't your registered number, (425) 000-0000. Check it before sending.", finding.Message);
+        Assert.DoesNotContain("((", finding.Message);
     }
 
     // Before the client has registered a number there is nothing to hold the email to.
@@ -88,8 +90,8 @@ public class RegisteredPhoneTests
         ]);
 
         var finding = Assert.Single(PhoneFindings(campaign, Registered("425-877-8646", "(425) 773-5261")));
-        Assert.Equal("Opening ¶2", finding.Location);
-        Assert.Contains("(425) 877-8646, (425) 773-5261", finding.Message);
+        Assert.Equal("Opening, paragraph 2", finding.Location);
+        Assert.Equal("206-555-0100 isn't one of your registered numbers: (425) 877-8646, (425) 773-5261. Check it before sending.", finding.Message);
     }
 
     [Theory]
@@ -249,6 +251,6 @@ public class RegisteredPhonePageTests(EnforcedApp app) : IClassFixture<EnforcedA
         var page = WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Contains("425-877-8646 isn't one of your registered numbers ((425) 773-5261)", page);
+        Assert.Contains("425-877-8646 isn't your registered number, (425) 773-5261. Check it before sending.", page);
     }
 }

@@ -89,6 +89,14 @@ public abstract class BlockDraft(string label, BlockType type, bool required)
     public BlockType Type { get; } = type;
     public bool Required { get; } = required;
 
+    /// <summary>
+    /// The block as what is still to fill in names it: its label, and for a button whose label does
+    /// not say so, "The button (Call to action)", so Still to do says "button" as the checks do ("add
+    /// a button with a link"), while the label still ties it to its card in the form.
+    /// </summary>
+    public string Name =>
+        Type == BlockType.Button && !Label.Contains("button", StringComparison.OrdinalIgnoreCase) ? $"The button ({Label})" : Label;
+
     internal abstract void Check(DraftProblems problems);
 
     /// <summary>The finished block, or null for an optional block left empty.</summary>
@@ -135,7 +143,7 @@ public sealed class ValueBlockDraft<T> : BlockDraft
 
     internal override void Check(DraftProblems problems)
     {
-        if (Required) problems.Require(Value, Label);
+        if (Required) problems.Require(Value, Label, Name);
         else problems.Optional(Value, Label);
     }
 
@@ -295,9 +303,10 @@ internal sealed class DraftProblems
     public void Add(string rule, string where, string message) =>
         _findings.Add(new Finding(Severity.Blocker, rule, where, message));
 
-    public void Require<T>(Slot<T> slot, string where)
+    /// <param name="what">What the message calls it; <paramref name="where"/> when not given.</param>
+    public void Require<T>(Slot<T> slot, string where, string? what = null)
     {
-        if (!slot.HasValue) Add("draft-missing", where, $"{where} has not been filled in.");
+        if (!slot.HasValue) Add("draft-missing", where, $"{what ?? where} has not been filled in.");
         else Optional(slot, where);
     }
 

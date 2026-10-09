@@ -26,6 +26,7 @@
 @inject ActivityRecorder Recorder
 @inject ILogger<CampaignEdit> Log
 @inject IJSRuntime JS
+@inject LocalTime Times
 
 <PageTitle>@Title</PageTitle>
 
@@ -48,7 +49,7 @@ else if (_undone is not null)
 {
     <h1>@_undone.Title</h1>
     <p>This campaign is deleted. You can restore it until
-        @_store!.RestorableUntil(_undone)?.ToString("d MMM yyyy, HH:mm") UTC; after that it is removed for good.
+        @Times.DateAndTime(_store!.RestorableUntil(_undone)!.Value); after that it is removed for good.
         Until then it is also under Recently deleted in your campaigns.</p>
     <button class="button primary" @onclick="RestoreUndoneAsync">Restore</button>
     <a class="button" href="campaigns">Back to campaigns</a>
@@ -194,7 +195,7 @@ else if (_session is not null)
                 }
                 @if (_session.Latest is { } latest)
                 {
-                    <p class="muted">Last saved @latest.SavedAt.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    <p class="muted">Last saved @Times.DateAndTime(latest.SavedAt).</p>
                     @* With no version before it, undoing the save deletes the campaign: the button and
                        the question say so, rather than promising a version that is not there. *@
                     var deletes = _session.UndoDeletesTheCampaign;
@@ -211,7 +212,7 @@ else if (_session is not null)
                 }
                 @if (_session.Restorable is not null)
                 {
-                    <p class="field-help">The last undo can be taken back until @_session.RestorableUntil?.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    <p class="field-help">The last undo can be taken back until @Times.DateAndTime(_session.RestorableUntil!.Value).</p>
                     <button class="button" @onclick="RestoreAsync">Restore undone save</button>
                 }
             </section>
@@ -270,7 +271,7 @@ else if (_session is not null)
                 }
                 else if (approval is not null)
                 {
-                    <p class="approved" role="status">Approved by @approval.By, @approval.At.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    <p class="approved" role="status">Approved by @approval.By, @Times.DateAndTime(approval.At).</p>
                     <p class="field-help">The approval is of this saved version. Any change, or a new save, needs approving again.</p>
                     <button class="button" @onclick="WithdrawAsync">Withdraw approval</button>
                 }
@@ -500,7 +501,7 @@ else
         var isNew = _session!.Id is null;
         var before = _session.Latest;
         var saved = await _session.SaveAsync();
-        _message = DraftSession.SavedMessage(before, saved);
+        _message = DraftSession.SavedMessage(before, saved, Times);
         _confirmingUndo = false;
         // The address now names the campaign, so a reload opens what was saved. Only the address
         // changes: navigating would load the page afresh, at the top and without the saved line.

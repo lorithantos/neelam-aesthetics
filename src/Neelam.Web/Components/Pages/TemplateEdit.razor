@@ -7,6 +7,7 @@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
+@inject LocalTime Times
 
 <PageTitle>@Title</PageTitle>
 
@@ -24,7 +25,7 @@ else if (_undone is not null)
 {
     <h1>@_undone.Title</h1>
     <p>Its last save was undone, so it is gone from your templates. You can restore it until
-        @_store!.RestorableUntil(_undone)?.ToString("d MMM yyyy, HH:mm") UTC; after that it is deleted for good.</p>
+        @Times.DateAndTime(_store!.RestorableUntil(_undone)!.Value); after that it is deleted for good.</p>
     <button class="button primary" @onclick="RestoreUndoneAsync">Restore</button>
     <a class="button" href="templates">Back to templates</a>
 }
@@ -204,7 +205,7 @@ else if (_session is not null)
                 }
                 @if (_session.Latest is { } latest)
                 {
-                    <p class="muted">Last saved @latest.SavedAt.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    <p class="muted">Last saved @Times.DateAndTime(latest.SavedAt).</p>
                     @if (_confirmingUndo)
                     {
                         <p>Undo the last save? The version before it comes back, and any changes not saved are lost. The undone version can be restored for @Period(_store!.UndoGracePeriod), then it is deleted for good.</p>
@@ -218,7 +219,7 @@ else if (_session is not null)
                 }
                 @if (_session.Restorable is not null)
                 {
-                    <p class="field-help">The last undo can be taken back until @_session.RestorableUntil?.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    <p class="field-help">The last undo can be taken back until @Times.DateAndTime(_session.RestorableUntil!.Value).</p>
                     <button class="button" @onclick="RestoreAsync">Restore undone save</button>
                 }
             </section>
@@ -296,7 +297,7 @@ else if (_session is not null)
     {
         var isNew = _session!.Id is null;
         var saved = await _session.SaveAsync();
-        _message = $"Saved at {saved.SavedAt:HH:mm:ss} UTC.";
+        _message = $"Saved at {Times.TimeOfDay(saved.SavedAt)}.";
         _confirmingUndo = false;
         // The address now names the template, so a reload opens what was saved.
         if (isNew) Navigation.NavigateTo($"templates/{saved.Id}", replace: true);

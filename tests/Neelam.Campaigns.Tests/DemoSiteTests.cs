@@ -119,7 +119,8 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
         var save = await Store.ApproveAsync(await Saved(DraftFixtures.Finished()), "Priya");
 
         var page = await Get($"/campaigns/{save.Id}");
-        Assert.Contains("Approved by Priya, 3 Oct 2026, 12:0", page);
+        // In her time zone: approved at 12:00 UTC on 3 October, five in the morning in Washington.
+        Assert.Matches(@"Approved by Priya, 3 Oct 2026, 5:0\d AM PDT\.", page);
         Assert.Contains("<h2>Copy into Square</h2>", page);
         var expected = EditorExport.PreviewBlocks(DraftFixtures.Finished().Build().Campaign!);
         var blocks = ExportBlocks(page);

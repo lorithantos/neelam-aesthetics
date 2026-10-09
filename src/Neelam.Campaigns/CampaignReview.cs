@@ -124,8 +124,11 @@ public static class CampaignReview
         foreach (var (written, number) in PhoneNumber.FindIn(fragment.Text))
         {
             if (registered.Contains(number) || !reported.Add((fragment.Location, number))) continue;
+            // Never in brackets: a formatted number has its own, "((425) 773-5261)".
             yield return new(Severity.Warning, "phone-registered", fragment.Location,
-                $"{written} isn't one of your registered numbers ({registered}). Check it before sending.",
+                (registered.Count == 1
+                    ? $"{written} isn't your registered number, {registered}."
+                    : $"{written} isn't one of your registered numbers: {registered}.") + " Check it before sending.",
                 Excerpt: written);
         }
     }

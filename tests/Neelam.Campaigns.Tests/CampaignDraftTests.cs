@@ -26,6 +26,33 @@ public class CampaignDraftTests
             Locations(result, "draft-missing"));
     }
 
+    // The walkthrough read "Call to action has not been filled in" under Still to do and "add a
+    // button" in the checks: both say "button" now, the block's own label kept to tie it to its card.
+    [Fact]
+    public void A_missing_button_is_called_a_button_as_the_checks_call_it()
+    {
+        var missing = Membership.Start().Build().Problems.Single(p => p.Location == "Call to action");
+        Assert.Equal("The button (Call to action) has not been filled in.", missing.Message);
+
+        var labelledButton = new CampaignTemplate("Note", [new TemplateBlock("Book button", BlockType.Button)]);
+        Assert.Equal("Book button has not been filled in.",
+            labelledButton.Start().Build().Problems.Single(p => p.Location == "Book button").Message);
+
+        var noButton = new Campaign("Hello", [new OfferBlock("Offer", Target.BlocksOf<OfferBlock>().Single().Offer)]);
+        Assert.Contains("add a button", CampaignReview.Check(noButton).Findings.Single(f => f.Rule == "cta-required").Message);
+    }
+
+    // Paragraphs are placed in words, never with a pilcrow: "Closing, paragraph 1", not "Closing ¶1".
+    [Fact]
+    public void A_paragraph_s_place_is_said_in_words()
+    {
+        var campaign = new Campaign("Hello", [new ParagraphsBlock("Closing", ["See you soon.", "With love."])]);
+
+        Assert.Equal(["Subject", "Closing, paragraph 1", "Closing, paragraph 2"],
+            CampaignText.Fragments(campaign).Select(f => f.Location));
+        Assert.DoesNotContain(CampaignReview.Check(SampleCampaigns.FirstSend()).Findings, f => f.Location.Contains('¶'));
+    }
+
     // The name and price are copied as they stand, not as unreviewed: the rules flag them while
     // they match (owner, 2026-10-09). Only the benefits wait to be looked at.
     [Fact]

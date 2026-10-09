@@ -7,6 +7,7 @@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
+@inject LocalTime Times
 
 <PageTitle>Campaigns</PageTitle>
 
@@ -57,7 +58,7 @@ else if (_campaigns is not null && _templates is not null)
             {
                 <h3><a href="@href">@campaign.Title</a></h3>
             }
-            <p class="muted">Last saved @campaign.SavedAt.ToString("d MMM yyyy, HH:mm") UTC</p>
+            <p class="muted">Last saved @Times.DateAndTime(campaign.SavedAt)</p>
             <a class="button" href="@href">Open</a>
         </section>
     }
@@ -74,7 +75,7 @@ else if (_campaigns is not null && _templates is not null)
         {
             <section class="card" aria-label="Deleted: @deleted.Title">
                 <h3>@deleted.Title</h3>
-                <p class="muted">Deleted @deleted.UndoneAt?.ToString("d MMM yyyy, HH:mm") UTC. It will be removed for good @_store.RestorableUntil(deleted)?.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                <p class="muted">Deleted @Times.DateAndTime(deleted.UndoneAt!.Value). It will be removed for good @Times.DateAndTime(_store.RestorableUntil(deleted)!.Value).</p>
                 <form method="post" @formname="@($"restore-{deleted.Id:N}")" @onsubmit="() => RestoreAsync(deleted)">
                     <AntiforgeryToken />
                     <button type="submit" class="button">Restore</button>

@@ -53,7 +53,7 @@ internal static class DraftSoFar
         if (block is OfferBlockDraft offer)
             return !offer.Required && offer.Offer.IsUntouched ? [] : OfferShown(offer);
         if (block.ToBlock() is { } filled) return [filled];
-        return block.Required ? [new PlaceholderBlock(block.Label, block.Type, ToFill(block.Label))] : [];
+        return block.Required ? [new PlaceholderBlock(block.Label, block.Type, ToFill(block.Name))] : [];
     }
 
     // An offer is its name as a heading, then its text, as the export gives it.

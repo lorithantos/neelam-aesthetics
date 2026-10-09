@@ -182,8 +182,10 @@ public class ApprovalTests
     {
         _clock.Now += TimeSpan.FromMinutes(1);
         var before = session.Latest;
-        return DraftSession.SavedMessage(before, await session.SaveAsync());
+        return DraftSession.SavedMessage(before, await session.SaveAsync(), Pacific);
     }
+
+    private static readonly LocalTime Pacific = LocalTime.For(LocalTime.DefaultZone);
 
     // The Approve panel shows "Approved" exactly while CurrentApproval stands; the save's message
     // says the same, never "not approved" beside it, never "still approved" without it.
@@ -202,7 +204,8 @@ public class ApprovalTests
         // Never approved: nothing said of approval.
         session.Editor.Label = "Unapproved";
         var plain = await Save(session);
-        Assert.Equal($"Saved at {_clock.Now:HH:mm:ss} UTC.", plain);
+        // In her time zone: the clock is at 12:02 UTC on 9 October, 5:02 in the morning in Washington.
+        Assert.Equal("Saved at 5:02:00 AM PDT.", plain);
         AgreesWithThePanel(session, plain);
 
         // Approved, and saved with only her label changed: the approval goes with the save.

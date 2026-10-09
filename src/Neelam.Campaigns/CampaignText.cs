@@ -7,7 +7,7 @@ public static class CampaignText
 {
     /// <summary>
     /// Every piece of text the reader will see, in the order they read it, benefits included as
-    /// rendered. Locations come from the template's block labels, e.g. "Opening ¶2".
+    /// rendered. Locations come from the template's block labels, e.g. "Opening, paragraph 2".
     /// </summary>
     public static IReadOnlyList<TextFragment> Fragments(Campaign c)
     {
@@ -28,7 +28,7 @@ public static class CampaignText
                 // Alt text is what a reader gets when images do not load, so it is checked like any text.
                 case ImageBlock i when i.Image.AltText is { } alt: list.Add(new($"{i.Label} › Photo text", alt)); break;
                 case ParagraphsBlock p:
-                    list.AddRange(p.Paragraphs.Select((text, i) => new TextFragment($"{p.Label} ¶{i + 1}", text)));
+                    list.AddRange(p.Paragraphs.Select((text, i) => new TextFragment(ParagraphOf(p.Label, i + 1), text)));
                     break;
                 case ButtonBlock b: list.Add(new(b.Label, b.Action.Label)); break;
                 case SignOffBlock s:
@@ -51,4 +51,10 @@ public static class CampaignText
         }
         return list;
     }
+
+    /// <summary>
+    /// Where a paragraph is, in words: "Closing, paragraph 1". A pilcrow ("Closing ¶1") is an
+    /// editor's mark the client should not have to read.
+    /// </summary>
+    public static string ParagraphOf(string label, int number) => $"{label}, paragraph {number}";
 }

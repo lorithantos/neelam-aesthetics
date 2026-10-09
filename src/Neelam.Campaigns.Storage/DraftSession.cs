@@ -153,8 +153,9 @@ public sealed class DraftSession
     /// </summary>
     /// <param name="before">The newest save before this one, or null when there was none.</param>
     /// <param name="saved">The save just made, as <see cref="SaveAsync"/> returned it.</param>
-    public static string SavedMessage(SaveRef? before, SaveRef saved) =>
-        $"Saved at {saved.SavedAt:HH:mm:ss} UTC." + (saved.Approval is { } kept
+    /// <param name="times">How the page shows a time: in the client's zone.</param>
+    public static string SavedMessage(SaveRef? before, SaveRef saved, LocalTime times) =>
+        $"Saved at {times.TimeOfDay(saved.SavedAt)}." + (saved.Approval is { } kept
             ? $" It is still approved by {kept.By}."
             : before?.Approval is not null ? " This version is not approved yet." : "");
 

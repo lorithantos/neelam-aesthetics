@@ -424,7 +424,7 @@ public class CampaignEditorTests
 
         // The same email, block for block, with a placeholder where each missing part goes.
         var expected = finished.Select(b => b.Kind == BlockKind.Button
-            ? new EditorBlock(BlockKind.Button, "‹Call to action: not filled in yet›")
+            ? new EditorBlock(BlockKind.Button, "‹The button (Call to action): not filled in yet›")
             : b with { Text = b.Text.Replace(terms, "‹Offer › Terms link: not filled in yet›") });
         Assert.Equal(expected, preview);
         Assert.Contains(finished, b => b.Text.Contains(terms));
