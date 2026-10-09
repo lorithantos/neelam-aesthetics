@@ -47,6 +47,13 @@ public static class EditorExport
     /// </summary>
     public static string Preview(Campaign c) => ToPlainText(Render(c.Blocks));
 
+    /// <summary>
+    /// The email's blocks as Square would show them, ungated: for SHOWING an email, such as the
+    /// How it works walkthrough, never a source for pasting -- that is <see cref="Blocks"/>, which
+    /// needs a passed review.
+    /// </summary>
+    public static IReadOnlyList<EditorBlock> PreviewBlocks(Campaign c) => Render(c.Blocks);
+
     // The template's blocks, in its order, as Square blocks; consecutive text becomes one block.
     // Shared with TemplatePreview, which passes placeholders for the blocks each campaign fills.
     internal static List<EditorBlock> Render(IEnumerable<Block> source)

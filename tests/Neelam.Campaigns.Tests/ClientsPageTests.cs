@@ -16,7 +16,7 @@ public class ClientsPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         if ((await app.Clients.ListAsync()).Count == 0) await app.Clients.AddAsync(SalonOne);
         var client = app.CreateClient(new() { AllowAutoRedirect = false });
         if (roles.Length > 0) client.SignedIn(roles, [SalonOne.GroupId]);
-        return await client.GetAsync("/clients");
+        return await client.GetAsync("/admin/clients");
     }
 
     [Fact]

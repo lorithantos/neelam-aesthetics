@@ -1,5 +1,7 @@
-@page "/clients"
-@* Onboarding and describing clients: the operator's, and belongs to no one client. *@
+@page "/admin/clients"
+@* Onboarding and describing clients: the operator's, and belongs to no one client. Under /admin
+   with its own layout, so a client's people are never shown it mixed with their own pages. *@
+@layout Neelam.Web.Components.Layout.AdminLayout
 @attribute [Authorize(Policy = Features.Operator)]
 @rendermode InteractiveServer
 @inject IClientDirectory Directory

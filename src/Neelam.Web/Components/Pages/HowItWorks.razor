@@ -1,0 +1,124 @@
+@page "/how-it-works"
+@* For a client's people, not the operator: the workflow in plain words, walked through with the
+   Beauty Bank email Neelam actually sent. It reads nothing from storage -- the email is the
+   library's sample (BeautyBankEmail) and the checks run here -- so it is open to anyone, and its
+   layout carries no admin links. Open means protected only by obscurity: accepted by the owner on
+   2026-10-09 for now, since the email already went to Neelam's customers. *@
+@attribute [AllowAnonymous]
+
+<PageTitle>How it works</PageTitle>
+
+<h1>How a campaign gets from idea to inbox</h1>
+
+<p>
+    Square Marketing sends your emails, but it cannot check them. So the email is written here
+    first, checked, and only then copied into Square, block by block, ready to send. Below, each
+    step uses the Beauty Bank email you sent for your first anniversary.
+</p>
+
+<section class="card" aria-labelledby="step-template">
+    <h2 id="step-template">1. Start from a template</h2>
+    <p>
+        A template is the shape of one kind of email: its parts, in the order you send them. The parts
+        that never change, such as your sign-off, are written once in the template. A new kind of
+        email is a new template, and your templates are yours.
+    </p>
+    <p>The Beauty Bank email has this shape:</p>
+    <ol class="shape">
+        @foreach (var block in Sent.Blocks)
+        {
+            <li>@block.Label</li>
+        }
+    </ol>
+    <p class="muted">Ready to try now: <a href="templates">Templates</a>.</p>
+</section>
+
+<section class="card" aria-labelledby="step-write">
+    <h2 id="step-write">2. Write the campaign</h2>
+    <p>
+        Each campaign starts from a template, with everything that changes left empty, never last
+        time's words. When you copy an offer tier to save typing, the copy is marked as not yet read:
+        the campaign will not go further until you have changed or confirmed each copied line and
+        given the new tier its own name and price.
+    </p>
+    <p>This is the Beauty Bank email as it went out the second time:</p>
+    <EmailPreview Blocks="SentBlocks" />
+    <p class="muted">Writing campaigns here is being built.</p>
+</section>
+
+<section class="card" aria-labelledby="step-check">
+    <h2 id="step-check">3. Check it, twice</h2>
+    <p>
+        First, instant rules catch what can be stated exactly. What they must stop has to be fixed;
+        the rest is worth a look. Here is what they find in the email that went out:
+    </p>
+    <ul class="findings">
+        @foreach (var finding in SentReview.Findings.OrderByDescending(f => f.Severity))
+        {
+            <li class="finding @(finding.Severity == Severity.Blocker ? "blocker" : "warning")">
+                <strong>@(finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
+                <span class="muted">@finding.Location</span>
+                <span>@finding.Message</span>
+            </li>
+        }
+    </ul>
+    <p>
+        The first send, 38 minutes earlier, offered the $299 option twice under the same name. The
+        rules stop that too: @FirstSendBlockers thing@(FirstSendBlockers == 1 ? "" : "s") to fix before it could go.
+    </p>
+    <p>
+        Then an AI proofreader reads it the way a careful editor would: spelling, prices that do not
+        match, contradictions, placeholder text left in. If it is wrong about something, you can
+        dismiss that one finding, with your name and a reason, which are kept. If the proofread cannot
+        run at all, the campaign waits rather than going out unread.
+    </p>
+    <p class="muted">The rules above are real and run as this page loads. The AI proofread is not switched on yet.</p>
+</section>
+
+<section class="card" aria-labelledby="step-approve">
+    <h2 id="step-approve">4. Approve</h2>
+    <p>
+        A person signs off on the checked campaign before it can leave. Nothing is exported while
+        anything is still blocking it.
+    </p>
+    <p class="muted">Being built.</p>
+</section>
+
+<section class="card" aria-labelledby="step-send">
+    <h2 id="step-send">5. Copy it into Square and send</h2>
+    <p>
+        The approved email comes out as a short list of blocks, each with a copy button. Paste them
+        into Square's editor in order, and the email looks the way you designed it. Then send it from
+        Square as you do today.
+    </p>
+    <p>
+        One way the Beauty Bank email could look with everything fixed: the lower option renamed Gold
+        Member, a disclaimer, a terms link, and a button to join. The join and terms links are
+        placeholders, since no page for joining existed. These are the blocks you would paste:
+    </p>
+    <EmailPreview Blocks="CorrectedBlocks" />
+    @if (CorrectedReview.Blockers.Any())
+    {
+        <p>Still to fix: @CorrectedReview.Blockers.Count().</p>
+    }
+    else
+    {
+        <p>
+            Nothing left that the rules must stop@(CorrectedReview.Warnings.Any()
+                ? $"; {CorrectedReview.Warnings.Count()} worth a look, such as the offer's name, which is yours to decide"
+                : "").
+        </p>
+    }
+    <p class="muted">Being built.</p>
+</section>
+
+@code {
+    // Static: the sample and the rules are the same for every visitor, so they are worked out once.
+    private static readonly Campaign Sent = BeautyBankEmail.SecondSend();
+    private static readonly IReadOnlyList<EditorBlock> SentBlocks = EditorExport.PreviewBlocks(Sent);
+    private static readonly ReviewReport SentReview = CampaignReview.Check(Sent);
+    private static readonly int FirstSendBlockers = CampaignReview.Check(BeautyBankEmail.FirstSend()).Blockers.Count();
+    private static readonly Campaign Corrected = BeautyBankEmail.Corrected();
+    private static readonly IReadOnlyList<EditorBlock> CorrectedBlocks = EditorExport.PreviewBlocks(Corrected);
+    private static readonly ReviewReport CorrectedReview = CampaignReview.Check(Corrected);
+}

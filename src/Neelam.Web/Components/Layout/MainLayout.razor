@@ -1,11 +1,12 @@
 ﻿@inherits LayoutComponentBase
+@* What a client's people see. No admin links: the operator's pages use AdminLayout, under /admin. *@
 
 <header class="site-header">
     <div class="site-header-inner">
         <a class="site-name" href="/">Campaign safety</a>
         <nav class="site-nav" aria-label="Main">
+            <NavLink href="how-it-works">How it works</NavLink>
             <NavLink href="templates">Templates</NavLink>
-            <NavLink href="clients">Clients</NavLink>
         </nav>
     </div>
 </header>
