@@ -236,14 +236,17 @@ public static class CampaignReview
         return list.Count < 2 ? string.Concat(list) : $"{string.Join(", ", list[..^1])} and {list[^1]}";
     }
 
-    /// <summary>Two tiers offering exactly the same benefits are one offer shown twice.</summary>
+    /// <summary>
+    /// Two tiers offering exactly the same benefits are one offer shown twice, whatever words each
+    /// chose for the same benefit ("free" or "complimentary": <see cref="Benefit.Canonical"/>).
+    /// </summary>
     private static IEnumerable<Finding> TierContentDistinct(string label, Offer offer)
     {
         for (var i = 0; i < offer.Tiers.Count; i++)
         for (var j = i + 1; j < offer.Tiers.Count; j++)
         {
-            var a = offer.Tiers[i].Benefits.Select(b => b.Describe()).ToHashSet();
-            if (a.SetEquals(offer.Tiers[j].Benefits.Select(b => b.Describe())))
+            var a = offer.Tiers[i].Benefits.Select(b => b.Canonical().Describe()).ToHashSet();
+            if (a.SetEquals(offer.Tiers[j].Benefits.Select(b => b.Canonical().Describe())))
                 yield return new(Severity.Blocker, "tier-content-distinct", $"{label} › Tier {j + 1}",
                     $"Tiers {i + 1} and {j + 1} offer identical benefits; one of them was not updated.");
         }
@@ -280,7 +283,7 @@ public static class CampaignReview
                     DiscountedItem { Percent: < 1 } d =>
                         $"{d.Percent}% off {d.ItemName} is not a discount.",
                     FreeItem { Quantity: < 1 } f =>
-                        $"{f.Quantity} complimentary {f.ItemName} is nothing; quantity must be at least 1.",
+                        $"{f.Quantity} {f.Word} {f.ItemName} is nothing; quantity must be at least 1.",
                     BirthdayCredit { Amount: <= 0 } =>
                         "A birthday credit needs an amount.",
                     _ => null,

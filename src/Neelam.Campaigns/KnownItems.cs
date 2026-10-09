@@ -274,7 +274,9 @@ public sealed class KnownItems
     /// <item>One of her lines (<see cref="KnownBenefit.Matches"/>): known when its amounts are within
     /// that line's limits, else <see cref="BenefitStanding.OutsideLimits"/>. A different amount is
     /// never a near miss: it is a decision, held only to the limits.</item>
-    /// <item>A known tier's line, word for word and amount for amount: known.</item>
+    /// <item>A known tier's line, word for word and amount for amount: known. Words she may choose
+    /// between for the same benefit ("free" or "complimentary") are the same word here, as they are
+    /// to her lines' patterns.</item>
     /// <item>Close to one of her lines in its words (the same kind of benefit, the amounts left out,
     /// <see cref="KnownItemMatch.NearMiss"/>): a near miss, suggesting that line at the amounts
     /// written. Else close to a known tier's line as written: a near miss, suggesting that line.</item>
@@ -290,18 +292,23 @@ public sealed class KnownItems
             return new(BenefitStanding.OutsideLimits, Line: lines[0], Outside: lines[0].OutsideLimits(written));
         }
 
-        var sentence = written.Describe();
-        var tierLines = TierLines;
-        if (KnownItemMatch.IsKnown(sentence, tierLines)) return BenefitCheck.Known;
+        // A known tier's lines are compared as the checks compare benefits (Benefit.Canonical): "free"
+        // and "complimentary" are the same line. A near miss is suggested in the words she chose.
+        var sentence = written.Canonical().Describe();
+        var tierLines = Tiers.SelectMany(t => t.Benefits).Select(b => b.Canonical()).Distinct().ToList();
+        var compared = tierLines.Select(b => b.Describe()).ToList();
+        if (KnownItemMatch.IsKnown(sentence, compared)) return BenefitCheck.Known;
 
         var sameKind = Benefits.Where(k => k.Benefit.GetType() == written.GetType()).ToList();
         if (KnownItemMatch.NearMiss(written.Pattern(), sameKind.Select(k => k.Benefit.Pattern())) is { } pattern)
         {
             var line = sameKind.First(k => k.Benefit.Pattern().Trim() == pattern);
-            return new(BenefitStanding.NearMiss, Suggestion: line.Benefit.WithAmounts(written.Amounts).Describe(), Line: line);
+            return new(BenefitStanding.NearMiss,
+                Suggestion: line.Benefit.WithAmounts(written.Amounts).WordedLike(written).Describe(), Line: line);
         }
-        return KnownItemMatch.NearMiss(sentence, tierLines) is { } near
-            ? new(BenefitStanding.NearMiss, Suggestion: near)
+        return KnownItemMatch.NearMiss(sentence, compared) is { } near
+            ? new(BenefitStanding.NearMiss,
+                Suggestion: tierLines.First(b => b.Describe().Trim() == near).WordedLike(written).Describe())
             : BenefitCheck.NotKnown;
     }
 

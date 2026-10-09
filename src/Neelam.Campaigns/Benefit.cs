@@ -50,6 +50,20 @@ public abstract record Benefit
     /// <summary>Where an amount stood in a <see cref="Pattern"/>.</summary>
     public const string AmountMark = "#";
 
+    /// <summary>
+    /// The benefit as the checks compare it: wording she may choose between that says the same thing
+    /// (something free, "free" or "complimentary") is set one way, so two benefits that differ only by
+    /// it are the same benefit, in a tier comparison or against her known items. What the email says
+    /// is always the benefit's own <see cref="Describe"/>.
+    /// </summary>
+    public virtual Benefit Canonical() => this;
+
+    /// <summary>
+    /// The same benefit in <paramref name="written"/>'s choice of wording, where both have one: a "Did
+    /// you mean" suggests her line in the words she chose, not in the line's.
+    /// </summary>
+    public virtual Benefit WordedLike(Benefit written) => this;
+
     protected static string Money(decimal amount) =>
         amount % 1 == 0
             ? amount.ToString("$#,0", CultureInfo.InvariantCulture)
@@ -124,22 +138,56 @@ public sealed record PercentOff(int Percent, string AppliesTo) : Benefit
         field == PercentField.Name ? this with { Percent = Whole(field, value) } : throw NoSuchAmount(field);
 }
 
-/// <summary>Something given at no charge, e.g. one wellness injection per visit.</summary>
-public sealed record FreeItem(int Quantity, string ItemName, string Per) : Benefit
+/// <summary>
+/// How something free says so (owner, 2026-10-09: "Complimentary is the same as free, so allow
+/// either"). Complimentary is the default, so a save from before the choice reads as it always did.
+/// </summary>
+public enum FreeWording
+{
+    Complimentary,
+    Free,
+}
+
+/// <summary>
+/// Something given at no charge, worded "complimentary" (the Beauty Bank email: "1 Complimentary
+/// Wellness Injection per visit") or "free" (the back-to-school email: "Free Wellness Injection with
+/// any treatment"). The two are the same benefit to every check (<see cref="Canonical"/>).
+/// </summary>
+/// <param name="Wording">Left out of the saved JSON when complimentary, so a save from before the choice is unchanged.</param>
+public sealed record FreeItem(
+    int Quantity, string ItemName, string Per,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] FreeWording Wording = FreeWording.Complimentary)
+    : Benefit
 {
     public static AmountField QuantityField { get; } = new(nameof(Quantity), "number", AmountUnit.Count);
 
     public override string Kind => $"free:{ItemName.ToLowerInvariant()}";
     public override string? Item => ItemName;
+
+    /// <summary>The word it is worded with: "complimentary" or "free".</summary>
+    [JsonIgnore]
+    public string Word => Wording == FreeWording.Free ? "free" : "complimentary";
+
+    // One free thing has no count, as her back-to-school email wrote it ("Free Wellness Injection with
+    // any treatment"), and it starts the line, so "Free" is capitalised. One complimentary thing keeps
+    // its count, as the Beauty Bank email did ("1 Complimentary Wellness Injection per visit").
     public override string Describe() =>
-        $"{Quantity} complimentary {Pluralise(ItemName, Quantity)} {Per}";
+        Wording == FreeWording.Free && Quantity == 1
+            ? $"Free {ItemName} {Per}"
+            : $"{Quantity} {Word} {Pluralise(ItemName, Quantity)} {Per}";
 
     // Not pluralised: how many is the amount, so "1 ... injection" and "2 ... injections" are one line.
+    // Always "complimentary": the wording is a choice of words for the same line, never a different one.
     public override string Pattern() => $"{AmountMark} complimentary {ItemName} {Per}";
     public override IReadOnlyList<BenefitAmount> Amounts => [new(QuantityField, Quantity)];
 
     public override Benefit WithAmount(string field, decimal value) =>
         field == QuantityField.Name ? this with { Quantity = Whole(field, value) } : throw NoSuchAmount(field);
+
+    public override Benefit Canonical() => this with { Wording = FreeWording.Complimentary };
+
+    public override Benefit WordedLike(Benefit written) =>
+        written is FreeItem f ? this with { Wording = f.Wording } : this;
 
     private static string Pluralise(string noun, int n) => n == 1 ? noun : noun + "s";
 }

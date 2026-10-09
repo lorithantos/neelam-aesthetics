@@ -240,7 +240,9 @@ for them. A client's people only sign in and work on their campaigns.
   kind and words are the line, its amounts the usual ones, each with an optional lowest and
   highest. Picking it fills in the usual amounts, which she changes as needed. A known tier
   carries its own lines, word for word, rather than pointing at benefit items, so changing a
-  benefit item never changes a tier.
+  benefit item never changes a tier. Something free is worded "complimentary" or "free", her
+  choice (owner, 2026-10-09: "Complimentary is the same as free, so allow either"); the checks
+  treat the two as the same benefit, against her known items and between tiers.
 - **So is how strict the checks are.** The restricted terms, medical terms and emoji limit that
   `CampaignPolicy` holds today become each client's own policy, in their container at
   `{client}/policy/{stamp}.json`. These are the client's decisions: they see and control them,

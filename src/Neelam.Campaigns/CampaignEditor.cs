@@ -537,6 +537,7 @@ public sealed class BenefitEditor
     private string _item = "";
     private string _per = "";
     private string _condition = "";
+    private FreeWording _wording = FreeWording.Complimentary;
     private string? _error;
 
     internal BenefitEditor(Slot<Benefit> slot)
@@ -552,7 +553,7 @@ public sealed class BenefitEditor
                 (_kind, _percent, _appliesTo) = ("percent-off", Number(p.Percent), p.AppliesTo);
                 break;
             case FreeItem f:
-                (_kind, _quantity, _item, _per) = ("free-item", Number(f.Quantity), f.ItemName, f.Per);
+                (_kind, _quantity, _item, _per, _wording) = ("free-item", Number(f.Quantity), f.ItemName, f.Per, f.Wording);
                 break;
             case DiscountedItem d:
                 (_kind, _percent, _item, _per, _condition) = ("discounted-item", Number(d.Percent), d.ItemName, d.Per, d.Condition ?? "");
@@ -623,6 +624,12 @@ public sealed class BenefitEditor
     /// <summary>Percent off an item: an optional qualifier, e.g. "any additional".</summary>
     public string Condition { get => _condition; set { _condition = value ?? ""; Apply(); } }
 
+    /// <summary>
+    /// Something free: "complimentary" (the default) or "free", her choice of word for the same
+    /// benefit (owner, 2026-10-09). A choice, not something typed: it alone does not start a benefit.
+    /// </summary>
+    public FreeWording Wording { get => _wording; set { _wording = value; Apply(); } }
+
     public Origin Origin => _slot.Origin;
 
     /// <summary>Copied from another tier and not yet changed or confirmed.</summary>
@@ -680,7 +687,7 @@ public sealed class BenefitEditor
         var quantity = FormText.Whole(_quantity, "how many", problems);
         var item = FormText.Need(_item, "the item", problems);
         var per = FormText.Need(_per, "how often, such as \"per visit\"", problems);
-        return problems.Count == 0 ? new FreeItem(quantity!.Value, item, per) : null;
+        return problems.Count == 0 ? new FreeItem(quantity!.Value, item, per, _wording) : null;
     }
 
     private DiscountedItem? MakeDiscountedItem(List<string> problems)

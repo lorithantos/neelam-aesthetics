@@ -36,6 +36,14 @@
             <label for="benefit-quantity-@Id">How many</label>
             <input id="benefit-quantity-@Id" inputmode="numeric" @bind="Benefit.Quantity" @bind:event="oninput" />
         </div>
+        <div class="field">
+            <label for="benefit-wording-@Id">Worded as</label>
+            <select id="benefit-wording-@Id" @bind="Benefit.Wording">
+                <option value="@FreeWording.Complimentary">Complimentary</option>
+                <option value="@FreeWording.Free">Free</option>
+            </select>
+            <span class="field-help">The same benefit either way. One free item reads "Free wellness injection per visit".</span>
+        </div>
         @ItemFields
         break;
     case "discounted-item":
