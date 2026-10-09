@@ -376,7 +376,7 @@ public class CampaignEditorTests
         Assert.NotEmpty(status.Missing);
         Assert.DoesNotContain(status.Preview, b => b.Kind == BlockKind.Image);
         Assert.DoesNotContain(status.Preview, b => b.Text.Contains("‹Photo"));
-        Assert.Contains(status.Preview, b => b.Text.Contains("‹Offer › Terms link: not filled in yet›"));
+        Assert.Contains(status.Preview, b => b.Text.Contains("‹Terms link: not filled in yet›"));
     }
 
     // A price with cents keeps them, in the finished email and in the one so far alike; a whole
@@ -425,9 +425,34 @@ public class CampaignEditorTests
         // The same email, block for block, with a placeholder where each missing part goes.
         var expected = finished.Select(b => b.Kind == BlockKind.Button
             ? new EditorBlock(BlockKind.Button, "‹The button (Call to action): not filled in yet›")
-            : b with { Text = b.Text.Replace(terms, "‹Offer › Terms link: not filled in yet›") });
+            : b with { Text = b.Text.Replace(terms, "‹Terms link: not filled in yet›") });
         Assert.Equal(expected, preview);
         Assert.Contains(finished, b => b.Text.Contains(terms));
+    }
+
+    // One placeholder style, the template's: "‹Name: state›", never a breadcrumb's "›" inside the
+    // marks (the walkthrough read "‹Offer › Terms link: not filled in yet›").
+    [Fact]
+    public void Every_placeholder_is_one_name_in_one_pair_of_marks()
+    {
+        var editor = CampaignEditor.Start(DraftFixtures.Membership);
+        var offer = editor.Blocks.OfType<OfferBlockEditor>().Single().Offer;
+        offer.AddTier();
+        offer.AddTier().AddBenefit();
+
+        var text = string.Join("\n", editor.Status().Preview.Select(b => b.Text));
+        var placeholders = System.Text.RegularExpressions.Regex.Matches(text, "‹[^‹›]*›").Select(m => m.Value).ToList();
+
+        Assert.Equal(text.Count(c => c == '›'), placeholders.Count);
+        Assert.Equal(text.Count(c => c == '‹'), placeholders.Count);
+        Assert.Contains("‹Offer name: not filled in yet›", placeholders);
+        Assert.Contains("‹Terms link: not filled in yet›", placeholders);
+        Assert.Contains("‹Tier 1 name: not filled in yet›", placeholders);
+        Assert.Contains("‹Tier 1 price: not filled in yet›", placeholders);
+        Assert.Contains("‹Tier 1 benefits: not filled in yet›", placeholders);
+        Assert.Contains("‹Tier 2, benefit 1: not filled in yet›", placeholders);
+        // The same style as the template's own preview.
+        Assert.Contains(TemplatePreview.Blocks(DraftFixtures.Membership.Blocks), b => b.Text == "‹Headline: written for each campaign›");
     }
 
     // Findings name tiers by their place in the form, so a finished tier after an unfinished one
@@ -447,7 +472,7 @@ public class CampaignEditorTests
 
         Assert.Contains(status.Missing, m => m.Location == "Offer › Tier 2 › Name");
         Assert.DoesNotContain(status.Findings, f => f.Rule == "tier-names-unique");
-        Assert.Contains("‹Offer › Tier 2 › Name: not filled in yet›:", string.Join("\n", status.Preview.Select(b => b.Text)));
+        Assert.Contains("‹Tier 2 name: not filled in yet›:", string.Join("\n", status.Preview.Select(b => b.Text)));
     }
 
     // Nothing about the gate loosens: until the draft builds there is no review at all to export.

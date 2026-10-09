@@ -127,6 +127,21 @@ public class AssistantExportTests
         Assert.DoesNotContain(worthALook, w => w.Contains("Social") || w.Contains("Lasers") || w.Contains("Facial"));
     }
 
+    // The page and the assistant read the same findings: a benefit named as she wrote it, never by its
+    // key ("free:wellness injection"), in "Worth a look" too.
+    [Fact]
+    public void Worth_a_look_names_benefits_as_written_never_by_key()
+    {
+        var report = CampaignGate.DemoReview(BeautyBankEmail.Corrected(), ByPriya);
+
+        var worthALook = Parse(Exported(report, context: Context))["review"]!["worthALook"]!.AsArray()
+            .Select(n => n!.GetValue<string>()).ToList();
+
+        Assert.Contains(worthALook, w => w.Contains("has \"1 complimentary wellness injection per visit\" that tier 1 lacks"));
+        Assert.DoesNotContain(worthALook, w => w.Contains("free:") || w.Contains("discount:"));
+        Assert.DoesNotContain(worthALook, w => w.Contains("(s)"));
+    }
+
     // ---- The shape ----
 
     [Fact]

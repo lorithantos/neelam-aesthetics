@@ -54,9 +54,9 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
     private static string Shown(string address) => $"<img class=\"preview-image\" src=\"{address}\"";
 
-    // The preview's photo, then the plain message, as the preview sets them out.
+    // The note under the preview's photo, outside the email: its name, then the plain message.
     private static string Missing(string name) =>
-        $"Photo: {Regex.Escape(name)}</span>\\s*<span class=\"field-help\">{Regex.Escape(ImageLibrary.NotInLibrary)}</span>";
+        $"<p class=\"field-help\" data-photo-note>For you, not in the email: the photo \"{Regex.Escape(name)}\"\\. {Regex.Escape(ImageLibrary.NotInLibrary)}</p>";
 
     [Fact]
     public async Task Nobody_signed_in_is_challenged() =>

@@ -147,7 +147,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("What the checks say", page);
         Assert.Contains("Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart. Rename either one.", page);
         // In the preview, set apart as a placeholder.
-        Assert.Matches($"<p class=\"placeholder\">\\s*{Regex.Escape("‹Offer › Terms link: not filled in yet›")}\\s*</p>", page);
+        Assert.Matches($"<p class=\"placeholder\">\\s*{Regex.Escape("‹Terms link: not filled in yet›")}\\s*</p>", page);
     }
 
     // Said on the page itself, under the address that was opened: never the list in its place.
@@ -348,6 +348,27 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (_, twice) = await Get($"/campaigns/{id}", [Features.Campaigns]);
         Assert.Contains(">Undo last save</button>", twice);
         Assert.DoesNotContain(">Delete campaign</button>", twice);
+    }
+
+    // The walkthrough could not tell whether the italic "Photo: <name>" under a preview photo went out
+    // in the email. The block shows where the photo goes; its name is a note outside the block.
+    [Fact]
+    public async Task A_photo_s_name_is_a_note_outside_the_email()
+    {
+        var (_, page) = await Get($"/campaigns/{Finished}", [Features.Campaigns]);
+        var preview = page[page.LastIndexOf("<h2>Preview</h2>", StringComparison.Ordinal)..];
+
+        Assert.DoesNotContain("Photo: ", preview);
+        foreach (var name in new[] { "Principals toasting", "Principals seated" })
+        {
+            var note = $"<p class=\"field-help\" data-photo-note>For you, not in the email: the photo \"{name}\". {ImageLibrary.NotInLibrary}</p>";
+            var at = preview.IndexOf(note, StringComparison.Ordinal);
+            Assert.True(at > 0, $"No note for {name}.");
+            // Outside its block: the block that holds the photo has closed before the note.
+            var block = preview.LastIndexOf("<div class=\"preview-block", at, StringComparison.Ordinal);
+            Assert.Contains("</div>", preview[block..at]);
+        }
+        Assert.Contains("<span class=\"placeholder\">Photo</span>", preview);
     }
 
     // Removing a tier or a benefit is a plain button, asked about first, not a red one beside Copy tier.

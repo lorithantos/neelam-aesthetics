@@ -1,5 +1,6 @@
 @* The email's blocks as Square will show them, top to bottom. Placeholders, the parts each
-   campaign fills in, are set apart from content that goes out as it is. *@
+   campaign fills in, are set apart from content that goes out as it is. A photo's name is a note
+   for her, outside its block (PhotoNote), never a caption inside the email. *@
 <div class="preview" aria-label="Preview of the email">
     @foreach (var block in Blocks)
     {
@@ -16,6 +17,10 @@
                         <p class="preview-photo"><PreviewPhoto Image="block.Image" Library="Library" /></p>
                     }
                 </div>
+                @if (block.Image is not null)
+                {
+                    <PhotoNote Image="block.Image" Library="Library" />
+                }
                 break;
             case BlockKind.Heading:
                 <div class="preview-block preview-heading"><PreviewText Text="@block.Text" /></div>
@@ -32,6 +37,10 @@
                         <PreviewPhoto Image="block.Image" Library="Library" />
                     }
                 </div>
+                @if (!placeholder)
+                {
+                    <PhotoNote Image="block.Image" Library="Library" />
+                }
                 break;
             case BlockKind.Button:
                 <div class="preview-block preview-button">

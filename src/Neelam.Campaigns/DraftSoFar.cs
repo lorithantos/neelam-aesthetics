@@ -22,7 +22,8 @@ internal static class DraftSoFar
 
     /// <summary>
     /// The email's blocks as the export would show them, with each missing part as a placeholder
-    /// naming it as the missing list does, e.g. "‹Offer › Terms link: not filled in yet›". Optional
+    /// named as its field is, in the style of <see cref="TemplatePreview"/>'s, e.g. "‹Terms link: not
+    /// filled in yet›" or "‹Tier 2 name: not filled in yet›". Optional
     /// parts left empty are left out, as they would be sent.
     /// </summary>
     public static IReadOnlyList<EditorBlock> Preview(CampaignDraft draft) =>
@@ -56,35 +57,36 @@ internal static class DraftSoFar
         return block.Required ? [new PlaceholderBlock(block.Label, block.Type, ToFill(block.Name))] : [];
     }
 
-    // An offer is its name as a heading, then its text, as the export gives it.
+    // An offer is its name as a heading, then its text, as the export gives it. Each missing part is
+    // named as its field is, "Tier 2 name", with no "›" inside the placeholder's own ‹ › marks.
     private static IEnumerable<Block> OfferShown(OfferBlockDraft block)
     {
         var (label, offer) = (block.Label, block.Offer);
         yield return offer.Name.HasValue
             ? new HeadingBlock(label, offer.Name.Value)
-            : new PlaceholderBlock(label, BlockType.Offer, ToFill($"{label} › Name"));
+            : new PlaceholderBlock(label, BlockType.Offer, ToFill($"{label} name"));
 
-        var text = new List<string> { offer.Summary.HasValue ? offer.Summary.Value : ToFill($"{label} › Summary") };
+        var text = new List<string> { offer.Summary.HasValue ? offer.Summary.Value : ToFill($"{label} summary") };
         if (offer.TiersNote.HasValue) text.Add(offer.TiersNote.Value);
-        if (offer.Tiers.Count == 0) text.Add(ToFill($"{label} › Tiers"));
+        if (offer.Tiers.Count == 0) text.Add(ToFill($"{label} tiers"));
         for (var i = 0; i < offer.Tiers.Count; i++)
-            text.Add(TierShown(offer.Tiers[i], $"{label} › Tier {i + 1}", block.Marker, offer.IsRecurring));
+            text.Add(TierShown(offer.Tiers[i], $"Tier {i + 1}", block.Marker, offer.IsRecurring));
         if (offer.TermsUrl.HasValue) text.Add(EditorExport.TermsText(offer.TermsUrl.Value));
-        else if (offer.IsRecurring) text.Add(ToFill($"{label} › Terms link"));
+        else if (offer.IsRecurring) text.Add(ToFill("Terms link"));
         yield return new ParagraphsBlock(label, text);
     }
 
-    private static string TierShown(TierDraft tier, string where, string marker, bool recurring)
+    private static string TierShown(TierDraft tier, string tierName, string marker, bool recurring)
     {
         IReadOnlyList<string> items = tier.Benefits.Count == 0
-            ? [ToFill($"{where} › Benefits")]
-            : tier.Benefits.Select((b, i) => b.HasValue ? b.Value.Describe() : ToFill($"{where} › Benefit {i + 1}")).ToList();
+            ? [ToFill($"{tierName} benefits")]
+            : tier.Benefits.Select((b, i) => b.HasValue ? b.Value.Describe() : ToFill($"{tierName}, benefit {i + 1}")).ToList();
         return EditorExport.TierText(
-            tier.Name.HasValue ? tier.Name.Value : ToFill($"{where} › Name"),
-            tier.MonthlyPrice.HasValue ? EditorExport.PriceText(tier.MonthlyPrice.Value, recurring) : ToFill($"{where} › Price"),
+            tier.Name.HasValue ? tier.Name.Value : ToFill($"{tierName} name"),
+            tier.MonthlyPrice.HasValue ? EditorExport.PriceText(tier.MonthlyPrice.Value, recurring) : ToFill($"{tierName} price"),
             items,
             marker);
     }
 
-    private static string ToFill(string where) => TemplatePreview.Marked($"{where}: not filled in yet");
+    private static string ToFill(string what) => TemplatePreview.Marked($"{what}: not filled in yet");
 }

@@ -1,15 +1,15 @@
-@* One photo in a preview, looked up by name in the client's image library: a photo on Square is
-   shown from Square's own address, so the preview is the image she will pick there; an upload is
-   named. Where the page knows the library, a name it does not hold says so, in the same words as
-   the photo field. Without a library (sample content, such as How it works) the name is shown. *@
+@* One photo in a preview, where it sits in the email: a photo on Square is shown from Square's own
+   address, so the preview is the image she will pick there. Anything else (an upload, a name the
+   library does not hold, sample content with no library) has nothing to show, so it stands in as
+   "Photo", marked like a placeholder. Its name and the library's word on it are not in the email:
+   PhotoNote says them, outside the block. *@
 @if (_entry?.SquareUrl is { } url)
 {
     <img class="preview-image" src="@url.AbsoluteUri" alt="@(Image.AltText ?? "")" />
 }
-<span>Photo: @Image.Name</span>
-@if (Library is not null && _entry is null)
+else
 {
-    <span class="field-help">@ImageLibrary.NotInLibrary</span>
+    <span class="placeholder">Photo</span>
 }
 
 @code {

@@ -1,0 +1,16 @@
+@* Under a photo in a preview, outside the email's block: which photo it is, said as a note for her
+   and plainly not part of the email (the walkthrough could not tell whether an italic "Photo: ..."
+   caption went out). Where the page knows the library and it has no photo by that name, it says so
+   in the same words as the photo field. *@
+<p class="field-help" data-photo-note>@Text</p>
+
+@code {
+    [Parameter, EditorRequired] public ImageRef Image { get; set; } = null!;
+
+    /// <summary>The client's image library, or null where there is none to look in.</summary>
+    [Parameter] public IReadOnlyList<LibraryImage>? Library { get; set; }
+
+    private string Text =>
+        $"For you, not in the email: the photo \"{Image.Name}\"."
+        + (Library is not null && ImageLibrary.Find(Library, Image.Name) is null ? " " + ImageLibrary.NotInLibrary : "");
+}

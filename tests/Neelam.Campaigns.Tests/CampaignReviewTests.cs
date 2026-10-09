@@ -32,6 +32,59 @@ public class CampaignReviewTests
             Rules(report, Severity.Blocker));
     }
 
+    // ---- Wording: the benefit as she wrote it, never its key; singular and plural; text as written
+
+    private static Campaign TwoTiers(Tier first, Tier second) =>
+        new("Hello", [new OfferBlock("Offer", new Offer("Membership", "Join us.", [first, second], IsRecurring: false, TermsUrl: null, TiersNote: null))]);
+
+    // The walkthrough read "has free:wellness injecton that tier 1 lacks".
+    [Fact]
+    public void Tiers_that_differ_name_the_benefits_as_written()
+    {
+        var finding = CampaignReview.Check(TwoTiers(
+                new Tier("Gold Member", 149m, [new BirthdayCredit(25m), new PercentOff(5, "any qualifying treatments")]),
+                new Tier("Platinum Member", 299m, [new FreeItem(1, "Wellness Injecton", "per visit"), new DiscountedItem(50, "facial", "per visit")])))
+            .Findings.Single(f => f.Rule == "tiers-parallel");
+
+        Assert.Equal(
+            "'Platinum Member' has \"1 complimentary Wellness Injecton per visit\" and \"50% off one facial per visit\" that tier 1 lacks " +
+            "and lacks \"$25 birthday credit during your birth month\" and \"5% off any qualifying treatments\" that tier 1 has; " +
+            "check the tiers read side by side.",
+            finding.Message);
+        Assert.DoesNotContain("free:", finding.Message);
+    }
+
+    [Theory]
+    [InlineData("Join the Beauty Bank.", "'bank' appears in 1 place —")]
+    [InlineData("Join the Beauty Bank. Your bank, your way.", "'bank' appears in 1 place —")]
+    public void A_restricted_term_in_one_place_is_said_in_the_singular(string opening, string expected) =>
+        Assert.StartsWith(expected, CampaignReview.Check(new Campaign("Hello", [new ParagraphsBlock("Opening", [opening])]))
+            .Findings.Single(f => f.Rule == "restricted-term").Message);
+
+    [Fact]
+    public void A_restricted_term_in_several_places_is_said_in_the_plural()
+    {
+        var finding = CampaignReview.Check(new Campaign("The Beauty Bank", [new ParagraphsBlock("Opening", ["Join the Beauty Bank."])]))
+            .Findings.Single(f => f.Rule == "restricted-term");
+
+        Assert.StartsWith("'bank' appears in 2 places —", finding.Message);
+        Assert.DoesNotContain("(s)", finding.Message);
+    }
+
+    // The walkthrough read 'Repeats "75 birthday credit..."', the "$" dropped and her capitals lowered.
+    [Fact]
+    public void A_repeated_phrase_is_quoted_as_written()
+    {
+        var finding = CampaignReview.Check(new Campaign("Hello",
+            [
+                new ParagraphsBlock("Opening", ["Members get a $75 Birthday Reward during your birth month, every year!"]),
+                new ParagraphsBlock("Closing", ["Remember: $75 Birthday Reward during your birth month, every year."]),
+            ]))
+            .Findings.Single(f => f.Rule == "repeated-phrase");
+
+        Assert.Equal("Repeats \"$75 Birthday Reward during your birth month…\" from Opening, paragraph 1.", finding.Message);
+    }
+
     [Fact]
     public void Second_send_warns_on_wording()
     {

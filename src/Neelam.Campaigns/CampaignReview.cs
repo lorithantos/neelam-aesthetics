@@ -227,21 +227,34 @@ public static class CampaignReview
     private static IEnumerable<Finding> TiersParallel(string label, Offer offer)
     {
         if (offer.Tiers.Count < 2) yield break;
-        var baseline = offer.Tiers[0].Benefits.Select(b => b.Kind).ToHashSet();
+        var first = offer.Tiers[0].Benefits;
+        var baseline = first.Select(b => b.Kind).ToHashSet();
         for (var i = 1; i < offer.Tiers.Count; i++)
         {
-            var kinds = offer.Tiers[i].Benefits.Select(b => b.Kind).ToHashSet();
-            var onlyHere = kinds.Except(baseline).ToList();
-            var missing = baseline.Except(kinds).ToList();
+            var benefits = offer.Tiers[i].Benefits;
+            var kinds = benefits.Select(b => b.Kind).ToHashSet();
+            // Compared by kind; named as she wrote them, never by the kind's key ("free:wellness injection").
+            var onlyHere = benefits.Where(b => !baseline.Contains(b.Kind)).Select(b => b.Describe()).ToList();
+            var missing = first.Where(b => !kinds.Contains(b.Kind)).Select(b => b.Describe()).ToList();
             if (onlyHere.Count == 0 && missing.Count == 0) continue;
 
             var parts = new List<string>();
-            if (onlyHere.Count > 0) parts.Add($"has {string.Join(", ", onlyHere)} that tier 1 lacks");
-            if (missing.Count > 0) parts.Add($"lacks {string.Join(", ", missing)} that tier 1 has");
+            if (onlyHere.Count > 0) parts.Add($"has {Quoted(onlyHere)} that tier 1 lacks");
+            if (missing.Count > 0) parts.Add($"lacks {Quoted(missing)} that tier 1 has");
             yield return new(Severity.Warning, "tiers-parallel", $"{label} › Tier {i + 1}",
                 $"'{offer.Tiers[i].Name}' {string.Join(" and ", parts)}; check the tiers read side by side.");
         }
     }
+
+    // "\"A\"", "\"A\" and \"B\"", "\"A\", \"B\" and \"C\"".
+    private static string Quoted(IReadOnlyList<string> items)
+    {
+        var quoted = items.Select(i => $"\"{i}\"").ToList();
+        return quoted.Count == 1 ? quoted[0] : $"{string.Join(", ", quoted.Take(quoted.Count - 1))} and {quoted[^1]}";
+    }
+
+    // "1 place", "3 places".
+    private static string Places(int count) => count == 1 ? "1 place" : $"{count} places";
 
     private static IEnumerable<Finding> TermsForRecurring(string label, Offer offer)
     {
@@ -273,7 +286,7 @@ public static class CampaignReview
             var where = text.Where(f => pattern.IsMatch(f.Text)).Select(f => f.Location).ToList();
             if (where.Count > 0)
                 yield return new(Severity.Warning, "restricted-term", where[0],
-                    $"'{term}' appears in {where.Count} place(s) — {reason} Needs sign-off before sending.");
+                    $"'{term}' appears in {Places(where.Count)} — {reason} Needs sign-off before sending.");
         }
     }
 
@@ -288,16 +301,26 @@ public static class CampaignReview
             var words = Words(fragment.Text);
             for (var i = 0; i + n <= words.Count; i++)
             {
-                var shingle = string.Join(' ', words.Skip(i).Take(n));
+                var shingle = string.Join(' ', words.Skip(i).Take(n).Select(w => w.Word));
                 if (!firstSeen.TryAdd(shingle, fragment.Location)
                     && firstSeen[shingle] != fragment.Location
                     && reported.Add($"{firstSeen[shingle]}|{fragment.Location}"))
                 {
                     yield return new(Severity.Warning, "repeated-phrase", fragment.Location,
-                        $"Repeats \"{shingle}…\" from {firstSeen[shingle]}.");
+                        $"Repeats \"{AsWritten(fragment.Text, words[i], words[i + n - 1])}…\" from {firstSeen[shingle]}.");
                 }
             }
         }
+    }
+
+    // The repeated words as she wrote them, compared lowercased and without punctuation: "$75
+    // Birthday reward", never "75 birthday reward". A sign stuck to the first word ("$", a quote)
+    // comes with it.
+    private static string AsWritten(string text, WordSpan first, WordSpan last)
+    {
+        var start = first.Start;
+        while (start > 0 && !char.IsWhiteSpace(text[start - 1])) start--;
+        return text[start..last.End];
     }
 
     private static IEnumerable<Finding> EmojiSpacing(IReadOnlyList<TextFragment> text)
@@ -332,23 +355,30 @@ public static class CampaignReview
     private static Regex WordPrefix(string term) =>
         new($@"\b{Regex.Escape(term)}", RegexOptions.IgnoreCase);
 
-    private static List<string> Words(string s)
+    // Each word lowercased, with where it sits in the text (Start inclusive, End exclusive, in chars).
+    private readonly record struct WordSpan(string Word, int Start, int End);
+
+    private static List<WordSpan> Words(string s)
     {
-        var words = new List<string>();
+        var words = new List<WordSpan>();
         var current = new StringBuilder();
+        var start = 0;
+        var index = 0;
         foreach (var r in s.EnumerateRunes())
         {
             if (Rune.IsLetterOrDigit(r) || r.Value is '%' or '\'' or '’')
             {
+                if (current.Length == 0) start = index;
                 current.Append(Rune.ToLowerInvariant(r).ToString());
             }
             else if (current.Length > 0)
             {
-                words.Add(current.ToString());
+                words.Add(new(current.ToString(), start, index));
                 current.Clear();
             }
+            index += r.Utf16SequenceLength;
         }
-        if (current.Length > 0) words.Add(current.ToString());
+        if (current.Length > 0) words.Add(new(current.ToString(), start, index));
         return words;
     }
 
