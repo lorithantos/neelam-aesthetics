@@ -79,17 +79,20 @@ app.UseAntiforgery();
 
 // Proves the app's identity can reach its storage: it reads the clients table and reports only
 // whether that worked, never what is in it. Public so a deploy can check it with no sign-in.
-app.MapGet("/healthz", async (IClientDirectory clients, ILogger<Program> log, CancellationToken ct) =>
+// The answer is JSON -- {"status":"ok","utc":"<ISO 8601 UTC>"} -- and the server's own time shows a
+// probe reached a live process, not something cached in front of it. The status code still
+// carries the verdict on its own (200 or 503), which is all a deploy's poll reads.
+app.MapGet("/healthz", async (IClientDirectory clients, TimeProvider clock, ILogger<Program> log, CancellationToken ct) =>
 {
     try
     {
         await clients.ListAsync(ct);
-        return Results.Text("ok");
+        return Results.Json(HealthReport.At("ok", clock));
     }
     catch (Exception ex) when (ex is not OperationCanceledException)
     {
         log.LogError(ex, "Health check could not read the clients table.");
-        return Results.Text("storage unreachable", statusCode: StatusCodes.Status503ServiceUnavailable);
+        return Results.Json(HealthReport.At("storage unreachable", clock), statusCode: StatusCodes.Status503ServiceUnavailable);
     }
 }).AllowAnonymous();
 
@@ -100,3 +103,12 @@ app.Run();
 
 /// <summary>Public so the tests can host the real app and inspect its endpoints.</summary>
 public partial class Program;
+
+/// <summary>What /healthz answers: a status word and the server's clock.</summary>
+/// <param name="Utc">Round-trip ISO 8601 in UTC, with a Z -- the same instant in every timezone, so a
+/// reader never has to guess which one the server was in.</param>
+internal sealed record HealthReport(string Status, string Utc)
+{
+    public static HealthReport At(string status, TimeProvider clock) =>
+        new(status, clock.GetUtcNow().UtcDateTime.ToString("o", System.Globalization.CultureInfo.InvariantCulture));
+}

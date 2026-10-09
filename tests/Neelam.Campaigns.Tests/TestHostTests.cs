@@ -1,6 +1,10 @@
+using System.Net;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neelam.Campaigns.Storage;
 
 namespace Neelam.Campaigns.Tests;
@@ -72,13 +76,47 @@ public class TestHostTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.False((await Authenticate(new())).Succeeded);
     }
 
-    // The app under test reads its clients from memory, not from Azure.
+    // The app under test reads its clients from memory, not from Azure. Its health answer is JSON:
+    // the status and the server's own clock, in UTC with a Z.
     [Fact]
     public async Task The_enforced_app_runs_on_in_memory_storage()
     {
         var response = await app.CreateClient().GetAsync("/healthz");
 
-        Assert.Equal("ok", await response.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+        using var health = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(["status", "utc"], health.RootElement.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal("ok", health.RootElement.GetProperty("status").GetString());
+        Assert.Equal("2026-10-03T12:00:00.0000000Z", health.RootElement.GetProperty("utc").GetString());
+    }
+
+    // A storage failure is still JSON, with the same shape and a 503 -- the code alone is the verdict
+    // a deploy's poll reads, and the body says why without saying what is stored.
+    [Fact]
+    public async Task Health_reports_unreachable_storage_as_503_json()
+    {
+        using var broken = app.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(new UnreachableDirectory())));
+
+        var response = await broken.CreateClient().GetAsync("/healthz");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        using var health = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal("storage unreachable", health.RootElement.GetProperty("status").GetString());
+        Assert.Equal("2026-10-03T12:00:00.0000000Z", health.RootElement.GetProperty("utc").GetString());
+    }
+
+    private sealed class UnreachableDirectory : IClientDirectory
+    {
+        public Task<IReadOnlyList<ClientRecord>> ListAsync(CancellationToken cancellationToken = default) =>
+            throw new HttpRequestException("No such host is known.");
+
+        public Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task UpdateAsync(ClientRecord client, CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     // A scope per request, as the server gives: handlers and their results are cached per scope.
