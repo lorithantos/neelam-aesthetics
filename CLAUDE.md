@@ -84,8 +84,9 @@ reachable over HTTP:
   structured results. Use `testFilter` for a narrowed run.
 - Bicep CLI and Azure CLI are installed with winget (`Microsoft.Bicep`,
   `Microsoft.AzureCLI`), and `az` uses the same `bicep` from PATH
-  (`bicep.use_binary_from_path=true`). Check Bicep with `bicep build` and
-  `bicep lint infra/main.bicep`; Janet does not cover Bicep yet.
+  (`bicep.use_binary_from_path=true`). Check Bicep with Janet's `bicep_check`
+  on both `infra\test.bicepparam` and `infra\main.bicepparam` before any
+  `azure_whatif` or `azure_deploy`, and report its result with the what-if.
 - `az` needs `az login` before a what-if, a deployment or `janet az token`. The
   owner runs it themselves (`! az login`).
 - `gh` is not installed. Find GitHub repos through the REST API.
