@@ -9,8 +9,15 @@ namespace Neelam.Web.Security;
 /// between several, and the operator working in a client under its support grant, come later.
 /// </summary>
 public sealed class ClientWorkspace(
-    ICallerSource callers, ISupportGrantStore grants, IClientDirectory clients, TimeProvider clock)
+    ICallerSource callers, ISupportGrantStore grants, IClientDirectory clients, IKnownItemStore knownItems, TimeProvider clock,
+    ILogger<ClientWorkspace> log)
 {
+    /// <summary>
+    /// The client's known items, to add, change and pick from. Only for a client
+    /// <see cref="ClientDataAsync"/> gave, as for every other store of client data.
+    /// </summary>
+    public IKnownItemStore Known => knownItems;
+
     /// <summary>
     /// The name a client's people know it by, from the clients table: its display name, or its
     /// name when the table has no row for it or the row has no display name.
@@ -23,10 +30,27 @@ public sealed class ClientWorkspace(
 
     /// <summary>
     /// The client's registration as the checks take it: its name, description and the phone numbers
-    /// it may publish. Null when the clients table has no row for it, so nothing is checked against one.
+    /// it may publish, with its known items. Null when the clients table has no row for it and it has
+    /// no known items, so nothing is checked against either; with items and no row, the business is
+    /// named by its client name. Known items that cannot be read (the table not deployed yet, say) are
+    /// logged and taken as none: they help, but a campaign page must not fail for want of them.
     /// </summary>
-    public async Task<BusinessContext?> BusinessAsync(ClientName client, CancellationToken ct = default) =>
-        (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client)?.Business;
+    public async Task<BusinessContext?> BusinessAsync(ClientName client, CancellationToken ct = default)
+    {
+        var registered = (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client)?.Business;
+        KnownItems known;
+        try
+        {
+            known = await knownItems.ForClientAsync(client, ct);
+        }
+        catch (Azure.RequestFailedException ex)
+        {
+            log.LogError(ex, "Could not read the known items of {Client}; the checks go on without them.", client.Value);
+            known = KnownItems.None;
+        }
+        if (known.IsEmpty) return registered;
+        return (registered ?? new BusinessContext(client.ToString())) with { Known = known };
+    }
 
     /// <summary>
     /// Who the activity trail says is acting: the signed-in user's name, or in Prototype, where

@@ -4,12 +4,19 @@ namespace Neelam.Campaigns;
 /// What the checks know about the business sending the email, from its registration in the
 /// clients table: its name and the operator's description of it, which the proofread takes as
 /// background for judging names, services and facts, never instructions; and the phone numbers it
-/// may publish, against which the rules check every number in the email.
+/// may publish, against which the rules check every number in the email; and its known items,
+/// against which the rules check treatment names and benefit lines for near misses.
 /// </summary>
 public sealed record BusinessContext(string Name, string? Description = null)
 {
     /// <summary>The numbers the business has registered; none means the numbers are not checked.</summary>
     public PhoneNumbers Phones { get; init; } = PhoneNumbers.None;
+
+    /// <summary>
+    /// The client's known items; none means nothing is checked against them. Never given to the
+    /// proofread, which is told only the name and description.
+    /// </summary>
+    public KnownItems Known { get; init; } = KnownItems.None;
 }
 
 /// <summary>Reads an email the way a careful editor would and reports mistakes.</summary>

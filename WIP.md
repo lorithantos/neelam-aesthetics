@@ -219,6 +219,62 @@ addresses the app holds are the image URLs she already keeps in her library.
   on Square has no address, so the assistant stops at it by design. The Beauty Bank photos have no
   Square addresses yet (see "Images hosted on Square").
 
+## Known items (owner, 2026-10-09; built the same day)
+
+**Decided by the owner:** a per-client list of things she writes again and again, in **Azure Table
+Storage**, picked from while writing a campaign. Three kinds, all wanted: **treatments and services**
+("Botox", "Wellness injection"), **benefit lines** ("10% off any qualifying treatments"), and **offers /
+tiers** ("Platinum Member", $299/month, with its benefit lines). Guidance with it: "as much as possible,
+data driven and helpful", so her campaigns fill the list, it suggests as she types, and it catches near
+misses.
+
+- **Table** (`knownItems`, **new: needs a live infra deploy**; added to the Bicep `tables` list and pinned
+  in `InfrastructureTests.The_metadata_tables_are_exactly_these`, beside `activity`): partition = client
+  name, row = the item's id (32 hex digits). Columns: `Kind` (Treatment, Benefit, Tier), `Text` (a
+  treatment's or tier's name, a benefit's sentence), and `Benefit` (a benefit item's typed benefit as
+  JSON) or `Price` (text, so it is exact) and `Benefits` (the tier's typed lines as JSON). The site's
+  identity gets Storage Table Data Contributor on it through the same `tables[i]` loop as every table.
+  Until it is deployed, the Known items page fails to open; campaign pages log the failed read
+  (`ClientWorkspace.BusinessAsync`) and go on with no known items.
+- **Benefits stay typed.** The campaign model has no free-text benefit (README "Why": "50% Complimentary"
+  cannot be expressed), so a known benefit is a typed `Benefit`, its text the sentence it reads as.
+  Picking one puts the same kind and values in the form.
+- **A tier carries its lines' text, not references to benefit items.** A tier goes out as a whole, so
+  changing or removing a benefit item must not quietly change a tier; a tier saved from a campaign has
+  lines that were never benefit items; and one row is the whole tier, with no reference to dangle.
+- **Scoping:** pages reach it only for the client `ClientWorkspace.ClientDataAsync` gave
+  (`ClientWorkspace.Known`, `IKnownItemStore`, `KnownItemTable`). Every query names one partition, and
+  a row from any other is refused when read. `KnownItemStoreRules` (both stores): an item says the same
+  thing once per kind (ignoring case), a tier needs a name and a price above zero, an item keeps its
+  kind when changed.
+- **Her page:** `/known-items` ("Known items" in the client header, policy `Campaigns`, client layout,
+  no admin links). A section per kind: add, change (in place) and remove. A tier is built from a name, a
+  price and lines, each picked from her benefit lines ("Pick a benefit") or typed. The page binds to
+  `KnownItemsSession`, which the tests drive.
+- **In the campaign editor** (`OfferFields`, with the shared `BenefitFields` and `KnownItemLists`):
+  "Pick a benefit" under each tier adds a known benefit as a new line; "Add a known tier" under the tiers
+  adds a whole tier; the tier name and each benefit's **Item** field (the treatment, for "something free"
+  and "percent off an item", the only place the block model names one) suggest her known tier names and
+  treatments as she types, through the browser's own list (`datalist`), with free typing still allowed.
+  Picked text is ordinary text she entered (`Origin.Entered`), never "not yet checked". A picked tier
+  that repeats another's name or price is let in and flagged by `tier-names-unique` /
+  `tier-prices-increase`, as a copy is. **Save as a known item** next to each tier and each benefit line
+  saves it exactly as written (or says it is already known).
+- **Near misses** (`known-item`, "Worth a look", never a block): a benefit's item name against her known
+  treatments, and its sentence against her benefit lines and the lines of her known tiers, "Did you mean
+  'Wellness injection'? It's in your known items." Threshold (`KnownItemMatch`): an exact match says
+  nothing; the same letters in another case is a near miss; otherwise both at least 6 characters, at most
+  2 edits apart ignoring case, with the same digits ("15% off" is not a typo of "10% off"). The items
+  reach the rule as the phone numbers do: `BusinessContext.Known`, filled by
+  `ClientWorkspace.BusinessAsync`, so it runs on whole and partial drafts and in the gate. No items, no
+  finding. Never given to the proofread.
+- **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
+  `KnownItemRemoved`) by the item's id, never its text.
+- **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and
+  buttons (no test drives a Blazor circuit or a `datalist`). Treatment names written in free text
+  (paragraphs) are not checked against the list, only the Item field. Picking happens in the campaign
+  editor only, not the template editor.
+
 ## Open decisions (the owner's to make)
 
 Do not settle these on the owner's behalf. Bring options with a recommendation.
@@ -243,6 +299,7 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
    - whether "Beauty Bank" and "savings account" are acceptable. They are warnings, not blockers, on purpose: it is a business and legal call.
 6. **"Start from last campaign".** Offered but not answered. It would reuse slot origins, so every copied field has to be edited or confirmed.
 7. **Copied benefit amounts.** Offered but not answered: should a copied tier's amounts start blank, so every number has to be re-typed? Currently each copied benefit is kept but marked unreviewed.
+8. **The catalog, now that known items exist** (2026-10-09). `ClientCatalog` (`{client}/catalog/{stamp}.json`: procedures and medications, each with a kind and an optional usual price) has a model, JSON and a store (`ClientStores.Catalog`), but **nothing reads or writes it** outside tests: no page, not the checks, not the proofread. Known treatments hold the same names. Options: (a) known items supersede it, and the catalog code and its README/WIP mentions are removed; (b) keep both, the catalog for prices; (c) give known treatments an optional usual price and kind, then (a). **Recommendation: (a)**, adding a price to a treatment only when a check or page needs one: the catalog is unused, and two lists of the same names would drift. Nothing is deleted or migrated until the owner says.
 
 ## Suggested next steps, once the decisions above land
 

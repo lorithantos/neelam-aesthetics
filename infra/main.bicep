@@ -121,7 +121,8 @@ resource settingsContainer 'Microsoft.Storage/storageAccounts/blobServices/conta
 
 // Metadata: clients, support grants, approvals and dismissals, and the activity trail (one row per action,
 // deletions included). Membership is Entra's, not a table's. Never an index of saves and never their
-// content, so a deleted save's contents still cannot be recovered.
+// content, so a deleted save's contents still cannot be recovered. knownItems holds each client's known
+// items (treatments, benefit lines, tiers), one partition per client.
 resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
   parent: storage
   name: 'default'
@@ -132,6 +133,7 @@ var tableNames = [
   'supportGrants'
   'approvals'
   'activity'
+  'knownItems'
 ]
 
 resource tables 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = [

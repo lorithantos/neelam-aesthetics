@@ -172,7 +172,7 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants, dismissals, approvals (one row per approved save) and the activity trail (one row per action, ids only, never content), each client's in its own partition | The app. The operator manages clients |
+| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants, dismissals, approvals (one row per approved save), the activity trail (one row per action, ids only, never content) and known items (one row per treatment, benefit line or tier she picks from), each client's in its own partition | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json` | That client's members and the operator; the standard baseline is read for every client |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline if it saved one | The client's members. The operator only under a support grant |
 
@@ -205,7 +205,16 @@ for them. A client's people only sign in and work on their campaigns.
 - **What the client offers is the client's.** The procedures and medications to offer, and
   their usual prices, are a catalog in the client's own container
   (`{client}/catalog/{stamp}.json`). The operator sees it only under a support grant, like the
-  campaigns.
+  campaigns. Nothing reads or writes the catalog yet; her **known items** (below) now hold the
+  treatment names, and whether they supersede the catalog is the owner's open decision.
+- **She writes the same things once.** Her known items are the treatments, benefit lines and
+  whole tiers she uses again and again, in the `knownItems` table, one partition per client,
+  reached only for the client the access check gave. She keeps them on her Known items page,
+  picks them into a campaign (a benefit into a tier, a whole tier into the offer, a treatment or
+  tier name suggested as she types), and saves a tier or a benefit line from a campaign as a
+  known item. Picked text is hers, as if typed. Benefits stay typed, so a known benefit is a
+  typed benefit and its text is the sentence it reads as; a known tier carries its own lines
+  rather than pointing at benefit items, so changing a benefit item never changes a tier.
 - **So is how strict the checks are.** The restricted terms, medical terms and emoji limit that
   `CampaignPolicy` holds today become each client's own policy, in their container at
   `{client}/policy/{stamp}.json`. These are the client's decisions: they see and control them,
@@ -286,6 +295,12 @@ A later email signed off with "Snohomish, WA | 425-877-8646" while Square's reco
 business had (425) 773-5261. The numbers a client may publish are part of its registration in
 the clients table, and `phone-registered` warns about any other number anywhere in the email,
 fixed template text and `tel:` links included. With no numbers registered it says nothing.
+
+The same idea, from her own data: `known-item` warns when a benefit's treatment name or its
+sentence nearly matches one of her known items but differs, "Did you mean 'Wellness
+injection'? It's in your known items." Nearly means the same letters in another case, or, for
+text of at least 6 characters, at most 2 edits apart with the same numbers in it, so "15% off"
+is never taken for a typo of "10% off" (`KnownItemMatch`). With no known items it says nothing.
 
 ## Layout
 

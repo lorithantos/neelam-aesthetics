@@ -1,0 +1,97 @@
+@* One typed benefit's fields: its kind, then the fields that kind needs, and the sentence it
+   reads as. Shared by a campaign's tiers and the Known items page. An item's name suggests her
+   known treatments as she types (the KnownItemLists datalist); typing any other name is still allowed. *@
+@implements IHandleEvent
+<div class="field">
+    <label for="benefit-kind-@Id">@Label</label>
+    <select id="benefit-kind-@Id" @bind="Benefit.Kind">
+        <option value="">Choose what kind of benefit</option>
+        @foreach (var kind in BenefitKind.All)
+        {
+            <option value="@kind.Key">@kind.Name</option>
+        }
+    </select>
+</div>
+@switch (Benefit.Kind)
+{
+    case "birthday-credit":
+        <div class="field">
+            <label for="benefit-amount-@Id">Credit, in dollars</label>
+            <input id="benefit-amount-@Id" inputmode="decimal" @bind="Benefit.Amount" @bind:event="oninput" />
+        </div>
+        break;
+    case "percent-off":
+        <div class="field">
+            <label for="benefit-percent-@Id">Percent off</label>
+            <input id="benefit-percent-@Id" inputmode="numeric" @bind="Benefit.Percent" @bind:event="oninput" />
+        </div>
+        <div class="field">
+            <label for="benefit-applies-@Id">Off what</label>
+            <input id="benefit-applies-@Id" @bind="Benefit.AppliesTo" @bind:event="oninput" />
+            <span class="field-help">Such as "any qualifying treatments".</span>
+        </div>
+        break;
+    case "free-item":
+        <div class="field">
+            <label for="benefit-quantity-@Id">How many</label>
+            <input id="benefit-quantity-@Id" inputmode="numeric" @bind="Benefit.Quantity" @bind:event="oninput" />
+        </div>
+        @ItemFields
+        break;
+    case "discounted-item":
+        <div class="field">
+            <label for="benefit-percent-@Id">Percent off</label>
+            <input id="benefit-percent-@Id" inputmode="numeric" @bind="Benefit.Percent" @bind:event="oninput" />
+        </div>
+        @ItemFields
+        <div class="field">
+            <label for="benefit-condition-@Id">Which ones (optional)</label>
+            <input id="benefit-condition-@Id" @bind="Benefit.Condition" @bind:event="oninput" />
+            <span class="field-help">Such as "any additional".</span>
+        </div>
+        break;
+}
+@if (Benefit.Error is { } benefitError)
+{
+    <p class="field-help" role="alert">@benefitError</p>
+}
+else if (Benefit.Sentence is { } sentence)
+{
+    <p class="field-help">Reads: @sentence</p>
+}
+
+@code {
+    [Parameter, EditorRequired] public BenefitEditor Benefit { get; set; } = null!;
+
+    /// <summary>Makes every field's id unique on the page.</summary>
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+
+    [Parameter] public string Label { get; set; } = "Benefit";
+
+    /// <summary>Told after every change here, so what is around it follows what is typed.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    // Blazor re-renders only the component that handled an event: without this the tier, and the
+    // page's checks, would not follow a benefit as it is typed.
+    async Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg)
+    {
+        await callback.InvokeAsync(arg);
+        StateHasChanged();
+        await Changed.InvokeAsync();
+    }
+
+    // The item and how often: shared by "something free" and "percent off an item". The item's
+    // name offers her known treatments as she types.
+    private RenderFragment ItemFields => @<text>
+        <div class="field">
+            <label for="benefit-item-@Id">Item</label>
+            <input id="benefit-item-@Id" list="@KnownItemLists.Treatments" @bind="Benefit.ItemName" @bind:event="oninput" />
+            <span class="field-help">Such as "wellness injection". Your known treatments are suggested as you type.</span>
+        </div>
+        <div class="field">
+            <label for="benefit-per-@Id">How often</label>
+            <input id="benefit-per-@Id" @bind="Benefit.Per" @bind:event="oninput" />
+            <span class="field-help">Such as "per visit".</span>
+        </div>
+    </text>;
+}

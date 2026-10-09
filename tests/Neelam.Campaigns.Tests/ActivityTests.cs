@@ -299,6 +299,13 @@ public class ActivityTests
         var library = Stores.Images(Salon, Asha);
         await library.AddFromSquareAsync(Photo, PhotoAddress);
         await library.DeleteAsync(Photo);
+        var known = await KnownItemsSession.OpenAsync(new InMemoryKnownItems(), Records.Recorder.For(Salon, Asha));
+        known.NewTreatment = KnownTreatment;
+        await known.AddTreatmentAsync();
+        known.StartEdit(known.Items.All[0]);
+        known.EditTreatment = KnownTreatment + " plus";
+        await known.SaveEditAsync();
+        await known.RemoveAsync(known.Items.All[0]);
 
         var events = Records.Activity.Events;
         Assert.Equal(Enum.GetValues<ActivityAction>().Order(), events.Select(e => e.Action).Distinct().Order());
@@ -330,7 +337,10 @@ public class ActivityTests
         }
     }
 
-    // A campaign or template id, a photo entry's random id, the baseline, or a client's name.
+    // A known item's name, added, changed and removed in the flow above.
+    private const string KnownTreatment = "Hydrafacial deluxe";
+
+    // A campaign or template id, a photo entry's or known item's random id, the baseline, or a client's name.
     private static readonly Regex EntityIdShape = new("^(?:[0-9a-f]{32}|baseline|test-salon-one)$");
 
     // Every text and number a person typed: each string and number in the drafts' and template's
@@ -364,7 +374,7 @@ public class ActivityTests
             }));
         }
         found.AddRange([Registration.DisplayName, Registration.Description!, "Now with a booking line.", "4258778646", "(425) 877-8646",
-            Photo, PhotoAddress, "squarecdn"]);
+            Photo, PhotoAddress, "squarecdn", KnownTreatment]);
         return found.Select(s => s.Trim()).Where(s => s.Length >= 3 && !kinds.Contains(s) && s is not ("true" or "false" or "null"))
             .Distinct().ToList();
     }

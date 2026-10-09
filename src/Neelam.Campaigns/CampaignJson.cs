@@ -111,6 +111,19 @@ public static class CampaignJson
         return new ClientCatalog(doc.Entries);
     }
 
+    /// <summary>
+    /// Typed benefits as compact JSON, each with its kind, the same shape a draft saves them in: what a
+    /// known benefit or known tier keeps in its table row.
+    /// </summary>
+    public static string SerializeBenefits(IReadOnlyList<Benefit> benefits) =>
+        JsonSerializer.Serialize(benefits, Compact);
+
+    public static IReadOnlyList<Benefit> DeserializeBenefits(string json) =>
+        JsonSerializer.Deserialize<List<Benefit>>(json, Compact)
+        ?? throw new InvalidDataException("Empty benefit list.");
+
+    private static readonly JsonSerializerOptions Compact = new(Options) { WriteIndented = false };
+
     public static string SerializePolicy(CampaignPolicy p) =>
         JsonSerializer.Serialize(new PolicyDocument(SchemaVersion, p), Options);
 

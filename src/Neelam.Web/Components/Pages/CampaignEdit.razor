@@ -19,6 +19,7 @@
 @inject NavigationManager Navigation
 @inject SiteMode Site
 @inject IAuthorizationService Authorization
+@inject ActivityRecorder Recorder
 
 <PageTitle>@Title</PageTitle>
 
@@ -54,6 +55,7 @@ else if (_session is not null)
     var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, approval,
         new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
 
+    <KnownItemLists Known="Known" />
     <h1>@Title</h1>
     <p><a href="campaigns">Back to campaigns</a>@(editor.TemplateName is { } template ? $" · From the template {template}" : "")</p>
 
@@ -153,7 +155,7 @@ else if (_session is not null)
                                     }
                                     break;
                                 case OfferBlockEditor offerBlock:
-                                    <OfferFields Offer="offerBlock.Offer" Index="index" Changed="StateHasChanged" />
+                                    <OfferFields Offer="offerBlock.Offer" Index="index" Known="Known" SaveKnown="SaveKnownAsync" Changed="StateHasChanged" />
                                     break;
                             }
                             @if (block.Error is { } error)
@@ -382,8 +384,22 @@ else if (_session is not null)
     // A campaign whose every save is undone, while it can still be restored.
     private SaveRef? _undone;
     private CampaignPolicy _policy = CampaignPolicy.Default;
-    // The client's registration, for the phone numbers the checks hold the campaign to.
+    // The client's registration, for the phone numbers the checks hold the campaign to, with her
+    // known items, which the pickers offer and the checks compare treatment names and benefits with.
     private BusinessContext? _business;
+    private ClientName? _client;
+
+    private KnownItems Known => _business?.Known ?? KnownItems.None;
+
+    // "Save as a known item" next to a tier or a benefit: kept exactly as written, then the pickers
+    // and the checks read the list again.
+    private async Task<string> SaveKnownAsync(KnownItem item)
+    {
+        var message = await KnownItemsSession.SaveFromCampaignAsync(
+            Workspace.Known, Recorder.For(_client!, await Workspace.ActorAsync()), item);
+        _business = await Workspace.BusinessAsync(_client!);
+        return message;
+    }
     private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
@@ -405,6 +421,7 @@ else if (_session is not null)
             _denied = reason;
             return;
         }
+        _client = client;
         if (AuthenticationState is not null)
             _canReview = (await Authorization.AuthorizeAsync((await AuthenticationState).User, Features.Review)).Succeeded;
 

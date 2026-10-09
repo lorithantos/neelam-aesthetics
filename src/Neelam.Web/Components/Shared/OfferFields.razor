@@ -1,7 +1,11 @@
 @* A tiered offer being written: its name and summary, then each tier with its typed benefits.
    Copying a tier is OfferDraft.CopyTier's: the same name and price, which the rules flag until one
    of the two tiers changes each, and every copied benefit marked as not yet checked until it is
-   changed or confirmed. *@
+   changed or confirmed. Her known items (owner, 2026-10-09) are offered as she writes: a whole
+   known tier, a known benefit into a tier, and her known tier names and treatments as suggestions
+   while typing. What is picked is ordinary text she typed, never marked as not yet checked; a
+   picked tier that repeats another's name or price is flagged by the rules, as a copy is. A tier or
+   a benefit line can be saved as a known item exactly as written. *@
 @implements IHandleEvent
 <div class="field">
     <label for="offer-name-@Index">Offer name</label>
@@ -25,6 +29,10 @@
 </div>
 
 <h4>Tiers</h4>
+@if (_message is not null)
+{
+    <p role="status">@_message</p>
+}
 @if (Offer.Tiers.Count == 0)
 {
     <p class="muted">No tiers yet.</p>
@@ -34,17 +42,26 @@
     var tierNumber = t + 1;
     var tier = Offer.Tiers[t];
     var id = $"{Index}-t{t}";
+    var (_, cannotSaveTier) = tier.ToKnown();
     <section class="card tier" aria-label="Tier @tierNumber">
         <div class="block-card-head">
             <h4>Tier @tierNumber</h4>
             <div class="block-actions">
                 <button class="button" disabled="@(!Offer.CanCopy(tier))" title="@(Offer.CanCopy(tier) ? null : "Fill in or remove its empty benefits first")" @onclick="() => Offer.CopyTier(tier)">Copy tier</button>
+                @if (SaveKnown is not null)
+                {
+                    <button class="button" disabled="@(cannotSaveTier is not null)" title="@cannotSaveTier" @onclick="() => SaveTierAsync(tier)">Save as a known item</button>
+                }
                 <button class="button danger" aria-label="Remove tier @tierNumber" @onclick="() => Offer.RemoveTier(tier)">Remove tier</button>
             </div>
         </div>
         <div class="field">
             <label for="tier-name-@id">Name</label>
-            <input id="tier-name-@id" @bind="tier.Name.Text" @bind:event="oninput" />
+            <input id="tier-name-@id" list="@KnownItemLists.Tiers" @bind="tier.Name.Text" @bind:event="oninput" />
+            @if (Known.Tiers.Count > 0)
+            {
+                <span class="field-help">Your known tier names are suggested as you type.</span>
+            }
         </div>
         <div class="field">
             <label for="tier-price-@id">Price@(Offer.IsRecurring ? " per month" : ""), in dollars</label>
@@ -69,77 +86,58 @@
                         <button class="button" @onclick="benefit.Confirm">Confirm</button>
                     </p>
                 }
-                <div class="field">
-                    <label for="benefit-kind-@bid">Benefit @benefitNumber</label>
-                    <select id="benefit-kind-@bid" @bind="benefit.Kind">
-                        <option value="">Choose what kind of benefit</option>
-                        @foreach (var kind in BenefitKind.All)
-                        {
-                            <option value="@kind.Key">@kind.Name</option>
-                        }
-                    </select>
+                <BenefitFields Benefit="benefit" Id="@bid" Label="@($"Benefit {benefitNumber}")" Changed="ChildChanged" />
+                <div class="block-actions">
+                    @if (SaveKnown is not null)
+                    {
+                        <button class="button" disabled="@(benefit.Value is null)" title="@(benefit.Value is null ? "Fill it in first" : null)" @onclick="() => SaveBenefitAsync(benefit)">Save as a known item</button>
+                    }
+                    <button class="button danger" aria-label="Remove benefit @benefitNumber of tier @tierNumber" @onclick="() => tier.RemoveBenefit(benefit)">Remove benefit</button>
                 </div>
-                @switch (benefit.Kind)
-                {
-                    case "birthday-credit":
-                        <div class="field">
-                            <label for="benefit-amount-@bid">Credit, in dollars</label>
-                            <input id="benefit-amount-@bid" inputmode="decimal" @bind="benefit.Amount" @bind:event="oninput" />
-                        </div>
-                        break;
-                    case "percent-off":
-                        <div class="field">
-                            <label for="benefit-percent-@bid">Percent off</label>
-                            <input id="benefit-percent-@bid" inputmode="numeric" @bind="benefit.Percent" @bind:event="oninput" />
-                        </div>
-                        <div class="field">
-                            <label for="benefit-applies-@bid">Off what</label>
-                            <input id="benefit-applies-@bid" @bind="benefit.AppliesTo" @bind:event="oninput" />
-                            <span class="field-help">Such as "any qualifying treatments".</span>
-                        </div>
-                        break;
-                    case "free-item":
-                        <div class="field">
-                            <label for="benefit-quantity-@bid">How many</label>
-                            <input id="benefit-quantity-@bid" inputmode="numeric" @bind="benefit.Quantity" @bind:event="oninput" />
-                        </div>
-                        @ItemFields(benefit, bid)
-                        break;
-                    case "discounted-item":
-                        <div class="field">
-                            <label for="benefit-percent-@bid">Percent off</label>
-                            <input id="benefit-percent-@bid" inputmode="numeric" @bind="benefit.Percent" @bind:event="oninput" />
-                        </div>
-                        @ItemFields(benefit, bid)
-                        <div class="field">
-                            <label for="benefit-condition-@bid">Which ones (optional)</label>
-                            <input id="benefit-condition-@bid" @bind="benefit.Condition" @bind:event="oninput" />
-                            <span class="field-help">Such as "any additional".</span>
-                        </div>
-                        break;
-                }
-                @if (benefit.Error is { } benefitError)
-                {
-                    <p class="field-help" role="alert">@benefitError</p>
-                }
-                else if (benefit.Sentence is { } sentence)
-                {
-                    <p class="field-help">Reads: @sentence</p>
-                }
-                <button class="button danger" aria-label="Remove benefit @benefitNumber of tier @tierNumber" @onclick="() => tier.RemoveBenefit(benefit)">Remove benefit</button>
             </div>
         }
         <p><button class="button" @onclick="() => tier.AddBenefit()">Add a benefit</button></p>
+        @if (Known.Benefits.Count > 0)
+        {
+            <div class="field">
+                <label for="pick-benefit-@id">Pick a benefit</label>
+                <input @key="@($"pick-{id}-{_picks}")" id="pick-benefit-@id" list="@KnownItemLists.Benefits" placeholder="Start typing to search your known benefits"
+                       value="@PickText(tier)" @oninput="e => PickBenefit(tier, e.Value as string)" />
+                <span class="field-help">Choosing one adds it to this tier as a new line, which you can still change.</span>
+            </div>
+        }
     </section>
 }
 <p><button class="button" @onclick="() => Offer.AddTier()">Add a tier</button></p>
+@if (Known.Tiers.Count > 0)
+{
+    <div class="field">
+        <label for="known-tier-@Index">Add a known tier</label>
+        <input @key="@($"known-tier-{_picks}")" id="known-tier-@Index" list="@KnownItemLists.Tiers" placeholder="Start typing to search your known tiers"
+               value="@_tierPick" @oninput="e => PickTier(e.Value as string)" />
+        <span class="field-help">Choosing one adds the whole tier, its name, price and benefits, which you can still change.</span>
+    </div>
+}
 
 @code {
     [Parameter, EditorRequired] public OfferEditor Offer { get; set; } = null!;
     [Parameter, EditorRequired] public int Index { get; set; }
 
+    /// <summary>Her known items, to pick from. None: nothing is offered.</summary>
+    [Parameter] public KnownItems Known { get; set; } = KnownItems.None;
+
+    /// <summary>Saves a known item and says what happened; null where nothing can be saved.</summary>
+    [Parameter] public Func<KnownItem, Task<string>>? SaveKnown { get; set; }
+
     /// <summary>Told after every change here, so the page around it can follow what is typed.</summary>
     [Parameter] public EventCallback Changed { get; set; }
+
+    private readonly Dictionary<TierEditor, string> _benefitPicks = [];
+    private string _tierPick = "";
+    private string? _message;
+    // Counts picks; a picker's key carries it, so after a pick the box is made afresh and shows empty
+    // even when the browser filled it from the list without a keystroke Blazor saw.
+    private int _picks;
 
     // Blazor re-renders only the component that handled an event, so without this the page's
     // "Still to do" kept saying the offer had no tiers until something on the page itself changed.
@@ -150,17 +148,47 @@
         await Changed.InvokeAsync();
     }
 
-    // The item and how often: shared by "something free" and "percent off an item".
-    private RenderFragment ItemFields(BenefitEditor benefit, string id) => @<text>
-        <div class="field">
-            <label for="benefit-item-@id">Item</label>
-            <input id="benefit-item-@id" @bind="benefit.ItemName" @bind:event="oninput" />
-            <span class="field-help">Such as "wellness injection".</span>
-        </div>
-        <div class="field">
-            <label for="benefit-per-@id">How often</label>
-            <input id="benefit-per-@id" @bind="benefit.Per" @bind:event="oninput" />
-            <span class="field-help">Such as "per visit".</span>
-        </div>
-    </text>;
+    // A benefit's fields told of a change: handling it here re-renders the offer and tells the page.
+    private void ChildChanged()
+    {
+    }
+
+    private string PickText(TierEditor tier) => _benefitPicks.GetValueOrDefault(tier, "");
+
+    // What she typed or chose; once it names a known benefit, that benefit is added and the box clears.
+    private void PickBenefit(TierEditor tier, string? text)
+    {
+        if (Known.BenefitNamed(text ?? "") is { } known)
+        {
+            tier.AddKnownBenefit(known.Benefit);
+            _benefitPicks.Remove(tier);
+            _message = null;
+            _picks++;
+            return;
+        }
+        _benefitPicks[tier] = text ?? "";
+    }
+
+    private void PickTier(string? text)
+    {
+        if (Known.TierNamed(text ?? "") is { } known)
+        {
+            Offer.AddKnownTier(known);
+            _tierPick = "";
+            _message = null;
+            _picks++;
+            return;
+        }
+        _tierPick = text ?? "";
+    }
+
+    private async Task SaveTierAsync(TierEditor tier)
+    {
+        if (tier.ToKnown().Tier is { } known) _message = await SaveKnown!(known);
+    }
+
+    private async Task SaveBenefitAsync(BenefitEditor benefit)
+    {
+        if (benefit.ToKnown() is { } known) _message = await SaveKnown!(known);
+    }
 }

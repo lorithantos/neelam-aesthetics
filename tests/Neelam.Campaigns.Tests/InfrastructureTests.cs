@@ -51,14 +51,15 @@ public class InfrastructureTests
     }
 
     // The metadata tables, each with the site's table role scoped to it (tables[i], above). The
-    // activity table was added on 2026-10-09 for the activity trail: changing this list is a live
-    // infrastructure deploy, so it is pinned here and changed deliberately.
+    // activity table was added on 2026-10-09 for the activity trail, and knownItems the same day for
+    // each client's known items: changing this list is a live infrastructure deploy, so it is pinned
+    // here and changed deliberately.
     [Fact]
     public void The_metadata_tables_are_exactly_these()
     {
         var list = Regex.Match(Bicep, @"var tableNames = \[(.*?)\]", RegexOptions.Singleline).Groups[1].Value;
         string[] tables = Regex.Matches(list, @"'([^']*)'").Select(m => m.Groups[1].Value).ToArray();
-        Assert.Equal(["clients", "supportGrants", "approvals", "activity"], tables);
+        Assert.Equal(["clients", "supportGrants", "approvals", "activity", "knownItems"], tables);
         Assert.Matches(new Regex(@"for name in tableNames: \{\s*parent: tableService\s*name: name\s"), Bicep);
         Assert.Matches(new Regex(@"for \(name, i\) in tableNames: \{\s*name: guid\(tables\[i\]\.id, site\.id, tableDataContributor\)\s*scope: tables\[i\]\s"), Bicep);
     }

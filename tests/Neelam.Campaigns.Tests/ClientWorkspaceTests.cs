@@ -10,12 +10,35 @@ public class ClientWorkspaceTests
     private static readonly ManualClock Clock = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
     private static Task<(ClientName? Client, string Reason)> For(Caller? caller) =>
-        new ClientWorkspace(new FixedCaller(caller), new InMemorySupportGrants(), new InMemoryClientDirectory(), Clock)
+        new ClientWorkspace(new FixedCaller(caller), new InMemorySupportGrants(), new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>())
             .ClientDataAsync();
 
     private static Task<string> DisplayName(ClientName client, params ClientRecord[] table) =>
-        new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(), new InMemoryClientDirectory(table), Clock)
+        new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(), new InMemoryClientDirectory(table), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>())
             .DisplayNameAsync(client);
+
+    // Known items reach the checks with the registration, the way the phone numbers do, and only the
+    // asking client's: salon two's items never reach salon one's checks.
+    [Fact]
+    public async Task The_business_carries_the_client_s_own_known_items()
+    {
+        var known = new InMemoryKnownItems();
+        await known.AddAsync(SalonOne, new KnownTreatment(KnownItem.NewId(), "Wellness injection"));
+        await known.AddAsync(SalonTwo, new KnownTreatment(KnownItem.NewId(), "Hydrafacial"));
+        var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
+            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")), known, Clock, new ListLogger<ClientWorkspace>());
+
+        var one = await workspace.BusinessAsync(SalonOne);
+        var two = await workspace.BusinessAsync(SalonTwo);
+
+        Assert.Equal("Neelam Aesthetics", one!.Name);
+        Assert.Equal(["Wellness injection"], one.Known.All.Select(i => i.Text));
+        // No row for salon two: named by its client name, with its own items only.
+        Assert.Equal("test-salon-two", two!.Name);
+        Assert.Equal(["Hydrafacial"], two.Known.All.Select(i => i.Text));
+        Assert.Null(await new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
+            new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>()).BusinessAsync(SalonOne));
+    }
 
     // The name her pages call her business by is data in the clients table, whoever the client is.
     [Fact]
@@ -56,12 +79,41 @@ public class ClientWorkspaceTests
     public async Task The_actor_is_the_signed_in_user_or_the_demo_user()
     {
         static Task<Actor> ActorOf(ICallerSource callers) =>
-            new ClientWorkspace(callers, new InMemorySupportGrants(), new InMemoryClientDirectory(), Clock).ActorAsync();
+            new ClientWorkspace(callers, new InMemorySupportGrants(), new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>()).ActorAsync();
 
         Assert.Equal(new Actor("Priya Sharma", true),
             await ActorOf(new FixedCaller(new Caller("u", false, [SalonOne]) { Name = "Priya Sharma" })));
         Assert.Equal(Actor.Demo, await ActorOf(new PrototypeCallerSource(SalonOne)));
         Assert.Equal(Actor.Demo, await ActorOf(new FixedCaller(null)));
+    }
+
+    // Before the knownItems table is deployed, reading it fails: the campaign page still opens, with
+    // its registration and no known items, and the failure is logged.
+    [Fact]
+    public async Task Known_items_that_cannot_be_read_are_logged_and_taken_as_none()
+    {
+        var log = new ListLogger<ClientWorkspace>();
+        var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
+            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")),
+            new UnreadableKnownItems(), Clock, log);
+
+        var business = await workspace.BusinessAsync(SalonOne);
+
+        Assert.Equal("Neelam Aesthetics", business!.Name);
+        Assert.True(business.Known.IsEmpty);
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, entry.Level);
+        Assert.IsType<Azure.RequestFailedException>(entry.Error);
+    }
+
+    private sealed class UnreadableKnownItems : IKnownItemStore
+    {
+        public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken cancellationToken = default) =>
+            throw new Azure.RequestFailedException(404, "The table specified does not exist.");
+
+        public Task AddAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task UpdateAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FixedCaller(Caller? caller) : ICallerSource

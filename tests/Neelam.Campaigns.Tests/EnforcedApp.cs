@@ -55,6 +55,7 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
     internal InMemorySupportGrants Grants { get; } = new();
     internal InMemoryApprovals Approvals { get; } = new();
     internal InMemoryActivityLog Activity { get; } = new();
+    internal InMemoryKnownItems KnownItems { get; } = new();
     internal ManualClock Clock { get; } = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
     /// <summary>The app's own stores, over <see cref="Containers"/>.</summary>
@@ -80,6 +81,7 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
                 Approvals, provider.GetRequiredService<ActivityRecorder>()));
             services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(Clients);
             services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(Grants);
+            services.RemoveAll<IKnownItemStore>().AddSingleton<IKnownItemStore>(KnownItems);
         });
     }
 }

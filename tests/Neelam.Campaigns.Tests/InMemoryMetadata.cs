@@ -165,6 +165,56 @@ internal sealed class TestRecords(TimeProvider clock)
         new(new InMemoryActivityLog(), TimeProvider.System, new ListLogger<ActivityRecorder>());
 }
 
+/// <summary>
+/// The known items table: one table of rows keyed by partition (the client) and row (the item's id),
+/// written and read through the real table's own mapping, with the real store's checks.
+/// </summary>
+internal sealed class InMemoryKnownItems : IKnownItemStore
+{
+    private readonly Dictionary<(string Partition, string Row), Azure.Data.Tables.TableEntity> _rows = [];
+
+    /// <summary>Every row in the table, whichever client's.</summary>
+    public IReadOnlyList<Azure.Data.Tables.TableEntity> Rows
+    {
+        get { lock (_rows) return _rows.Values.ToList(); }
+    }
+
+    public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken cancellationToken = default)
+    {
+        lock (_rows)
+            return Task.FromResult(new KnownItems(_rows.Values
+                .Where(r => r.PartitionKey == client.Value)
+                .Select(r => KnownItemTable.ToItem(client, r))));
+    }
+
+    public async Task AddAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default)
+    {
+        var existing = await ForClientAsync(client, cancellationToken);
+        lock (_rows)
+        {
+            KnownItemStoreRules.CheckAdd(existing, item);
+            if (!_rows.TryAdd((client.Value, item.Id), KnownItemTable.FromItem(client, item)))
+                throw new InvalidOperationException("That known item already exists.");
+        }
+    }
+
+    public async Task UpdateAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default)
+    {
+        var existing = await ForClientAsync(client, cancellationToken);
+        lock (_rows)
+        {
+            KnownItemStoreRules.CheckUpdate(existing, item);
+            _rows[(client.Value, item.Id)] = KnownItemTable.FromItem(client, item);
+        }
+    }
+
+    public Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default)
+    {
+        lock (_rows) _rows.Remove((client.Value, id));
+        return Task.CompletedTask;
+    }
+}
+
 /// <summary>A storage account's containers, each an <see cref="InMemoryBlobBackend"/> made on first use.</summary>
 internal sealed class InMemoryContainers
 {

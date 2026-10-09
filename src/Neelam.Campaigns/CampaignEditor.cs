@@ -417,6 +417,20 @@ public sealed class OfferEditor
         _tiers.Add(copy);
         return copy;
     }
+
+    /// <summary>
+    /// A known tier dropped in whole, at the end: its name, price and benefit lines, each as if she
+    /// had typed it, so nothing is marked as not yet checked. A name or price that repeats another
+    /// tier's is let in; the rules flag it, as they do a copied tier.
+    /// </summary>
+    public TierEditor AddKnownTier(KnownTier known)
+    {
+        var tier = AddTier();
+        tier.Name.Text = known.Name;
+        tier.Price.Text = known.PriceText;
+        foreach (var benefit in known.Benefits) tier.AddKnownBenefit(benefit);
+        return tier;
+    }
 }
 
 public sealed class TierEditor
@@ -452,6 +466,32 @@ public sealed class TierEditor
         if (index < 0) return;
         Tier.RemoveBenefit(index);
         _benefits.RemoveAt(index);
+    }
+
+    /// <summary>
+    /// A known benefit picked into this tier, at the end: its kind and values in ordinary fields,
+    /// counted as entered by her, so it is not marked as not yet checked and stays editable.
+    /// </summary>
+    public BenefitEditor AddKnownBenefit(Benefit benefit)
+    {
+        Tier.AddBenefit(benefit);
+        var editor = new BenefitEditor(Tier.Benefits[^1]);
+        _benefits.Add(editor);
+        return editor;
+    }
+
+    /// <summary>
+    /// This tier as a known item, exactly as written: its name, price and benefit lines. Null, with
+    /// what is missing, until all of them are filled in.
+    /// </summary>
+    public (KnownTier? Tier, string? Problem) ToKnown()
+    {
+        if (!Tier.Name.HasValue || !Tier.MonthlyPrice.HasValue)
+            return (null, "Fill in the tier's name and price first.");
+        if (Tier.Benefits.Any(b => !b.HasValue))
+            return (null, "Fill in or remove its empty benefits first.");
+        return (new KnownTier(KnownItem.NewId(), Tier.Name.Value, Tier.MonthlyPrice.Value,
+            Tier.Benefits.Select(b => b.Value).ToList()), null);
     }
 }
 
@@ -508,6 +548,20 @@ public sealed class BenefitEditor
                 break;
         }
     }
+
+    /// <summary>A benefit form on its own, outside any campaign: empty, or holding a known benefit to change.</summary>
+    public static BenefitEditor Standalone(Benefit? benefit = null)
+    {
+        var slot = Slot<Benefit>.Empty();
+        if (benefit is not null) slot.Set(benefit);
+        return new BenefitEditor(slot);
+    }
+
+    /// <summary>The benefit as typed, once it is complete; null until then.</summary>
+    public Benefit? Value => _slot.HasValue ? _slot.Value : null;
+
+    /// <summary>This benefit as a known item, exactly as written; null until it is complete.</summary>
+    public KnownBenefit? ToKnown() => Value is { } benefit ? new KnownBenefit(KnownItem.NewId(), benefit) : null;
 
     /// <summary>The kind's <see cref="BenefitKind.Key"/>, or blank before one is chosen.</summary>
     public string Kind { get => _kind; set { _kind = value ?? ""; Apply(); } }

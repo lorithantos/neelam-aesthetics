@@ -1,0 +1,199 @@
+@page "/known-items"
+@* Her known items (owner, 2026-10-09): treatments, benefit lines and whole tiers, each spelled once
+   and picked while writing a campaign. Client layout, no admin. The access check decides whose,
+   on top of the policy; the page only binds to KnownItemsSession. *@
+@attribute [Authorize(Policy = Features.Campaigns)]
+@rendermode InteractiveServer
+@inject ClientWorkspace Workspace
+@inject ActivityRecorder Recorder
+
+<PageTitle>Known items</PageTitle>
+
+<h1>Known items</h1>
+
+@if (_denied is not null)
+{
+    <p>You cannot see known items here: @_denied.</p>
+}
+else if (_session is not null)
+{
+    var items = _session.Items;
+    <KnownItemLists Known="items" />
+    <p class="muted">What @_displayName writes again and again, spelled once. While writing a campaign you pick from these instead of retyping them, and the checks point out a line that nearly matches one.</p>
+
+    @if (_session.Message is not null)
+    {
+        <p role="status">@_session.Message</p>
+    }
+    <Problems Messages="_session.Errors" />
+
+    <h2>Treatments and services</h2>
+    <section class="card" aria-label="Treatments and services">
+        @if (items.Treatments.Count == 0)
+        {
+            <p>No treatments yet.</p>
+        }
+        <ul class="known-items">
+            @foreach (var item in items.Treatments)
+            {
+                <li>
+                    @if (_session.Editing?.Id == item.Id)
+                    {
+                        <div class="field">
+                            <label for="edit-treatment">Name</label>
+                            <input id="edit-treatment" @bind="_session.EditTreatment" @bind:event="oninput" />
+                        </div>
+                        @EditActions
+                    }
+                    else
+                    {
+                        <span>@item.Name</span>
+                        @ItemActions(item)
+                    }
+                </li>
+            }
+        </ul>
+        <div class="field">
+            <label for="new-treatment">Add a treatment</label>
+            <input id="new-treatment" @bind="_session.NewTreatment" @bind:event="oninput" />
+            <span class="field-help">Spelled the way every campaign should spell it, such as "Wellness injection".</span>
+        </div>
+        <button class="button primary" @onclick="() => _session.AddTreatmentAsync()">Add treatment</button>
+    </section>
+
+    <h2>Benefit lines</h2>
+    <section class="card" aria-label="Benefit lines">
+        @if (items.Benefits.Count == 0)
+        {
+            <p>No benefit lines yet.</p>
+        }
+        <ul class="known-items">
+            @foreach (var item in items.Benefits)
+            {
+                <li>
+                    @if (_session.Editing?.Id == item.Id && _session.EditBenefit is { } editing)
+                    {
+                        <BenefitFields Benefit="editing" Id="edit" Label="Benefit" />
+                        @EditActions
+                    }
+                    else
+                    {
+                        <span>@item.Text</span>
+                        @ItemActions(item)
+                    }
+                </li>
+            }
+        </ul>
+        <h3>Add a benefit line</h3>
+        <BenefitFields Benefit="_session.NewBenefit" Id="new" Label="Kind of benefit" />
+        <button class="button primary" @onclick="() => _session.AddBenefitAsync()">Add benefit line</button>
+    </section>
+
+    <h2>Offers and tiers</h2>
+    <section class="card" aria-label="Offers and tiers">
+        @if (items.Tiers.Count == 0)
+        {
+            <p>No tiers yet.</p>
+        }
+        @foreach (var item in items.Tiers)
+        {
+            <section class="card tier" aria-label="@item.Name">
+                @if (_session.Editing?.Id == item.Id && _session.EditTier is { } editing)
+                {
+                    @TierFields(editing, "edit")
+                    @EditActions
+                }
+                else
+                {
+                    <h3>@item.Name, $@item.PriceText</h3>
+                    <ul>
+                        @foreach (var line in item.Benefits)
+                        {
+                            <li>@line.Describe()</li>
+                        }
+                    </ul>
+                    @ItemActions(item)
+                }
+            </section>
+        }
+        <h3>Build a tier</h3>
+        @TierFields(_session.NewTier, "new")
+        <button class="button primary" @onclick="() => _session.AddTierAsync()">Add tier</button>
+    </section>
+}
+
+@code {
+    private string? _denied;
+    private string? _displayName;
+    private KnownItemsSession? _session;
+    // Per tier form, the text in its "Pick a benefit" box.
+    private readonly Dictionary<KnownTierForm, string> _picks = [];
+    private int _pickRound;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (client, reason) = await Workspace.ClientDataAsync();
+        if (client is null)
+        {
+            _denied = reason;
+            return;
+        }
+        _displayName = await Workspace.DisplayNameAsync(client);
+        // Each change goes on the activity trail by the item's id, against whoever is signed in.
+        _session = await KnownItemsSession.OpenAsync(Workspace.Known, Recorder.For(client, await Workspace.ActorAsync()));
+    }
+
+    private RenderFragment ItemActions(KnownItem item) => @<span class="block-actions">
+        <button class="button" aria-label="Change @item.Text" @onclick="() => _session!.StartEdit(item)">Change</button>
+        <button class="button danger" aria-label="Remove @item.Text" @onclick="() => _session!.RemoveAsync(item)">Remove</button>
+    </span>;
+
+    private RenderFragment EditActions => @<span class="block-actions">
+        <button class="button primary" @onclick="() => _session!.SaveEditAsync()">Save changes</button>
+        <button class="button" @onclick="_session!.CancelEdit">Cancel</button>
+    </span>;
+
+    // A tier's name, price and lines: each line picked from her benefit lines or typed.
+    private RenderFragment TierFields(KnownTierForm form, string id) => @<div>
+        <div class="field">
+            <label for="tier-name-@id">Tier name</label>
+            <input id="tier-name-@id" @bind="form.Name" @bind:event="oninput" />
+            <span class="field-help">Such as "Platinum Member".</span>
+        </div>
+        <div class="field">
+            <label for="tier-price-@id">Price, in dollars</label>
+            <input id="tier-price-@id" inputmode="decimal" @bind="form.Price" @bind:event="oninput" />
+            <span class="field-help">Per month for a membership, such as 299.</span>
+        </div>
+        @for (var i = 0; i < form.Lines.Count; i++)
+        {
+            var line = form.Lines[i];
+            <div class="benefit">
+                <BenefitFields Benefit="line" Id="@($"{id}-l{i}")" Label="@($"Benefit {i + 1}")" />
+                <button class="button danger" aria-label="Remove benefit @(i + 1)" @onclick="() => form.RemoveLine(line)">Remove benefit</button>
+            </div>
+        }
+        <p><button class="button" @onclick="() => form.AddLine()">Type a benefit</button></p>
+        @if (_session!.Items.Benefits.Count > 0)
+        {
+            <div class="field">
+                <label for="tier-pick-@id">Pick a benefit</label>
+                <input @key="@($"tier-pick-{id}-{_pickRound}")" id="tier-pick-@id" list="@KnownItemLists.Benefits"
+                       placeholder="Start typing to search your benefit lines"
+                       value="@_picks.GetValueOrDefault(form, "")" @oninput="e => Pick(form, e.Value as string)" />
+            </div>
+        }
+    </div>;
+
+    private void Pick(KnownTierForm form, string? text)
+    {
+        if (_session!.Items.BenefitNamed(text ?? "") is { } known)
+        {
+            form.AddKnown(known);
+            _picks.Remove(form);
+            _pickRound++;
+            return;
+        }
+        _picks[form] = text ?? "";
+    }
+}

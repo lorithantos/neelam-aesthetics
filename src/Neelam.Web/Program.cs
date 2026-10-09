@@ -71,6 +71,7 @@ builder.Services.AddSingleton(services => new ClientStores(
     services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,
     services.GetRequiredService<IApprovalStore>(), services.GetRequiredService<ActivityRecorder>()));
 builder.Services.AddHostedService<UndoSweep>();
+builder.Services.AddSingleton<IKnownItemStore>(new KnownItemTable(storageClients));
 
 // THE ROLLOUT SWITCH. Every page and endpoint already names its policy; Prototype lets everyone
 // through (and refuses to start in Production), Enforced requires the Entra app role. Moving to

@@ -1,0 +1,29 @@
+@* Her known items as the browser's own suggestion lists (datalist), once per page: inputs name a
+   list and the browser offers the matching entries as she types. Choosing one fills it in; typing
+   anything else is still allowed. No script. *@
+<datalist id="@Treatments">
+    @foreach (var t in Known.Treatments)
+    {
+        <option value="@t.Name"></option>
+    }
+</datalist>
+<datalist id="@Benefits">
+    @foreach (var b in Known.Benefits)
+    {
+        <option value="@b.Text"></option>
+    }
+</datalist>
+<datalist id="@Tiers">
+    @foreach (var t in Known.Tiers)
+    {
+        <option value="@t.Name"></option>
+    }
+</datalist>
+
+@code {
+    public const string Treatments = "known-treatments";
+    public const string Benefits = "known-benefits";
+    public const string Tiers = "known-tiers";
+
+    [Parameter, EditorRequired] public KnownItems Known { get; set; } = KnownItems.None;
+}
