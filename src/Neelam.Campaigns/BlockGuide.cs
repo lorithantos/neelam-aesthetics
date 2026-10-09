@@ -20,10 +20,14 @@ public sealed record BlockGuide(BlockType Type, string Name, string Purpose, IRe
 
     private static readonly string[] TextRules = ["restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"];
 
+    // Every photo, in a header or on its own: words in a picture can't be checked, and some readers never see it.
+    private const string PhotoCheck = "A photo with no description is flagged: say what it shows, and put any offer or dates it holds in the text too.";
+    private const string PhotoRule = "photo-described";
+
     public static IReadOnlyList<BlockGuide> All { get; } =
     [
         new(BlockType.Header, "Header", "The top of the email: the business's name, over a photo from the library if you like.",
-            TextChecks, TextRules),
+            [PhotoCheck, .. TextChecks], [PhotoRule, .. TextRules]),
         new(BlockType.Heading, "Heading", "A line set large, such as the email's headline.", TextChecks, TextRules),
         new(BlockType.Greeting, "Greeting", "How the email addresses the reader, such as \"Hi Beautiful\".", TextChecks, TextRules),
         new(BlockType.Paragraphs, "Paragraphs", "Body text, one or more paragraphs.", TextChecks, TextRules),
@@ -44,7 +48,8 @@ public sealed record BlockGuide(BlockType Type, string Name, string Purpose, IRe
             ["Its link must be a full https:// address.", "An email with an offer needs one.", .. TextChecks],
             ["cta-https", "cta-required", .. TextRules]),
         new(BlockType.Image, "Image", "A photo from the client's image library.",
-            ["Its alt text, what a reader gets when images do not load, gets the text checks."], TextRules),
+            [PhotoCheck, "Its description, what a reader gets when images do not load, gets the text checks."],
+            [PhotoRule, .. TextRules]),
         new(BlockType.SignOff, "Sign-off", "The closing: a valediction, who it is from, and a tagline if you like.",
             TextChecks, TextRules),
         new(BlockType.FinePrint, "Fine print", "Terms, disclaimers and other small print.",

@@ -20,6 +20,10 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 - **The AI proofread** catches what a careful reader would: spelling, contradictions, offers
   that don't match their names, placeholder text left in. Its errors block too, but a person
   can dismiss one with a recorded reason and name (`Dismissal`), since a model can be wrong.
+  When it is built it may **read the images** too (owner, 2026-10-09): the email's photos go to
+  the model with its text, so words inside a picture are checked like any other. About a cent or
+  two per image per check, within the proofread's $20 a month cap. Until then `photo-described`
+  asks for every photo's description and for any offer in a photo to be in the text as well.
 - **It fails closed.** If the proofread can't run (outage, refusal, cut off), that is itself a
   blocker. Sending without it takes a named dismissal.
 - An AI finding whose quoted excerpt isn't actually in the email is downgraded to a warning
@@ -300,6 +304,7 @@ both, and the tests pin which rules each trips.
 | Tier 2's injection benefits shaped differently from tier 1's | `tiers-parallel` | Warning |
 | "Beautiful🤍", "✨The" | `emoji-spacing` | Warning |
 | Heavy emoji use | `emoji-budget` | Warning |
+| Both photos (header and body) with empty alt text | `photo-described` | Warning |
 
 Restricted terms are warnings, not blockers, on purpose: whether "Beauty Bank" is acceptable is
 a business and legal call, not one for the tool to make.
@@ -308,6 +313,19 @@ A later email signed off with "Snohomish, WA | 425-877-8646" while Square's reco
 business had (425) 773-5261. The numbers a client may publish are part of its registration in
 the clients table, and `phone-registered` warns about any other number anywhere in the email,
 fixed template text and `tel:` links included. With no numbers registered it says nothing.
+
+The back-to-school email (Aug 2026) carried its whole offer -- "$50 off 30+ units + $50 credit
+toward your next appointment + Free Wellness Injection with any treatment, September 1-30, for
+teachers & school faculty" -- inside one image whose alt text was empty. No rule and no export can
+read a picture, and a reader with images off, or using a screen reader, got a heading and a
+button. `photo-described` (owner, 2026-10-09: "Rule now, we will allow the LLM to read the image
+when it is hooked up") is a warning on every photo, header and image blocks and a template's fixed
+photo alike, with no description: "The photo 'X' has no description. Describe what it shows, and
+write any offer or dates it contains in the email text too: words in a picture can't be checked,
+and some readers never see it." The description is the block's own (the photo field's
+"Description", `ImageRef.AltText`), the same text the export hands Square as alt text. A photo the
+image library does not hold already says so beside its field and in the preview, so the rule
+leaves it to that note.
 
 The same idea, from her own data, for offer details only (owner, 2026-10-09: good faith for
 prose, strict on offer details). `known-item` holds each tier's name to her known tiers, each

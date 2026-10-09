@@ -5,7 +5,8 @@ namespace Neelam.Campaigns;
 /// clients table: its name and the operator's description of it, which the proofread takes as
 /// background for judging names, services and facts, never instructions; and the phone numbers it
 /// may publish, against which the rules check every number in the email; and its known items,
-/// against which the rules check treatment names and benefit lines for near misses.
+/// against which the rules check treatment names and benefit lines for near misses; and the photos
+/// in its image library, so a photo the library does not hold is not noted twice.
 /// </summary>
 public sealed record BusinessContext(string Name, string? Description = null)
 {
@@ -17,6 +18,20 @@ public sealed record BusinessContext(string Name, string? Description = null)
     /// proofread, which is told only the name and description.
     /// </summary>
     public KnownItems Known { get; init; } = KnownItems.None;
+
+    /// <summary>
+    /// The names of the photos in the client's image library. A photo the library does not hold
+    /// already has its own note beside its field and in the preview, so the rules say nothing more
+    /// about it. Null when the library was not read: then every photo is checked.
+    /// </summary>
+    public IReadOnlyCollection<string>? LibraryPhotos { get; init; }
+
+    /// <summary>
+    /// Whether the library holds a photo by this name, matched as the library finds one: ignoring
+    /// case and the spaces around it. True when the library was not read.
+    /// </summary>
+    public bool InLibrary(string name) =>
+        LibraryPhotos is null || LibraryPhotos.Any(p => string.Equals(p.Trim(), name.Trim(), StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>Reads an email the way a careful editor would and reports mistakes.</summary>

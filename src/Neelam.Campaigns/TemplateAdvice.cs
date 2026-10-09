@@ -9,7 +9,12 @@ namespace Neelam.Campaigns;
 /// </summary>
 public static class TemplateAdvice
 {
-    public static IReadOnlyList<Finding> For(IReadOnlyList<TemplateBlock> template, CampaignPolicy? policy = null)
+    /// <param name="libraryPhotos">
+    /// The names of the photos in the client's image library, so a fixed photo the library does not
+    /// hold draws only the note its field already gives; null when the library was not read.
+    /// </param>
+    public static IReadOnlyList<Finding> For(
+        IReadOnlyList<TemplateBlock> template, CampaignPolicy? policy = null, IReadOnlyCollection<string>? libraryPhotos = null)
     {
         var advice = new List<Finding>();
 
@@ -32,7 +37,9 @@ public static class TemplateAdvice
         // campaign will have.
         var fixedContent = template.Where(b => b.Fixed is not null).Select(b => b.Fixed!).ToList();
         var hasFinePrint = template.Any(b => b.Type == BlockType.FinePrint);
-        foreach (var finding in CampaignReview.Check(new Campaign("", fixedContent), policy).Findings)
+        // Only the library is given: the registration (phone numbers, known items) is not, as before.
+        var library = libraryPhotos is null ? null : new BusinessContext("") { LibraryPhotos = libraryPhotos };
+        foreach (var finding in CampaignReview.Check(new Campaign("", fixedContent), policy, library).Findings)
         {
             // A campaign can still add the disclaimer when the template has a fine-print block to hold it.
             if (finding.Rule == "medical-disclaimer" && hasFinePrint) continue;

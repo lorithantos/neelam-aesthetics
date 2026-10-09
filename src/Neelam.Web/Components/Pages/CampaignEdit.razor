@@ -57,9 +57,9 @@ else if (_session is not null)
 {
     var editor = _session.Editor;
     var errors = editor.Errors();
-    var status = editor.Status(_policy, _business);
+    var status = editor.Status(_policy, Business);
     var approval = _session.CurrentApproval;
-    var cannotApprove = _session.CannotApprove(_policy, _business);
+    var cannotApprove = _session.CannotApprove(_policy, Business);
     // One gate for both forms of the export: the copy blocks and the assistant's JSON come from
     // the same report, so neither exists without the other, and both carry the approval that
     // report was made with (DraftSession.DemoExportReport: the approval in force, never the
@@ -424,6 +424,12 @@ else
 
     private KnownItems Known => _business?.Known ?? KnownItems.None;
 
+    // What the checks are given: the registration and known items, with the names in her image
+    // library, so a photo the library does not hold keeps only the note its field gives it. Named by
+    // the client's name when it has no registration, as for known items (ClientWorkspace.BusinessAsync).
+    private BusinessContext Business =>
+        (_business ?? new BusinessContext(_client!.ToString())) with { LibraryPhotos = _photos.Select(p => p.Name).ToList() };
+
     // "Save as a known item" next to a tier or a benefit: kept exactly as written, then the pickers
     // and the checks read the list again. Neither may throw: on this interactive page an exception
     // ends the connection, and her unsaved campaign with it. A store failure comes back as a message
@@ -563,7 +569,7 @@ else
         if (!_canReview) return;
         try
         {
-            var approval = await _session!.ApproveAsync(_approver, _policy, _business);
+            var approval = await _session!.ApproveAsync(_approver, _policy, Business);
             _message = $"Approved by {approval.By}.";
             _approver = "";
         }
@@ -591,7 +597,7 @@ else
     // pass, reviewed without the proofread and marked so (DraftSession.DemoExportReport). Null
     // everywhere else, Enforced included, where export waits for the proofread.
     private ReviewReport? ExportReport() =>
-        Site.IsDemo && _canReview ? _session!.DemoExportReport(_policy, _business) : null;
+        Site.IsDemo && _canReview ? _session!.DemoExportReport(_policy, Business) : null;
 
     // The JSON as a link to download, with no endpoint: an endpoint would be a second way out.
     private static string DataUrl(string json) =>

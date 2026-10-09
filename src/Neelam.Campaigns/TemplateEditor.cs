@@ -99,7 +99,8 @@ public sealed class TemplateEditor
     }
 
     /// <summary>What the checks would say about every campaign from this template; see <see cref="TemplateAdvice"/>.</summary>
-    public IReadOnlyList<Finding> Advice(CampaignPolicy? policy = null) => TemplateAdvice.For(TemplateBlocks(), policy);
+    public IReadOnlyList<Finding> Advice(CampaignPolicy? policy = null, IReadOnlyCollection<string>? libraryPhotos = null) =>
+        TemplateAdvice.For(TemplateBlocks(), policy, libraryPhotos);
 
     /// <summary>
     /// The baseline parts this template lacks, as it stands. Warnings only: they never stop a

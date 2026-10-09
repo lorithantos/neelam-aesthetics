@@ -32,7 +32,7 @@ else if (_session is not null)
 {
     var editor = _session.Editor;
     var errors = editor.Errors();
-    var advice = editor.Advice(_policy);
+    var advice = editor.Advice(_policy, _photos.Select(p => p.Name).ToList());
     var missing = editor.Missing(_baseline);
 
     <h1>@Title</h1>

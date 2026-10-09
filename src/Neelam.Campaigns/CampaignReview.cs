@@ -41,8 +41,37 @@ public static class CampaignReview
         findings.AddRange(EmojiBudget(text, policy));
         findings.AddRange(RegisteredPhones(campaign, text, business));
         findings.AddRange(KnownItemChecks(campaign, business));
+        findings.AddRange(PhotosDescribed(campaign, business));
 
         return new ReviewReport(campaign, findings, Proofread: false);
+    }
+
+    /// <summary>
+    /// Every photo needs a description (owner, 2026-10-09). Neelam's back-to-school email (Aug 2026)
+    /// carried its whole offer -- the discount, the credit, the free injection, the dates and who it
+    /// was for -- inside one image with empty alt text: no rule and no export could read it, and a
+    /// reader with images off or a screen reader got a heading and a button. The description is the
+    /// block's own (<see cref="ImageRef.AltText"/>), the one the export hands Square as alt text, so
+    /// the rule and the export agree. A fixed template photo is in the campaign's blocks like any
+    /// other. Worth a look, never a block. A photo the library does not hold is left to the note it
+    /// already gets (<see cref="BusinessContext.InLibrary"/>).
+    /// </summary>
+    private static IEnumerable<Finding> PhotosDescribed(Campaign c, BusinessContext? business)
+    {
+        foreach (var block in c.Blocks)
+        {
+            var (where, photo) = block switch
+            {
+                HeaderBlock { Photo: { } p } header => ($"{header.Label} › Photo", p),
+                ImageBlock image => (image.Label, image.Image),
+                _ => ((string?)null, (ImageRef?)null),
+            };
+            if (where is null || photo is null || !string.IsNullOrWhiteSpace(photo.AltText)) continue;
+            if (business is not null && !business.InLibrary(photo.Name)) continue;
+            yield return new(Severity.Warning, "photo-described", where,
+                $"The photo '{photo.Name.Trim()}' has no description. Describe what it shows, and write any offer " +
+                "or dates it contains in the email text too: words in a picture can't be checked, and some readers never see it.");
+        }
     }
 
     /// <summary>

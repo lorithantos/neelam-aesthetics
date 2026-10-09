@@ -22,9 +22,12 @@ public static class BeautyBankEmail
     private static readonly Uri TermsUrl = new("https://example.com/beauty-bank/terms");
 
     // Two different photos of the clinic's principals: one behind the header, one above the button.
-    // In the real sends both had empty alt text.
+    // In the real sends both had empty alt text, which photo-described flags; the corrected version
+    // describes them.
     private static readonly ImageRef HeaderPhoto = new("Principals toasting");
     private static readonly ImageRef BodyPhoto = new("Principals seated");
+    private static readonly ImageRef HeaderPhotoDescribed = HeaderPhoto with { AltText = "The clinic's principals raising a toast" };
+    private static readonly ImageRef BodyPhotoDescribed = BodyPhoto with { AltText = "The clinic's principals, seated together" };
 
     private static readonly string[] Opening =
     [
@@ -131,7 +134,8 @@ public static class BeautyBankEmail
         "Hi Beautiful 🤍",
         new CallToAction("Join the Beauty Bank", JoinUrl),
         "Wellness injections are provided after consultation with a licensed provider " +
-        "and are subject to eligibility.");
+        "and are subject to eligibility.",
+        photos: (HeaderPhotoDescribed, BodyPhotoDescribed));
 
     /// <summary>
     /// Neelam's membership-announcement template, deduced from this email: the corrected email's
@@ -168,11 +172,13 @@ public static class BeautyBankEmail
     // the headline, the greeting and opening, the offer through to the sign-off, then a photo and
     // the button.
     private static Campaign Email(
-        Offer offer, string greeting, CallToAction button, string? disclaimer, string[]? opening = null)
+        Offer offer, string greeting, CallToAction button, string? disclaimer, string[]? opening = null,
+        (ImageRef Header, ImageRef Body)? photos = null)
     {
+        var (headerPhoto, bodyPhoto) = photos ?? (HeaderPhoto, BodyPhoto);
         var blocks = new List<Block>
         {
-            new HeaderBlock("Header", "Neelam Aesthetics", HeaderPhoto),
+            new HeaderBlock("Header", "Neelam Aesthetics", headerPhoto),
             new SpacerBlock("Spacer"),
             new HeadingBlock("Headline", "WE’RE TURNING ONE! 🥂✨"),
             new GreetingBlock("Greeting", greeting),
@@ -182,7 +188,7 @@ public static class BeautyBankEmail
             new SignOffBlock("Sign-off", SignOff),
         };
         if (disclaimer is not null) blocks.Add(new FinePrintBlock("Disclaimer", disclaimer));
-        blocks.Add(new ImageBlock("Photo", BodyPhoto));
+        blocks.Add(new ImageBlock("Photo", bodyPhoto));
         blocks.Add(new ButtonBlock("Call to action", button));
         return new Campaign("WE’RE TURNING ONE!", blocks);
     }

@@ -20,6 +20,15 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
     private static readonly Guid Membership = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid Finished = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid UndescribedTemplate = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000002");
+    private static readonly Guid Undescribed = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000003");
+
+    private static CampaignTemplate UndescribedHeader(CampaignTemplate template) => new(template.Name,
+        template.Blocks.Select(b => b.Fixed is HeaderBlock { Photo: { } p } h
+            ? b with { Fixed = h with { Photo = p with { AltText = null } } }
+            : b).ToList());
+
+    private const string NoDescription = "has no description. Describe what it shows";
 
     // The template fixes "Principals toasting" in its header; the campaign fills in "Principals seated".
     private const string Toasting =
@@ -40,6 +49,11 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
                 var store = app.Stores.Campaigns(salon.Name, Actor.Demo);
                 await store.SaveTemplateAsync(Membership, DraftFixtures.Membership);
                 await store.SaveDraftAsync(Finished, "WE’RE TURNING ONE!", DraftFixtures.Finished());
+                // The same, with no description on the campaign's photo or on the template's fixed one.
+                await store.SaveTemplateAsync(UndescribedTemplate, UndescribedHeader(DraftFixtures.Membership));
+                var undescribed = DraftFixtures.Finished();
+                undescribed.Image("Photo").Set(new ImageRef("Principals seated"));
+                await store.SaveDraftAsync(Undescribed, "WE’RE TURNING ONE!", undescribed);
             }
             var images = app.Stores.Images(SalonOne.Name, Actor.Demo);
             await images.AddFromSquareAsync("Principals toasting", Toasting);
@@ -98,6 +112,26 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             Assert.DoesNotContain("preview-image", page);
             Assert.DoesNotContain("squarecdn.com", page);
         }
+    }
+
+    // A photo with no description is worth a look on the campaign page and in the template's advice
+    // when the library holds it (salon one); when it does not (salon two), the library's own note is
+    // all that is said about it.
+    [Fact]
+    public async Task An_undescribed_photo_is_worth_a_look_only_when_the_library_holds_it()
+    {
+        var (_, campaign) = await Get($"/campaigns/{Undescribed}", Everything);
+        var (_, template) = await Get($"/templates/{UndescribedTemplate}", Everything);
+        Assert.Contains($"The photo 'Principals seated' {NoDescription}", campaign);
+        Assert.Contains($"The photo 'Principals toasting' {NoDescription}", template);
+        Assert.DoesNotContain("Principals toasting' has no description", campaign);
+
+        var (_, notHers) = await Get($"/campaigns/{Undescribed}", Everything, [SalonTwo.GroupId]);
+        var (_, notHersTemplate) = await Get($"/templates/{UndescribedTemplate}", Everything, [SalonTwo.GroupId]);
+        Assert.Matches(Missing("Principals seated"), notHers);
+        Assert.Matches(Missing("Principals toasting"), notHersTemplate);
+        Assert.DoesNotContain(NoDescription, notHers);
+        Assert.DoesNotContain(NoDescription, notHersTemplate);
     }
 
     [Fact]

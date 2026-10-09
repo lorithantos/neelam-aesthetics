@@ -1,4 +1,5 @@
-@* A photo from the client's image library, by name, and its alt text. *@
+@* A photo from the client's image library, by name, and its description (the alt text the export
+   hands Square; the photo-described rule flags a photo without one). *@
 @implements IHandleEvent
 <div class="field">
     <label for="photo-@Index">Photo@(Optional ? " (optional)" : "")</label>
@@ -20,8 +21,9 @@
     }
 </div>
 <div class="field">
-    <label for="alt-@Index">Text if images do not load</label>
+    <label for="alt-@Index">Description</label>
     <input id="alt-@Index" @bind="Block.PhotoAltText" @bind:event="oninput" />
+    <span class="field-help">What the photo shows, for readers whose images do not load and for screen readers. Any offer or dates in the photo belong in the email's text too.</span>
 </div>
 
 @code {
