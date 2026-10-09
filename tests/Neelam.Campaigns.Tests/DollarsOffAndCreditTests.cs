@@ -251,7 +251,7 @@ public class DollarsOffAndCreditTests
                 : b).ToList(),
         };
         var marker = campaign.BlocksOf<OfferBlock>().Single().Marker;
-        var report = CampaignGate.DemoReview(campaign, ByPriya);
+        var report = CampaignGate.DemoReview(campaign, ByPriya.Seeing(campaign));
 
         var text = EditorExport.PlainText(report);
         var json = AssistantExport.Json(report);

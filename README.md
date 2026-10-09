@@ -38,8 +38,10 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 - **"Worth a look" is shown at export, never a block** (owner, 2026-10-09: "This is handholding,
   not handcuffs"). Before the first export of an approved version, every warning is listed with a
   link to its field, and one button, "Export anyway", goes on. That is recorded with the version's
-  approval (who and when, never which findings), so the list is not shown again for it; a new save
-  shows it again, a label-only save keeps it. `ReviewReport.CanExport` needs it, so the copy blocks
+  approval: who and when, and which findings by key (a hash of each finding, never its text), so
+  the list is not shown again for those; a warning that appears later on the same version (her
+  known items or numbers changed) brings the list back with only the new ones (owner, 2026-10-09).
+  A new save shows it again, a label-only save keeps it. `ReviewReport.CanExport` needs it, so the copy blocks
   and the assistant's JSON both wait for it, on the demo and in Enforced alike.
 - **Every action is on the activity trail**: saves, approvals and withdrawals, an approval carried
   to a label-only save, going on past the warnings at export, undo, restore, the sweep's deletions, baselines, tier-name ladders, image entries, known items

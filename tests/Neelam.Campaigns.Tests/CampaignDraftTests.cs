@@ -151,7 +151,7 @@ public class CampaignDraftTests
         Assert.Empty(review.Blockers);
         Assert.True(review.WarningsToSee);
         Assert.True((await CampaignGate.ReviewAsync(result.Campaign!, FakeProofreader.Clean,
-            warningsSeen: new WarningsSeen("Neelam", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)))).CanExport);
+            warningsSeen: review.Saw("Neelam", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)))).CanExport);
     }
 
     [Fact]

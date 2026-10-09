@@ -11,10 +11,19 @@ public class CampaignGateTests
     // Bank" on purpose, so there is always something worth a look in it.
     private static readonly WarningsSeen Seen = new("Neelam", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
 
+    // Reviewed as the page would: once to list what is worth a look, then again with every one of
+    // those shown and gone on past (their keys, since 2026-10-09).
+    private static async Task<ReviewReport> ReviewedAndSeen(
+        Campaign campaign, IProofreader proofreader, IReadOnlyCollection<Dismissal>? dismissals = null)
+    {
+        var first = await CampaignGate.ReviewAsync(campaign, proofreader, dismissals);
+        return await CampaignGate.ReviewAsync(campaign, proofreader, dismissals, warningsSeen: first.Saw(Seen.By, Seen.At));
+    }
+
     [Fact]
     public async Task Corrected_email_with_a_clean_proofread_can_export()
     {
-        var report = await CampaignGate.ReviewAsync(SampleCampaigns.Corrected(), FakeProofreader.Clean, warningsSeen: Seen);
+        var report = await ReviewedAndSeen(SampleCampaigns.Corrected(), FakeProofreader.Clean);
 
         Assert.True(report.CanExport, string.Join("\n", report.Blockers.Select(b => b.Message)));
     }
@@ -33,8 +42,7 @@ public class CampaignGateTests
     {
         var dismissal = new Dismissal("ai-spelling", "woudl", "Intentional, it's a pun.", "Neelam");
 
-        var report = await CampaignGate.ReviewAsync(
-            SampleCampaigns.Corrected(), new FakeProofreader(Typo), [dismissal], warningsSeen: Seen);
+        var report = await ReviewedAndSeen(SampleCampaigns.Corrected(), new FakeProofreader(Typo), [dismissal]);
 
         Assert.True(report.CanExport);
         var warning = Assert.Single(report.Warnings, f => f.Rule == "ai-spelling");
@@ -69,7 +77,7 @@ public class CampaignGateTests
         var down = new FakeProofreader { Throws = new HttpRequestException("503 Service Unavailable") };
         var dismissal = new Dismissal("ai-unavailable", "", "Read it twice myself.", "Neelam");
 
-        var report = await CampaignGate.ReviewAsync(SampleCampaigns.Corrected(), down, [dismissal], warningsSeen: Seen);
+        var report = await ReviewedAndSeen(SampleCampaigns.Corrected(), down, [dismissal]);
 
         Assert.True(report.CanExport);
     }
@@ -91,7 +99,7 @@ public class CampaignGateTests
         Assert.Equal(copy.Message, json.Message);
         Assert.Contains("worth a look that nobody has been shown at export yet", copy.Message);
 
-        var seen = await CampaignGate.ReviewAsync(SampleCampaigns.Corrected(), FakeProofreader.Clean, warningsSeen: Seen);
+        var seen = await CampaignGate.ReviewAsync(SampleCampaigns.Corrected(), FakeProofreader.Clean, warningsSeen: unseen.Saw(Seen.By, Seen.At));
         Assert.False(seen.WarningsToSee);
         Assert.NotEmpty(EditorExport.Blocks(seen));
         Assert.NotNull(AssistantExport.Build(seen, new Approval("Neelam", Seen.At)));
@@ -102,7 +110,7 @@ public class CampaignGateTests
     [Fact]
     public async Task Seen_warnings_never_pass_a_must_fix()
     {
-        var report = await CampaignGate.ReviewAsync(SampleCampaigns.SecondSend(), FakeProofreader.Clean, warningsSeen: Seen);
+        var report = await ReviewedAndSeen(SampleCampaigns.SecondSend(), FakeProofreader.Clean);
 
         Assert.NotEmpty(report.Blockers);
         Assert.False(report.WarningsToSee);

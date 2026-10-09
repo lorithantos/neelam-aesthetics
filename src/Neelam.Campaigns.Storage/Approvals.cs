@@ -14,17 +14,31 @@ namespace Neelam.Campaigns.Storage;
 /// A name only: never which findings, or what they said.
 /// </param>
 /// <param name="WarningsSeenAt">When, in UTC; null until then.</param>
+/// <param name="WarningsSeenKeys">
+/// The keys of the warnings shown by then (<see cref="Finding.SeenKey"/>: hashes, never the findings'
+/// text), comma-separated. Null on a row written before keys were kept (2026-10-09), which shows the
+/// list once more.
+/// </param>
 public sealed record ApprovalRecord(
     ClientName Client, Guid CampaignId, string Stamp, string ApprovedBy, DateTimeOffset ApprovedAt,
-    DateTimeOffset? WithdrawnAt = null, string? WarningsSeenBy = null, DateTimeOffset? WarningsSeenAt = null)
+    DateTimeOffset? WithdrawnAt = null, string? WarningsSeenBy = null, DateTimeOffset? WarningsSeenAt = null,
+    string? WarningsSeenKeys = null)
 {
     public bool Withdrawn => WithdrawnAt is not null;
 
     public Approval Approval => new(ApprovedBy, ApprovedAt)
     {
         // Both or neither: a half-written record is not taken as seen, so the list is shown again.
-        WarningsSeen = WarningsSeenBy is { Length: > 0 } by && WarningsSeenAt is { } at ? new WarningsSeen(by, at) : null,
+        WarningsSeen = WarningsSeenBy is { Length: > 0 } by && WarningsSeenAt is { } at
+            ? new WarningsSeen(by, at, WarningsSeenKeys is null ? null : KeysOf(WarningsSeenKeys))
+            : null,
     };
+
+    /// <summary>Keys as the row holds them: comma-separated, in order.</summary>
+    public static string JoinKeys(IEnumerable<string> keys) => string.Join(',', keys.Order(StringComparer.Ordinal));
+
+    private static IReadOnlySet<string> KeysOf(string joined) =>
+        joined.Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
 }
 
 /// <summary>The approvals table. One partition per client, so a client's approvals sit under its own access rules.</summary>

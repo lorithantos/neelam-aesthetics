@@ -216,7 +216,7 @@ public class FreeWordingTests
         var campaign = FreeEverywhere(BeautyBankEmail.Corrected());
         var free = campaign.BlocksOf<OfferBlock>().SelectMany(o => o.Offer.Tiers).SelectMany(t => t.Benefits).OfType<FreeItem>().First();
         var marker = campaign.BlocksOf<OfferBlock>().Single().Marker;
-        var report = CampaignGate.DemoReview(campaign, ByPriya);
+        var report = CampaignGate.DemoReview(campaign, ByPriya.Seeing(campaign));
 
         var text = EditorExport.PlainText(report);
         var json = AssistantExport.Json(report);

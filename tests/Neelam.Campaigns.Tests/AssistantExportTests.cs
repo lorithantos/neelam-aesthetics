@@ -30,7 +30,8 @@ public class AssistantExportTests
         Guid.Parse("6f9b2a52-1c1e-4f6e-9a77-2d1f0e3b8c41"), "Beauty Bank -- corrected", "Membership announcement",
         name => name == "Principals toasting" ? HeaderPhotoOnSquare : null);
 
-    private static ReviewReport Demo(Campaign campaign) => CampaignGate.DemoReview(campaign, ByPriya);
+    // Every warning of this campaign shown and gone on past (keys since 2026-10-09).
+    private static ReviewReport Demo(Campaign campaign) => CampaignGate.DemoReview(campaign, ByPriya.Seeing(campaign));
 
     // Every export these tests read goes through here, so each one is held to the published schema.
     private static string Exported(
@@ -83,7 +84,7 @@ public class AssistantExportTests
         var rulesOnly = CampaignReview.Check(campaign);
         Assert.Throws<CampaignBlockedException>(() => AssistantExport.Build(rulesOnly, ByPriya));
 
-        var proofread = await CampaignGate.ReviewAsync(campaign, FakeProofreader.Clean, warningsSeen: SeenByPriya);
+        var proofread = await CampaignGate.ReviewAsync(campaign, FakeProofreader.Clean, warningsSeen: SeenByPriya.For(campaign));
         Assert.Throws<AssistantExportRefusedException>(() => AssistantExport.Build(proofread));
 
         var doc = Parse(Exported(proofread, ByPriya));
@@ -173,7 +174,7 @@ public class AssistantExportTests
                 new KnownTier(KnownItem.NewId(), "Platinum Member", 249m, []),
             ]),
         };
-        var report = CampaignGate.DemoReview(campaign, ByPriya, business: known);
+        var report = CampaignGate.DemoReview(campaign, ByPriya.Seeing(campaign, known), business: known);
         var offerLabel = campaign.BlocksOf<OfferBlock>().Single().Label;
 
         var fromKnown = report.Findings.Where(f => f.Rule == "known-item").ToList();
@@ -200,7 +201,7 @@ public class AssistantExportTests
             [new AmountLimit(amount.Field.Name, null, amount.Value - 1)]);
         var known = new BusinessContext("Neelam Aesthetics") { Known = new KnownItems([line]) };
 
-        var report = CampaignGate.DemoReview(campaign, ByPriya, business: known);
+        var report = CampaignGate.DemoReview(campaign, ByPriya.Seeing(campaign, known), business: known);
 
         // Another tier carrying the same line is noted there too (open decision 10); this is tier 1's.
         var finding = Assert.Single(report.Findings, f => f.Rule == "known-item" && f.Location.StartsWith($"{offerLabel} › Tier 1,")
@@ -217,7 +218,7 @@ public class AssistantExportTests
     [Fact]
     public void Worth_a_look_names_benefits_as_written_never_by_key()
     {
-        var report = CampaignGate.DemoReview(BeautyBankEmail.Corrected(), ByPriya);
+        var report = Demo(BeautyBankEmail.Corrected());
 
         var worthALook = Parse(Exported(report, context: Context))["review"]!["worthALook"]!.AsArray()
             .Select(n => n!.GetValue<string>()).ToList();
@@ -421,7 +422,7 @@ public class AssistantExportTests
     public void The_hash_is_stable_across_runs()
     {
         var one = AssistantExport.Build(Demo(BeautyBankEmail.Corrected()), context: Context).ContentHash;
-        var two = AssistantExport.Build(CampaignGate.DemoReview(BeautyBankEmail.Corrected(), ByPriya with { By = "Someone else" }), context: Context).ContentHash;
+        var two = AssistantExport.Build(CampaignGate.DemoReview(BeautyBankEmail.Corrected(), (ByPriya with { By = "Someone else" }).Seeing(BeautyBankEmail.Corrected())), context: Context).ContentHash;
 
         // The approval and the label are not the email, so they do not move it.
         Assert.Equal(one, two);
@@ -854,7 +855,7 @@ public class AssistantExportPageTests(DemoApp app) : IClassFixture<DemoApp>
     {
         var draft = DraftFixtures.Finished();
         draft.Label = "Beauty Bank -- first send";
-        var save = await Store.WarningsSeenAtExportAsync(await Store.ApproveAsync(await Saved(draft), "Priya"));
+        var save = await Store.WarningsSeenAtExportAsync(await Store.ApproveAsync(await Saved(draft), "Priya"), SeenAtExport.KeysOf(draft));
 
         var page = await Get($"/campaigns/{save.Id}");
 

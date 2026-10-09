@@ -67,7 +67,8 @@ public class PhotoDescribedTests
     [Fact]
     public void It_never_stops_the_export()
     {
-        var report = CampaignGate.DemoReview(Undescribe(BeautyBankEmail.Corrected()), ByPriya);
+        var campaign = Undescribe(BeautyBankEmail.Corrected());
+        var report = CampaignGate.DemoReview(campaign, ByPriya.Seeing(campaign));
 
         Assert.Contains(report.Findings, f => f.Rule == Rule);
         Assert.True(report.CanExport);
@@ -134,7 +135,7 @@ public class PhotoDescribedTests
         {
             Blocks = campaign.Blocks.Select(b => b is ImageBlock i ? i with { Image = i.Image with { AltText = null } } : b).ToList(),
         };
-        var report = CampaignGate.DemoReview(campaign, ByPriya);
+        var report = CampaignGate.DemoReview(campaign, ByPriya.Seeing(campaign));
 
         var json = ExportSchema.Valid(AssistantExport.Json(report));
         var worthALook = JsonNode.Parse(json)!["review"]!["worthALook"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();

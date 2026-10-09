@@ -172,22 +172,32 @@ public sealed class CampaignStore(
     /// <summary>
     /// Records, on the save's approval row, that someone was shown its "Worth a look" findings when
     /// exporting it and went on (owner, 2026-10-09: "This is handholding, not handcuffs"): who and
-    /// when, never which findings or what they said. It goes with the approval: a label-only save
-    /// carries it (<see cref="KeepApprovalAsync"/>), and any other save, a withdrawal or an undo
-    /// leaves it behind. Recorded once; asked again, the first record stands.
+    /// when, and which findings by their keys (<see cref="Finding.SeenKey"/>, hashes), never what they
+    /// said. The keys add to those already recorded, so a warning that appears later is shown then,
+    /// and going on past it records who and when anew; asked again with nothing new, the record
+    /// stands as it is. It goes with the approval: a label-only save carries it
+    /// (<see cref="KeepApprovalAsync"/>), and any other save, a withdrawal or an undo leaves it behind.
     /// </summary>
+    /// <param name="shown">The keys of the warnings she was shown, or the version's warnings as they stand.</param>
     /// <returns>The save with its approval, now carrying <see cref="Approval.WarningsSeen"/>.</returns>
     /// <exception cref="InvalidOperationException">The save's approval does not stand.</exception>
-    public async Task<SaveRef> WarningsSeenAtExportAsync(SaveRef save, CancellationToken ct = default)
+    public async Task<SaveRef> WarningsSeenAtExportAsync(
+        SaveRef save, IReadOnlyCollection<string> shown, CancellationToken ct = default)
     {
         Expect(save, DocumentKind.Draft);
         var row = await StandingApprovalAsync(save, ct)
                   ?? throw new InvalidOperationException("Approve this version first: export is of an approved version.");
-        if (row.Approval.WarningsSeen is null)
+        var before = row.Approval.WarningsSeen;
+        if (before?.Keys is not { } known || !shown.All(known.Contains))
         {
             // Signed in, the user; in Prototype, the name typed for this version's approval, as approvals are.
             var by = activity.Actor.NameFor(row.ApprovedBy);
-            row = row with { WarningsSeenBy = by, WarningsSeenAt = clock.GetUtcNow() };
+            row = row with
+            {
+                WarningsSeenBy = by,
+                WarningsSeenAt = clock.GetUtcNow(),
+                WarningsSeenKeys = ApprovalRecord.JoinKeys((before?.Keys ?? Enumerable.Empty<string>()).Union(shown, StringComparer.Ordinal)),
+            };
             await approvals.PutAsync(row, ct);
             await RecordAsync(save, ActivityAction.WarningsSeenAtExport, ct, by);
         }

@@ -7,7 +7,7 @@ public class EditorExportTests
     // Proofread, nothing blocking, and what is worth a look shown at export and gone on past.
     private static async Task<ReviewReport> Passed() =>
         await CampaignGate.ReviewAsync(SampleCampaigns.Corrected(), FakeProofreader.Clean,
-            warningsSeen: new WarningsSeen("Neelam", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)));
+            warningsSeen: new WarningsSeen("Neelam", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)).For(SampleCampaigns.Corrected()));
 
     [Fact]
     public async Task Blocked_email_has_no_export()

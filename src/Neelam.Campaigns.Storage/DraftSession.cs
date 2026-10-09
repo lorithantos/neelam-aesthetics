@@ -144,25 +144,30 @@ public sealed class DraftSession
 
     /// <summary>
     /// The "Worth a look" findings to show before the demo export, or none: what stands between an
-    /// approved campaign, unchanged since and with nothing to fix, and its export, while nobody has
-    /// been shown them at export for this version. Every one of them, in the order the checks give.
-    /// Warnings never stop the email (owner, 2026-10-09): going on is
+    /// approved campaign, unchanged since and with nothing to fix, and its export. Only those nobody
+    /// has been shown at export for this version (<see cref="ReviewReport.UnseenWarnings"/>), so after
+    /// she has gone on once, a warning that appears later is listed alone. In the order the checks
+    /// give. Warnings never stop the email (owner, 2026-10-09): going on is
     /// <see cref="WarningsSeenAtExportAsync"/>, one click, and fixing one is an edit like any other.
     /// </summary>
     public IReadOnlyList<Finding> WarningsBeforeExport(CampaignPolicy? policy = null, BusinessContext? business = null) =>
-        DemoReview(policy, business) is { WarningsToSee: true } report ? report.Warnings.ToList() : [];
+        DemoReview(policy, business) is { WarningsToSee: true } report ? report.UnseenWarnings.ToList() : [];
 
     /// <summary>
-    /// Goes on to export past this version's "Worth a look" findings: recorded with its approval, by
-    /// who and when, so they are not shown again for this version. A new save shows them again,
-    /// unless it changes only her label.
+    /// Goes on to export past this version's "Worth a look" findings as they stand: recorded with its
+    /// approval, who and when and each finding's key, so they are not shown again for this version
+    /// while they stay as they are. A new save shows them again, unless it changes only her label.
+    /// Give the same policy and business as for <see cref="WarningsBeforeExport"/>, so the findings
+    /// recorded are the ones shown.
     /// </summary>
     /// <exception cref="InvalidOperationException">The version as it stands is not approved.</exception>
-    public async Task<WarningsSeen> WarningsSeenAtExportAsync(CancellationToken ct = default)
+    public async Task<WarningsSeen> WarningsSeenAtExportAsync(
+        CampaignPolicy? policy = null, BusinessContext? business = null, CancellationToken ct = default)
     {
         if (CurrentApproval is null || Latest?.Approval is null)
             throw new InvalidOperationException("Approve this version first: export is of an approved version.");
-        Latest = await _store.WarningsSeenAtExportAsync(Latest, ct);
+        var shown = (DemoReview(policy, business)?.Warnings ?? []).Select(w => w.SeenKey).ToList();
+        Latest = await _store.WarningsSeenAtExportAsync(Latest, shown, ct);
         return Latest.Approval!.WarningsSeen!;
     }
 

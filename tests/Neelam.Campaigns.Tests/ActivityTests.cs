@@ -357,7 +357,7 @@ public class ActivityTests
         var relabelled = await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished);
         await store.ApproveAsync(relabelled, "Priya");
         // Shown what is worth a look at export, and gone on past it.
-        await store.WarningsSeenAtExportAsync(relabelled);
+        await store.WarningsSeenAtExportAsync(relabelled, SeenAtExport.KeysOf(finished));
         _clock.Now += TimeSpan.FromMinutes(1);
         finished.Label = Label + " (sent)";
         await store.KeepApprovalAsync(relabelled, await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished));
@@ -419,7 +419,7 @@ public class ActivityTests
                 where value.Contains(text, StringComparison.OrdinalIgnoreCase)
                 select $"{text} in {value}");
             Assert.Empty(row.Keys.Except(
-                ["PartitionKey", "RowKey", "ApprovedBy", "ApprovedAt", "Withdrawn", "WithdrawnAt", "WarningsSeenBy", "WarningsSeenAt", "odata.etag", "Timestamp"]));
+                ["PartitionKey", "RowKey", "ApprovedBy", "ApprovedAt", "Withdrawn", "WithdrawnAt", "WarningsSeenBy", "WarningsSeenAt", "WarningsSeen", "odata.etag", "Timestamp"]));
         }
     }
 

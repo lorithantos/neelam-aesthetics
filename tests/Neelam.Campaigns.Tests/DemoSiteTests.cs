@@ -20,7 +20,7 @@ public class DemoReviewTests
     public void An_approved_campaign_the_rules_pass_exports_marked_as_not_proofread()
     {
         // Shown what is worth a look at export, and went on (ExportWarningsTests).
-        var approval = ByPriya with { WarningsSeen = new WarningsSeen("Priya", ByPriya.At.AddMinutes(1)) };
+        var approval = ByPriya with { WarningsSeen = new WarningsSeen("Priya", ByPriya.At.AddMinutes(1)).For(Build(DraftFixtures.Finished())) };
         var report = CampaignGate.DemoReview(Build(DraftFixtures.Finished()), approval);
 
         Assert.False(report.Proofread);
@@ -103,7 +103,7 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
     // Approved, and shown what is worth a look at export and gone on, as "Export anyway" does
     // (ExportWarningsTests): the export itself is what these tests look at.
     private async Task<SaveRef> ApprovedAndSeen(CampaignDraft draft) =>
-        await Store.WarningsSeenAtExportAsync(await Store.ApproveAsync(await Saved(draft), "Priya"));
+        await Store.WarningsSeenAtExportAsync(await Store.ApproveAsync(await Saved(draft), "Priya"), SeenAtExport.KeysOf(draft));
 
     private static MatchCollection ExportBlocks(string page) =>
         Regex.Matches(page, "<li class=\"export-block\">(.*?)</li>", RegexOptions.Singleline);

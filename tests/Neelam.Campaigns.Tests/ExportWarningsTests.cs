@@ -67,7 +67,7 @@ public class ExportWarningsTests
     [Fact]
     public void Once_shown_and_gone_on_past_both_exports_are_there()
     {
-        var seen = new WarningsSeen("Priya", ByPriya.At.AddMinutes(2));
+        var seen = new WarningsSeen("Priya", ByPriya.At.AddMinutes(2)).For(Finished());
         var report = CampaignGate.DemoReview(Finished(), ByPriya with { WarningsSeen = seen });
 
         Assert.False(report.WarningsToSee);
@@ -86,7 +86,7 @@ public class ExportWarningsTests
         Assert.NotEmpty(unseen.Warnings);
         Assert.False(unseen.WarningsToSee);
         var report = CampaignGate.DemoReview(draft.Build().Campaign!,
-            ByPriya with { WarningsSeen = new WarningsSeen("Priya", ByPriya.At) });
+            ByPriya with { WarningsSeen = new WarningsSeen("Priya", ByPriya.At).For(draft.Build().Campaign!) });
 
         Assert.NotEmpty(report.Blockers);
         Assert.False(report.WarningsToSee);
@@ -108,7 +108,7 @@ public class ExportWarningsTests
 
         var seen = await session.WarningsSeenAtExportAsync();
 
-        Assert.Equal(new WarningsSeen("Priya", _clock.Now), seen);
+        Assert.Equal(WarningsSeen.Of("Priya", _clock.Now, review.Warnings), seen);
         Assert.Empty(session.WarningsBeforeExport());
         Assert.NotNull(session.DemoExportReport());
         // Kept with the save's approval: whoever opens it next is not asked again.
@@ -200,7 +200,98 @@ public class ExportWarningsTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => session.WarningsSeenAtExportAsync());
         Assert.Null(Assert.Single(Records.Approvals.Rows).WarningsSeenBy);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            Store.WarningsSeenAtExportAsync(session.Latest! with { SavedAt = session.Latest!.SavedAt.AddDays(1) }));
+            Store.WarningsSeenAtExportAsync(session.Latest! with { SavedAt = session.Latest!.SavedAt.AddDays(1) }, []));
+    }
+
+    // ---- Warnings that come later (owner, 2026-10-09) ----
+
+    // Her known tiers say Platinum Member is $249: one warning the version did not have when she went on.
+    private static readonly BusinessContext WithKnownTiers = new("Neelam Aesthetics")
+    {
+        Known = new KnownItems(
+        [
+            new KnownTier(KnownItem.NewId(), "Gold Member", 149m, []),
+            new KnownTier(KnownItem.NewId(), "Platinum Member", 249m, []),
+        ]),
+    };
+
+    [Fact]
+    public async Task A_warning_that_appears_after_she_went_on_brings_the_list_back_with_only_it()
+    {
+        var session = await Approved();
+        var before = session.WarningsBeforeExport();
+        await session.WarningsSeenAtExportAsync();
+        _clock.Now += TimeSpan.FromMinutes(5);
+
+        var later = session.WarningsBeforeExport(business: WithKnownTiers);
+
+        var only = Assert.Single(later);
+        Assert.Equal("'Platinum Member' is $249/month in your known items; here it is $299/month.", only.Message);
+        Assert.DoesNotContain(later, w => before.Contains(w));
+        Assert.Null(session.DemoExportReport(business: WithKnownTiers));
+        // Going on past it: the export is there, the record says who and when anew, and both sets count.
+        var seen = await session.WarningsSeenAtExportAsync(business: WithKnownTiers);
+        Assert.Equal(_clock.Now, seen.At);
+        Assert.Empty(session.WarningsBeforeExport(business: WithKnownTiers));
+        Assert.NotNull(session.DemoExportReport(business: WithKnownTiers));
+        Assert.Equal(2, Records.Activity.Events.Count(e => e.Action == ActivityAction.WarningsSeenAtExport));
+        Assert.Empty((await DraftSession.OpenAsync(Store, session.Id!.Value))!.WarningsBeforeExport(business: WithKnownTiers));
+    }
+
+    // A warning she was shown stays shown while it says the same; one that went away needs nothing.
+    [Fact]
+    public async Task A_warning_already_seen_does_not_come_back_and_one_that_went_away_needs_nothing()
+    {
+        var session = await Approved();
+        await session.WarningsSeenAtExportAsync(business: WithKnownTiers);
+
+        // The known-tier warning gone (her known items as before): nothing to show, the export is there.
+        Assert.Empty(session.WarningsBeforeExport());
+        Assert.NotNull(session.DemoExportReport());
+        // And back again, as she was shown it: still nothing.
+        Assert.Empty(session.WarningsBeforeExport(business: WithKnownTiers));
+        Assert.NotNull(session.DemoExportReport(business: WithKnownTiers));
+    }
+
+    // What she was shown stays shown: going on again later, past something else, does not forget it.
+    [Fact]
+    public async Task A_warning_shown_once_stays_shown_after_a_later_export()
+    {
+        var session = await Approved();
+        await session.WarningsSeenAtExportAsync(business: WithKnownTiers);
+        var repriced = WithKnownTiers with
+        {
+            Known = new KnownItems(
+            [
+                new KnownTier(KnownItem.NewId(), "Gold Member", 149m, []),
+                new KnownTier(KnownItem.NewId(), "Platinum Member", 199m, []),
+            ]),
+        };
+        Assert.Single(session.WarningsBeforeExport(business: repriced));
+        await session.WarningsSeenAtExportAsync(business: repriced);
+
+        Assert.Empty(session.WarningsBeforeExport(business: WithKnownTiers));
+    }
+
+    // A row from before keys were kept says who and when but not which: every warning is shown once
+    // more, and going on then records the keys, so it is not shown again.
+    [Fact]
+    public async Task A_row_from_before_keys_were_kept_shows_the_list_once_more()
+    {
+        var session = await Approved();
+        var row = Assert.Single(Records.Approvals.Rows);
+        await Records.Approvals.PutAsync(row with { WarningsSeenBy = "Priya", WarningsSeenAt = _clock.Now });
+        var reopened = (await DraftSession.OpenAsync(Store, session.Id!.Value))!;
+        Assert.NotNull(reopened.CurrentApproval!.WarningsSeen);
+        Assert.Null(reopened.CurrentApproval!.WarningsSeen!.Keys);
+
+        var shown = reopened.WarningsBeforeExport();
+        Assert.Equal(CampaignGate.DemoReview(reopened.Editor.Status().Review!.Campaign, reopened.CurrentApproval!).Warnings, shown);
+        Assert.Null(reopened.DemoExportReport());
+
+        await reopened.WarningsSeenAtExportAsync();
+        Assert.Empty(reopened.WarningsBeforeExport());
+        Assert.Empty((await DraftSession.OpenAsync(Store, session.Id!.Value))!.WarningsBeforeExport());
     }
 
     // ---- Who, when, and nothing else ----
@@ -233,10 +324,14 @@ public class ExportWarningsTests
 
         var row = TableMetadata.FromApproval(Assert.Single(Records.Approvals.Rows));
         Assert.Equal(
-            ["ApprovedAt", "ApprovedBy", "PartitionKey", "RowKey", "WarningsSeenAt", "WarningsSeenBy", "Withdrawn"],
+            ["ApprovedAt", "ApprovedBy", "PartitionKey", "RowKey", "WarningsSeen", "WarningsSeenAt", "WarningsSeenBy", "Withdrawn"],
             row.Keys.Where(k => k is not ("odata.etag" or "Timestamp")).Order(StringComparer.Ordinal));
         Assert.Equal("Priya", row["WarningsSeenBy"]);
         Assert.Equal(_clock.Now, row["WarningsSeenAt"]);
+        // Which warnings, as hashes only: one 32-hex key per warning shown, and nothing else.
+        var keys = ((string)row["WarningsSeen"]).Split(',');
+        Assert.Equal(warnings.Select(w => w.SeenKey).Order(StringComparer.Ordinal), keys);
+        Assert.All(keys, k => Assert.Matches("^[0-9a-f]{32}$", k));
         var seen = Assert.Single(Records.Activity.Events, e => e.Action == ActivityAction.WarningsSeenAtExport);
         Assert.Equal((session.Id!.Value.ToString("N"), session.Latest!.BlobName.Split('/')[2][..^".json".Length]),
             (seen.EntityId, seen.SaveStamp));
@@ -289,6 +384,10 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
         return await Store.ApproveAsync(save, "Priya");
     }
 
+    // "Export anyway", as its handler does through the session: every warning the page lists, shown.
+    private Task<SaveRef> GoneOnPast(SaveRef save, CampaignDraft? draft = null) =>
+        Store.WarningsSeenAtExportAsync(save, SeenAtExport.KeysOf(draft ?? DraftFixtures.Finished()));
+
     private static string Panel(string page) =>
         Regex.Match(page, "<section class=\"card export-warnings\"(.*?)</section>", RegexOptions.Singleline).Value;
 
@@ -329,7 +428,7 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
     [Fact]
     public async Task Once_she_goes_on_the_list_is_not_shown_again_for_that_version()
     {
-        var save = await Store.WarningsSeenAtExportAsync(await Approved());
+        var save = await GoneOnPast(await Approved());
 
         var page = await Get($"/campaigns/{save.Id}");
 
@@ -342,7 +441,7 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
     [Fact]
     public async Task A_new_save_once_approved_shows_the_list_again()
     {
-        var first = await Store.WarningsSeenAtExportAsync(await Approved());
+        var first = await GoneOnPast(await Approved());
         var edited = DraftFixtures.Finished();
         edited.Subject.Set("WE’RE TURNING TWO!");
 
@@ -353,10 +452,30 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.DoesNotContain("data-copy", page);
     }
 
+    // Gone on past all but one, as when that one appeared later: the list comes back with it alone,
+    // and says it is new since she last exported.
+    [Fact]
+    public async Task A_warning_new_since_the_last_export_is_listed_alone_and_called_new()
+    {
+        var save = await Approved();
+        var warnings = CampaignGate.DemoReview(DraftFixtures.Finished().Build().Campaign!, save.Approval!).Warnings.ToList();
+        Assert.True(warnings.Count > 1);
+        var later = warnings[^1];
+        await Store.WarningsSeenAtExportAsync(save, warnings[..^1].Select(w => w.SeenKey).ToList());
+
+        var panel = Panel(await Get($"/campaigns/{save.Id}"));
+
+        Assert.Contains("1 new thing is worth a look since you last exported. None of them stops the email.", panel);
+        Assert.Single(Regex.Matches(panel, "<li class=\"finding warning\">"));
+        Assert.Contains(later.Message, panel);
+        Assert.All(warnings[..^1], w => Assert.DoesNotContain(w.Message, panel));
+        Assert.Contains(">Export anyway</button>", panel);
+    }
+
     [Fact]
     public async Task A_label_only_save_keeps_the_export()
     {
-        var first = await Store.WarningsSeenAtExportAsync(await Approved());
+        var first = await GoneOnPast(await Approved());
         var session = (await DraftSession.OpenAsync(Store, first.Id))!;
         session.Editor.Label = "Beauty Bank -- first send";
         app.Clock.Now += TimeSpan.FromSeconds(1);

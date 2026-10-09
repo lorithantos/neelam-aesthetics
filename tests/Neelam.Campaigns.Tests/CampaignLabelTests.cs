@@ -84,9 +84,9 @@ public class CampaignLabelTests
         Assert.Equal(plain.Subject, labelled.Subject);
         Assert.Equal(plain.Preheader, labelled.Preheader);
         Assert.Equal(Findings(CampaignReview.Check(plain).Findings), Findings(CampaignReview.Check(labelled).Findings));
-        var report = CampaignGate.DemoReview(labelled, ByPriya);
+        var report = CampaignGate.DemoReview(labelled, ByPriya.Seeing(labelled));
         Assert.True(report.CanExport);
-        Assert.Equal(EditorExport.PlainText(CampaignGate.DemoReview(plain, ByPriya)), EditorExport.PlainText(report));
+        Assert.Equal(EditorExport.PlainText(CampaignGate.DemoReview(plain, ByPriya.Seeing(plain))), EditorExport.PlainText(report));
         Assert.DoesNotContain(Marker, EditorExport.PlainText(report));
         Assert.DoesNotContain(EditorExport.Blocks(report), b => $"{b.Text} {b.Url} {b.Image?.Name}".Contains(Marker));
         Assert.DoesNotContain(report.Findings, f => $"{f.Location} {f.Message}".Contains(Marker));

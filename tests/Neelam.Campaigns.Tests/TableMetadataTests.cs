@@ -44,6 +44,16 @@ public class TableMetadataTests
         Assert.Equal(("Priya", Now.AddMinutes(2)), (seenRow["WarningsSeenBy"], seenRow["WarningsSeenAt"]));
         Assert.Equal(seen, TableMetadata.ToApproval(seenRow));
         Assert.Equal(new WarningsSeen("Priya", Now.AddMinutes(2)), TableMetadata.ToApproval(seenRow).Approval.WarningsSeen);
+        // A row like that one, from before keys were kept, has no WarningsSeen column: no warning counts as shown.
+        Assert.False(seenRow.ContainsKey("WarningsSeen"));
+        Assert.Null(TableMetadata.ToApproval(seenRow).Approval.WarningsSeen!.Keys);
+        // Since 2026-10-09 the keys of the warnings shown, as hashes, go with it and come back.
+        string[] keys = ["0123456789abcdef0123456789abcdef", "fedcba9876543210fedcba9876543210"];
+        var keyed = seen with { WarningsSeenKeys = ApprovalRecord.JoinKeys(keys) };
+        var keyedRow = TableMetadata.FromApproval(keyed);
+        Assert.Equal(string.Join(',', keys), keyedRow["WarningsSeen"]);
+        Assert.Equal(keyed, TableMetadata.ToApproval(keyedRow));
+        Assert.Equal(new WarningsSeen("Priya", Now.AddMinutes(2), keys.ToHashSet()), TableMetadata.ToApproval(keyedRow).Approval.WarningsSeen);
     }
 
     // Withdrawn with no time, as something outside the app might leave it, is still withdrawn.

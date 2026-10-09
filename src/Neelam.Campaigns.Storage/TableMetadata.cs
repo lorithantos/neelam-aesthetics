@@ -165,6 +165,8 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
         // Who went on past the warnings at export, and when: left out until someone has.
         if (approval.WarningsSeenBy is { } seenBy) row["WarningsSeenBy"] = seenBy;
         if (approval.WarningsSeenAt is { } seenAt) row["WarningsSeenAt"] = seenAt;
+        // Which warnings she had been shown by then, as hashes only (Finding.SeenKey).
+        if (approval.WarningsSeenKeys is { } seenKeys) row["WarningsSeen"] = seenKeys;
         return row;
     }
 
@@ -183,7 +185,8 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
             row.GetDateTimeOffset("ApprovedAt") ?? throw new InvalidDataException("An approval has no time."),
             withdrawnAt,
             row.GetString("WarningsSeenBy"),
-            row.GetDateTimeOffset("WarningsSeenAt"));
+            row.GetDateTimeOffset("WarningsSeenAt"),
+            row.GetString("WarningsSeen"));
     }
 
     // One partition per client; rows sort by time, and the id keeps two events in the same instant
