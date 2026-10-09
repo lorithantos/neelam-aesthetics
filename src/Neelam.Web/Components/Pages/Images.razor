@@ -18,7 +18,12 @@
 }
 else if (_images is not null)
 {
-    <p class="muted">The photos @_displayName's templates and campaigns name. A photo block names one of these by its name.</p>
+    <p class="muted">Photos for @_displayName. A photo block in a template or campaign names one of these by its name.</p>
+
+    @if (_message is not null)
+    {
+        <p role="status" class="library-status">@_message</p>
+    }
 
     @if (_images.Count == 0)
     {
@@ -27,27 +32,41 @@ else if (_images is not null)
     @foreach (var image in _images)
     {
         <section class="card" aria-label="@image.Name">
-            <h2>@image.Name</h2>
-            @if (image.SquareUrl is { } url)
+            @* Delete sits beside the name, away from the image, and its confirmation opens right
+               under the name, above the image, so it is in view where the click was. *@
+            <div class="library-entry-head">
+                <h2>@image.Name</h2>
+                @if (_confirming != image.Name)
+                {
+                    <button class="button" @onclick="() => _confirming = image.Name">Delete</button>
+                }
+            </div>
+            @if (_confirming == image.Name)
+            {
+                <div class="confirm" role="alert">
+                    <p>@(image.IsOnSquare || image.NotASquareAddress
+                        ? "Delete this photo from the library? Only the reference here goes; nothing at Square is touched. Blocks that name it will no longer find it."
+                        : "Delete this photo? It is deleted for good. Blocks that name it will no longer find it.")</p>
+                    <button class="button danger" @onclick="() => DeleteAsync(image)">Delete it</button>
+                    <button class="button" @onclick="() => _confirming = null">Keep it</button>
+                </div>
+            }
+            @if (image.NotASquareAddress)
+            {
+                @* Never shown as an image: its stored address is not on one of Square's hosts. *@
+                <p class="problem">@NotASquareAddress</p>
+            }
+            else if (image.SquareUrl is { } url)
             {
                 <img class="library-image" src="@url.AbsoluteUri" alt="@image.Name" />
-                <p class="muted">On Square: <span class="library-address">@url.AbsoluteUri</span></p>
+                <details class="library-address">
+                    <summary>Square address</summary>
+                    <span>@url.AbsoluteUri</span>
+                </details>
             }
             else
             {
                 <p class="muted">Uploaded@(image.AddedAt > DateTimeOffset.MinValue ? $" {image.AddedAt:d MMM yyyy}" : "").</p>
-            }
-            @if (_confirming == image.Name)
-            {
-                <p>@(image.IsOnSquare
-                    ? "Delete this photo from the library? Only the reference here goes; the image stays in your Square library, untouched. Blocks that name it will no longer find it."
-                    : "Delete this photo? It is deleted for good. Blocks that name it will no longer find it.")</p>
-                <button class="button danger" @onclick="() => DeleteAsync(image)">Delete it</button>
-                <button class="button" @onclick="() => _confirming = null">Keep it</button>
-            }
-            else
-            {
-                <button class="button" @onclick="() => _confirming = image.Name">Delete</button>
             }
         </section>
     }
@@ -72,14 +91,18 @@ else if (_images is not null)
         </div>
         <Problems Messages="_errors" />
         <button class="button primary" @onclick="AddFromSquareAsync">Add from Square</button>
-        @if (_message is not null)
+        @if (_added is not null)
         {
-            <p role="status">@_message</p>
+            <p role="status">@_added</p>
         }
     </section>
 }
 
 @code {
+    /// <summary>What an entry whose stored address is not on Square's hosts says, in place of its image.</summary>
+    public const string NotASquareAddress = "Not a Square address — remove it. It is not shown, and blocks that name it show no photo.";
+
+    private string? _added;
     private string? _denied;
     private ImageLibrary? _library;
     private string? _displayName;
@@ -105,12 +128,12 @@ else if (_images is not null)
 
     private async Task AddFromSquareAsync()
     {
-        _message = null;
+        _added = _message = null;
         try
         {
             var added = await _library!.AddFromSquareAsync(_newName ?? "", _newAddress ?? "");
             _errors = [];
-            _message = $"Added \"{added.Name}\".";
+            _added = $"Added \"{added.Name}\".";
             _newName = _newAddress = null;
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
@@ -124,9 +147,10 @@ else if (_images is not null)
     private async Task DeleteAsync(LibraryImage image)
     {
         _confirming = null;
+        _added = null;
         await _library!.DeleteAsync(image.Name);
-        _message = image.IsOnSquare
-            ? $"\"{image.Name}\" is out of the library. The image is still in your Square library."
+        _message = image.IsOnSquare ? $"\"{image.Name}\" is out of the library. The image is still in your Square library."
+            : image.NotASquareAddress ? $"\"{image.Name}\" is out of the library."
             : $"\"{image.Name}\" is deleted.";
         _images = await _library.ListAsync();
     }

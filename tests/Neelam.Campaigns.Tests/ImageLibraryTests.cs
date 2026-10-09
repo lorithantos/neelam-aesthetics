@@ -112,6 +112,63 @@ public class ImageLibraryTests
         Assert.Empty(_container.Blobs);
     }
 
+    // Addresses that name a Square host but would not load from it as given: credentials before the
+    // host, or another port on it.
+    [Theory]
+    [InlineData("https://x@postoffice-production-f.squarecdn.com/photo.jpg")]
+    [InlineData("https://postoffice-production-f.squarecdn.com:8443/photo.jpg")]
+    [InlineData("https://square-postoffice-production.s3.amazonaws.com:444/photo.jpg")]
+    public async Task A_Square_host_with_userinfo_or_another_port_is_refused(string address)
+    {
+        var refused = await Assert.ThrowsAsync<ArgumentException>(() => Library.AddFromSquareAsync("Principals toasting", address));
+
+        Assert.Contains("is not one of Square's image hosts", refused.Message);
+        Assert.Empty(_container.Blobs);
+    }
+
+    // A host is a host whatever its case; the address is kept as the web reads it, host in lower case.
+    [Fact]
+    public async Task A_Square_host_in_capitals_is_accepted()
+    {
+        var image = await Library.AddFromSquareAsync("Principals toasting", "https://POSTOFFICE-Production-F.SquareCDN.com/photo.jpg");
+
+        Assert.Equal("https://postoffice-production-f.squarecdn.com/photo.jpg", image.SquareUrl!.AbsoluteUri);
+        Assert.Equal(image.SquareUrl, Assert.Single(await Library.ListAsync()).SquareUrl);
+    }
+
+    // An entry whose stored address was changed outside the library (or written before a host was
+    // dropped) is checked again on the way out. It is listed, with no address, so it can be seen and
+    // deleted but never shown, and its name stays taken rather than vanishing.
+    [Theory]
+    [InlineData("https://example.com/photo.jpg")]
+    [InlineData("https://x@postoffice-production-f.squarecdn.com/photo.jpg")]
+    [InlineData("https://postoffice-production-f.squarecdn.com:8443/photo.jpg")]
+    [InlineData("http://postoffice-production-f.squarecdn.com/photo.jpg")]
+    public async Task A_tampered_stored_entry_is_listed_as_not_on_Square_and_can_be_deleted(string stored)
+    {
+        await Library.AddFromSquareAsync("Principals seated", "https://square-web-production-f.squarecdn.com/seated.jpg");
+        _container.Put("images/Principals%20toasting", "", new Dictionary<string, string>
+        {
+            ["name"] = "Principals%20toasting", ["added"] = "20261003T090000.0000000Z",
+            ["square"] = Uri.EscapeDataString(stored), ["entry"] = Guid.NewGuid().ToString("N"),
+        });
+
+        var images = await Library.ListAsync();
+
+        Assert.Equal(["Principals seated", "Principals toasting"], images.Select(i => i.Name));
+        var tampered = images[1];
+        Assert.True(tampered.NotASquareAddress);
+        Assert.Null(tampered.SquareUrl);
+        Assert.False(tampered.IsOnSquare);
+        Assert.False(images[0].NotASquareAddress);
+        // Its name is still taken, and says so truthfully.
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Library.AddFromSquareAsync("Principals toasting", "https://postoffice-production-f.squarecdn.com/toasting.jpg"));
+
+        Assert.True(await Library.DeleteAsync("Principals toasting"));
+        Assert.Equal("Principals seated", Assert.Single(await Library.ListAsync()).Name);
+    }
+
     // Square crops and sizes an image through its query string, so the address is kept whole.
     [Theory]
     [InlineData(Toasting)]

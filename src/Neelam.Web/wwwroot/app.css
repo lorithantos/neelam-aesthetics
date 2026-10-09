@@ -498,7 +498,8 @@ label.check {
     font-style: normal;
 }
 
-/* Image library: each photo as Square will send it, and its address in full. */
+/* Image library: each photo as Square will send it, its address behind a
+   disclosure, and Delete beside the name, away from the image. */
 .library-image {
     display: block;
     max-height: 16rem;
@@ -508,6 +509,44 @@ label.check {
 
 .library-address {
     overflow-wrap: anywhere;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+.library-entry-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.library-entry-head h2 {
+    margin: 0;
+}
+
+/* A step that asks before something final: hard to miss, in place. */
+.confirm {
+    color: var(--error-text);
+    background: var(--error-bg);
+    border: 1px solid var(--error-border);
+    border-left: 4px solid var(--error-text);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.confirm p {
+    margin-top: 0;
+}
+
+.problem {
+    color: var(--error-text);
+}
+
+.library-status {
+    font-weight: 600;
 }
 
 .preview-button {

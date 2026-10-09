@@ -109,7 +109,8 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("<h2>Principals seated</h2>", page);
         Assert.Contains("<h2>Principals toasting</h2>", page);
         Assert.Contains($"src=\"{Toasting}\"", page);
-        Assert.Contains("The photos Salon One's templates and campaigns name.", page);
+        Assert.Contains("Photos for Salon One. A photo block in a template or campaign names one of these by its name.", page);
+        Assert.DoesNotContain("Salon One's", page);
         Assert.Contains("id=\"square-name\"", page);
         Assert.Contains("id=\"square-url\"", page);
         Assert.Contains("Add from Square</button>", page);
@@ -122,11 +123,57 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (status, page) = await Get("/images", [Features.Campaigns], [SalonTwo.GroupId]);
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Contains("The photos Salon Two's templates and campaigns name.", page);
+        Assert.Contains("Photos for Salon Two.", page);
         Assert.Contains("No photos yet.", page);
         Assert.DoesNotContain("<h2>Principals", page);
         Assert.DoesNotContain("principals-toasting", page);
         Assert.DoesNotContain("files/seated", page);
+    }
+
+    // Her photo and its name are what she needs; Square's long address waits behind a disclosure.
+    // Delete sits beside the name, not under the image, where its confirmation then opens.
+    [Fact]
+    public async Task Each_photo_has_its_address_behind_a_disclosure_and_Delete_beside_its_name()
+    {
+        var (_, page) = await Get("/images", [Features.Campaigns]);
+
+        var card = Regex.Match(page, "<section class=\"card\" aria-label=\"Principals toasting\">(.*?)</section>", RegexOptions.Singleline).Value;
+        Assert.Matches(
+            "<div class=\"library-entry-head\">\\s*<h2>Principals toasting</h2>\\s*<button class=\"button\"[^>]*>Delete</button>\\s*</div>",
+            card);
+        Assert.Matches(
+            $"<details class=\"library-address\">\\s*<summary>Square address</summary>\\s*<span>{Regex.Escape(Toasting)}</span>\\s*</details>",
+            card);
+        // The address appears once, in the disclosure, besides the image's own src.
+        Assert.Equal(2, Regex.Matches(card, Regex.Escape(Toasting)).Count);
+        Assert.True(card.IndexOf(">Delete</button>", StringComparison.Ordinal) < card.IndexOf("<img", StringComparison.Ordinal));
+    }
+
+    // An entry whose stored address is not on Square's hosts (changed outside the library) is
+    // listed so she can delete it, and is never loaded as an image.
+    [Fact]
+    public async Task An_entry_not_on_Square_is_listed_to_remove_and_never_shown()
+    {
+        await Get("/images", [Features.Campaigns]);
+        app.Containers.For(SalonOne.Name.ToString()).Put("images/Front%20desk", "", new Dictionary<string, string>
+        {
+            ["name"] = "Front%20desk", ["added"] = "20261003T090000.0000000Z",
+            ["square"] = Uri.EscapeDataString("https://example.com/front-desk.jpg"), ["entry"] = Guid.NewGuid().ToString("N"),
+        });
+        try
+        {
+            var (_, page) = await Get("/images", [Features.Campaigns]);
+
+            var card = Regex.Match(page, "<section class=\"card\" aria-label=\"Front desk\">(.*?)</section>", RegexOptions.Singleline).Value;
+            Assert.Contains(Neelam.Web.Components.Pages.Images.NotASquareAddress, card);
+            Assert.Contains(">Delete</button>", card);
+            Assert.DoesNotContain("<img", card);
+            Assert.DoesNotContain("example.com", page);
+        }
+        finally
+        {
+            app.Containers.For(SalonOne.Name.ToString()).Blobs.Remove("images/Front%20desk");
+        }
     }
 
     [Fact]

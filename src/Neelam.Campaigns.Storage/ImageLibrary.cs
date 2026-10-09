@@ -5,10 +5,17 @@ namespace Neelam.Campaigns.Storage;
 /// <param name="AltText">What a reader gets when images do not load, unless a block says otherwise.</param>
 /// <param name="SquareUrl">
 /// For a photo hosted on Square rather than uploaded: its address there, query string and all, since
-/// Square crops and sizes an image through it. Null for an upload.
+/// Square crops and sizes an image through it. Null for an upload, and for an entry whose stored
+/// address fails the check on Square's hosts (<paramref name="NotASquareAddress"/>).
+/// </param>
+/// <param name="NotASquareAddress">
+/// The entry claims to be on Square, but its stored address is not on one of
+/// <see cref="ImageLibrary.SquareHosts"/>. It is listed so it can be deleted, and its name stays taken,
+/// but its address is never handed out, so nothing ever loads an image from it.
 /// </param>
 public sealed record LibraryImage(
-    string Name, string ContentType, string? AltText, DateTimeOffset AddedAt, string BlobName, Uri? SquareUrl = null)
+    string Name, string ContentType, string? AltText, DateTimeOffset AddedAt, string BlobName, Uri? SquareUrl = null,
+    bool NotASquareAddress = false)
 {
     /// <summary>Square holds the image; the library holds only its name and address.</summary>
     public bool IsOnSquare => SquareUrl is not null;
@@ -141,7 +148,11 @@ public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider cloc
         return url;
     }
 
-    /// <summary>Every photo, by name.</summary>
+    /// <summary>
+    /// Every photo, by name. An entry whose stored Square address fails the host check is listed too,
+    /// marked <see cref="LibraryImage.NotASquareAddress"/> and with no address, so it can be seen and
+    /// deleted but never shown.
+    /// </summary>
     public async Task<IReadOnlyList<LibraryImage>> ListAsync(CancellationToken ct = default)
     {
         var images = new List<LibraryImage>();
@@ -153,13 +164,14 @@ public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider cloc
                 : DateTimeOffset.MinValue;
             var alt = blob.Metadata.TryGetValue(AltKey, out var a) ? Uri.UnescapeDataString(a) : null;
             Uri? square = null;
+            var notOnSquare = false;
             if (blob.Metadata.TryGetValue(SquareKey, out var s))
             {
                 // Checked again on the way out, so a preview only ever loads from Square.
                 try { square = SquareAddress(Uri.UnescapeDataString(s)); }
-                catch (ArgumentException) { continue; }
+                catch (ArgumentException) { notOnSquare = true; }
             }
-            images.Add(new LibraryImage(Uri.UnescapeDataString(name), "", alt, added, blob.Name, square));
+            images.Add(new LibraryImage(Uri.UnescapeDataString(name), "", alt, added, blob.Name, square, notOnSquare));
         }
         return images.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
