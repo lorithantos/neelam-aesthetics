@@ -56,12 +56,15 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
     // The point of the separate page: a client never meets the operator's controls.
     [Theory]
-    [InlineData("/")]
-    [InlineData("/how-it-works")]
-    public async Task Client_pages_carry_no_admin_links(string path)
+    [InlineData("/", null)]
+    [InlineData("/how-it-works", null)]
+    [InlineData("/campaigns", Features.Campaigns)]
+    public async Task Client_pages_carry_no_admin_links(string path, string? role)
     {
-        var (_, page) = await Get(path);
+        var (status, page) = await (role is null ? Get(path) : Get(path, role));
 
+        // A page that did not open would pass the rest for nothing.
+        Assert.Equal(HttpStatusCode.OK, status);
         Assert.DoesNotContain("admin/", page);
         Assert.DoesNotContain(">Clients<", page);
         Assert.DoesNotContain("Entra", page);
