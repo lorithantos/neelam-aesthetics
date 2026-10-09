@@ -416,6 +416,109 @@ public class KnownItemsTests
         Assert.Null(BenefitEditor.Standalone().TreatmentToKnown());
     }
 
+    // ---- A store that fails never ends her session
+    // On an interactive page an exception ends the connection, and her unsaved campaign with it, so
+    // a storage failure is told to her and logged, never thrown.
+
+    [Fact]
+    public async Task Saving_from_a_campaign_when_the_store_fails_says_so_and_logs_it()
+    {
+        var log = new ListLogger<KnownItemsSession>();
+
+        var message = await KnownItemsSession.SaveFromCampaignAsync(
+            new FailingKnownItems { FailWrites = true }, Trail, Platinum, log);
+
+        Assert.Equal("Couldn't save that to your known items. Your campaign is untouched. Try again in a moment.", message);
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, entry.Level);
+        Assert.IsType<Azure.RequestFailedException>(entry.Error);
+        Assert.Contains(Platinum.Id, entry.Message);
+        Assert.DoesNotContain("Platinum", entry.Message);
+    }
+
+    // Anything else the table client throws is a storage failure too; a refusal still says why.
+    [Fact]
+    public async Task Any_store_failure_from_a_campaign_is_a_message_but_a_refusal_keeps_its_reason()
+    {
+        var log = new ListLogger<KnownItemsSession>();
+        var timingOut = new FailingKnownItems { FailWrites = true, Failure = () => new TimeoutException("The operation timed out.") };
+
+        Assert.Equal(KnownItemsSession.CampaignSaveFailed, await KnownItemsSession.SaveFromCampaignAsync(timingOut, Trail, Wellness, log));
+        Assert.IsType<TimeoutException>(Assert.Single(log.Entries).Error);
+        Assert.Equal("Fill in the treatment's name.",
+            await KnownItemsSession.SaveFromCampaignAsync(new InMemoryKnownItems(), Trail, new KnownTreatment(KnownItem.NewId(), " "), log));
+    }
+
+    [Fact]
+    public async Task Adding_changing_or_removing_when_the_store_fails_says_so_and_keeps_what_she_typed()
+    {
+        var store = new FailingKnownItems();
+        await store.AddAsync(SalonOne, Wellness);
+        var log = new ListLogger<KnownItemsSession>();
+        var session = await KnownItemsSession.OpenAsync(store, Trail, log);
+        store.FailWrites = true;
+
+        session.NewTreatment = "Hydrafacial";
+        Assert.False(await session.AddTreatmentAsync());
+        Assert.Equal([KnownItemsSession.SaveFailed], session.Errors);
+        Assert.Equal("Hydrafacial", session.NewTreatment);
+
+        session.StartEdit(Wellness);
+        session.EditTreatment = "Wellness injections";
+        Assert.False(await session.SaveEditAsync());
+        Assert.Equal([KnownItemsSession.SaveFailed], session.Errors);
+        Assert.Equal(Wellness.Id, session.Editing!.Id);
+        Assert.Equal("Wellness injections", session.EditTreatment);
+
+        await session.RemoveAsync(Wellness);
+        Assert.Equal([KnownItemsSession.RemoveFailed], session.Errors);
+        Assert.Equal([Wellness.Id], session.Items.All.Select(i => i.Id));
+
+        Assert.Equal(3, log.Entries.Count);
+        Assert.All(log.Entries, e => Assert.IsType<Azure.RequestFailedException>(e.Error));
+        Assert.All(log.Entries, e => Assert.DoesNotContain("Hydrafacial", e.Message));
+    }
+
+    // A change that went through stands even when the list cannot be read again just after it.
+    [Fact]
+    public async Task A_change_stands_when_the_list_cannot_be_read_again()
+    {
+        var store = new FailingKnownItems();
+        var log = new ListLogger<KnownItemsSession>();
+        var session = await KnownItemsSession.OpenAsync(store, Trail, log);
+        store.FailReads = true;
+
+        session.NewTreatment = "Hydrafacial";
+        Assert.True(await session.AddTreatmentAsync());
+
+        Assert.Equal("Added \"Hydrafacial\".", session.Message);
+        store.FailReads = false;
+        Assert.Equal(["Hydrafacial"], (await store.ForClientAsync(SalonOne)).All.Select(i => i.Text));
+        Assert.IsType<Azure.RequestFailedException>(Assert.Single(log.Entries).Error);
+    }
+
+    // The known items table, failing on demand as the real one does when it is unreachable.
+    private sealed class FailingKnownItems : IKnownItemStore
+    {
+        private readonly InMemoryKnownItems _inner = new();
+
+        public bool FailWrites { get; set; }
+        public bool FailReads { get; set; }
+        public Func<Exception> Failure { get; init; } = () => new Azure.RequestFailedException(503, "The table service is unavailable.");
+
+        public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken cancellationToken = default) =>
+            FailReads ? throw Failure() : _inner.ForClientAsync(client, cancellationToken);
+
+        public Task AddAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default) =>
+            FailWrites ? throw Failure() : _inner.AddAsync(client, item, cancellationToken);
+
+        public Task UpdateAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default) =>
+            FailWrites ? throw Failure() : _inner.UpdateAsync(client, item, cancellationToken);
+
+        public Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default) =>
+            FailWrites ? throw Failure() : _inner.RemoveAsync(client, id, cancellationToken);
+    }
+
     private static void AssertSame(KnownItem expected, KnownItem actual)
     {
         Assert.Equal(expected.GetType(), actual.GetType());

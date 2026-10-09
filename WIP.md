@@ -296,6 +296,14 @@ misses.
   The items reach the rule as the phone numbers do: `BusinessContext.Known`, filled by
   `ClientWorkspace.BusinessAsync`, so it runs on whole and partial drafts and in the gate. Never given to
   the proofread.
+- **A store failure never ends her session** (2026-10-09): saving from the campaign editor, and adding,
+  changing or removing on the Known items page, catch anything the table client throws other than the
+  store's own refusals, log it by the item's id (never its text) and say "Couldn't save that to your
+  known items. Your campaign is untouched. Try again in a moment." (on the Known items page, "What you
+  typed is still here." / "Couldn't remove that ..."). A change that went through stands when the list
+  cannot be read again after it. No `ErrorBoundary` was added: one around the editor would catch only
+  child components' failures, not the page's own handlers. Opening the Known items page while the table
+  is unreachable still fails, as before; nothing typed is lost there.
 - **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
   `KnownItemRemoved`) by the item's id, never its text.
 - **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and

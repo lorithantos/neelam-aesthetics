@@ -6,6 +6,7 @@
 @rendermode InteractiveServer
 @inject ClientWorkspace Workspace
 @inject ActivityRecorder Recorder
+@inject ILogger<KnownItemsPage> Log
 
 <PageTitle>Known items</PageTitle>
 
@@ -139,8 +140,9 @@ else if (_session is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(client);
-        // Each change goes on the activity trail by the item's id, against whoever is signed in.
-        _session = await KnownItemsSession.OpenAsync(Workspace.Known, Recorder.For(client, await Workspace.ActorAsync()));
+        // Each change goes on the activity trail by the item's id, against whoever is signed in. A
+        // store failure on add, change or remove is told to her and logged, never thrown.
+        _session = await KnownItemsSession.OpenAsync(Workspace.Known, Recorder.For(client, await Workspace.ActorAsync()), Log);
     }
 
     private RenderFragment ItemActions(KnownItem item) => @<span class="block-actions">

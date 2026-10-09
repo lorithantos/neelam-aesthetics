@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Neelam.Campaigns.Storage;
 
 /// <summary>
@@ -9,18 +12,37 @@ namespace Neelam.Campaigns.Storage;
 /// </summary>
 public sealed class KnownItemsSession
 {
+    /// <summary>What the campaign editor says when the store fails: her campaign is still in the form.</summary>
+    public const string CampaignSaveFailed =
+        "Couldn't save that to your known items. Your campaign is untouched. Try again in a moment.";
+
+    /// <summary>What this page says when the store fails to save: what she typed is still in the form.</summary>
+    public const string SaveFailed =
+        "Couldn't save that to your known items. What you typed is still here. Try again in a moment.";
+
+    /// <summary>What this page says when the store fails to remove an item.</summary>
+    public const string RemoveFailed = "Couldn't remove that from your known items. Try again in a moment.";
+
     private readonly IKnownItemStore _store;
     private readonly ActivityTrail _trail;
+    private readonly ILogger _log;
 
-    private KnownItemsSession(IKnownItemStore store, ActivityTrail trail, KnownItems items)
+    private KnownItemsSession(IKnownItemStore store, ActivityTrail trail, KnownItems items, ILogger log)
     {
         _store = store;
         _trail = trail;
+        _log = log;
         Items = items;
     }
 
-    public static async Task<KnownItemsSession> OpenAsync(IKnownItemStore store, ActivityTrail trail, CancellationToken ct = default) =>
-        new(store, trail, await store.ForClientAsync(trail.Client, ct));
+    /// <param name="log">
+    /// Where a storage failure is logged, by the item's id and the client, never its text. A failure
+    /// to save, change or remove is told to her and logged, never thrown: on an interactive page an
+    /// exception would end the connection, and with it whatever she had typed.
+    /// </param>
+    public static async Task<KnownItemsSession> OpenAsync(
+        IKnownItemStore store, ActivityTrail trail, ILogger? log = null, CancellationToken ct = default) =>
+        new(store, trail, await store.ForClientAsync(trail.Client, ct), log ?? NullLogger.Instance);
 
     public KnownItems Items { get; private set; }
 
@@ -117,12 +139,21 @@ public sealed class KnownItemsSession
 
     public async Task RemoveAsync(KnownItem item, CancellationToken ct = default)
     {
-        await _store.RemoveAsync(_trail.Client, item.Id, ct);
+        try
+        {
+            await _store.RemoveAsync(_trail.Client, item.Id, ct);
+        }
+        catch (Exception ex) when (IsStorageFailure(ex))
+        {
+            LogFailure(_log, ex, "remove", item, _trail.Client);
+            Refuse(RemoveFailed);
+            return;
+        }
         await _trail.RecordAsync(ActivityEntity.KnownItem, item.Id, null, ActivityAction.KnownItemRemoved, ct);
         if (Editing?.Id == item.Id) CancelEdit();
         Errors = [];
         Message = $"Removed \"{item.Text}\". Campaigns that used it keep their text.";
-        Items = await _store.ForClientAsync(_trail.Client, ct);
+        await ReloadAsync(ct);
     }
 
     // ---- From the campaign editor ----
@@ -130,11 +161,12 @@ public sealed class KnownItemsSession
     /// <summary>
     /// Saves something written in a campaign as a known item, exactly as written. When it is already
     /// known, says so (the store's own refusal) rather than failing: the point was to have it in the
-    /// list, and it is.
+    /// list, and it is. When the store fails, says so (<see cref="CampaignSaveFailed"/>) and logs it,
+    /// never throws: the campaign editor would lose her unsaved campaign with the connection.
     /// </summary>
     /// <returns>What to tell her.</returns>
     public static async Task<string> SaveFromCampaignAsync(
-        IKnownItemStore store, ActivityTrail trail, KnownItem item, CancellationToken ct = default)
+        IKnownItemStore store, ActivityTrail trail, KnownItem item, ILogger? log = null, CancellationToken ct = default)
     {
         try
         {
@@ -144,8 +176,38 @@ public sealed class KnownItemsSession
         {
             return ex.Message;
         }
+        catch (Exception ex) when (IsStorageFailure(ex))
+        {
+            LogFailure(log ?? NullLogger.Instance, ex, "save from a campaign", item, trail.Client);
+            return CampaignSaveFailed;
+        }
         await trail.RecordAsync(ActivityEntity.KnownItem, item.Id, null, ActivityAction.KnownItemAdded, ct);
         return $"Saved \"{item.Text}\" to your known items.";
+    }
+
+    // Anything the store throws other than its own refusals (ArgumentException, InvalidOperationException,
+    // which carry a message for her) and a cancelled request: Azure.RequestFailedException, a timeout,
+    // a network or authentication failure, a row it cannot read back.
+    private static bool IsStorageFailure(Exception ex) =>
+        ex is not (ArgumentException or InvalidOperationException or OperationCanceledException);
+
+    // By the item's id and kind and the client, never the item's text: the log carries no content.
+    private static void LogFailure(ILogger log, Exception ex, string action, KnownItem item, ClientName client) =>
+        log.LogError(ex, "Could not {Action} known item {ItemId} ({Kind}) for {Client}; she was told to try again.",
+            action, item.Id, item.Kind, client.Value);
+
+    // The list as stored. Reading it again after a change that went through is a courtesy: when it
+    // fails the change still stands, the list shown is the one before it, and the failure is logged.
+    private async Task ReloadAsync(CancellationToken ct)
+    {
+        try
+        {
+            Items = await _store.ForClientAsync(_trail.Client, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.LogError(ex, "Could not read the known items of {Client} again after a change.", _trail.Client.Value);
+        }
     }
 
     private bool Refuse(params string[] errors)
@@ -165,10 +227,15 @@ public sealed class KnownItemsSession
         {
             return Refuse(ex.Message);
         }
+        catch (Exception ex) when (IsStorageFailure(ex))
+        {
+            LogFailure(_log, ex, adding ? "add" : "change", item, _trail.Client);
+            return Refuse(SaveFailed);
+        }
         await _trail.RecordAsync(ActivityEntity.KnownItem, item.Id, null,
             adding ? ActivityAction.KnownItemAdded : ActivityAction.KnownItemChanged, ct);
         (Message, Errors) = ($"{(adding ? "Added" : "Changed")} \"{item.Text}\".", []);
-        Items = await _store.ForClientAsync(_trail.Client, ct);
+        await ReloadAsync(ct);
         return true;
     }
 }

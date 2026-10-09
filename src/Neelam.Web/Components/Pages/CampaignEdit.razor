@@ -24,6 +24,7 @@
 @inject SiteMode Site
 @inject IAuthorizationService Authorization
 @inject ActivityRecorder Recorder
+@inject ILogger<CampaignEdit> Log
 
 <PageTitle>@Title</PageTitle>
 
@@ -403,12 +404,21 @@ else
     private KnownItems Known => _business?.Known ?? KnownItems.None;
 
     // "Save as a known item" next to a tier or a benefit: kept exactly as written, then the pickers
-    // and the checks read the list again.
+    // and the checks read the list again. Neither may throw: on this interactive page an exception
+    // ends the connection, and her unsaved campaign with it. A store failure comes back as a message
+    // (logged by the session); a failure to read the list again keeps the list she had, logged here.
     private async Task<string> SaveKnownAsync(KnownItem item)
     {
         var message = await KnownItemsSession.SaveFromCampaignAsync(
-            Workspace.Known, Recorder.For(_client!, await Workspace.ActorAsync()), item);
-        _business = await Workspace.BusinessAsync(_client!);
+            Workspace.Known, Recorder.For(_client!, await Workspace.ActorAsync()), item, Log);
+        try
+        {
+            _business = await Workspace.BusinessAsync(_client!);
+        }
+        catch (Exception ex)
+        {
+            Log.LogError(ex, "Could not read the registration of {Client} again after saving a known item.", _client!.Value);
+        }
         return message;
     }
     private IReadOnlyList<LibraryImage> _photos = [];
