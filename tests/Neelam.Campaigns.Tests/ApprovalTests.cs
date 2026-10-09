@@ -241,23 +241,33 @@ public class ApprovalTests
         // The blocks the page offers to copy, or null when it offers none.
         static IReadOnlyList<EditorBlock>? Offered(DraftSession s) =>
             s.DemoExportReport() is { } report ? EditorExport.Blocks(report) : null;
+        // The assistant's JSON, as the page offers it: from the same report, with the approval in
+        // force, or null when the page offers no export at all.
+        static AssistantExportOffer? Json(DraftSession s) =>
+            s.DemoExportReport() is { } report ? AssistantExport.Offer(report, s.CurrentApproval) : null;
 
         var session = await SavedFinished();
         Assert.Null(Offered(session));
+        Assert.Null(Json(session));
 
         var approval = await session.ApproveAsync("Priya");
         Assert.NotEmpty(Offered(session)!);
         Assert.Equal(approval, session.DemoExportReport()!.DemoApproval);
+        var approved = Json(session)!.Json ?? throw new Xunit.Sdk.XunitException(Json(session)!.Refusal);
+        ExportSchema.Valid(approved);
 
         session.Editor.Subject.Text = "WE’RE TURNING TWO!";
         Assert.NotNull(session.Latest!.Approval);
         Assert.Null(Offered(session));
+        Assert.Null(Json(session));
 
         session.Editor.Subject.Text = "WE’RE TURNING ONE!";
         Assert.NotEmpty(Offered(session)!);
+        Assert.Equal(approved, Json(session)!.Json);
         // Her label is not the email: changing it leaves the export.
         session.Editor.Label = "Beauty Bank -- first send";
         Assert.NotEmpty(Offered(session)!);
+        Assert.NotNull(Json(session)!.Json);
     }
 
     // Anything else changed still voids it, the label changed with it or not.

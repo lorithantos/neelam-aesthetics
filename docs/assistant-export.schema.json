@@ -12,7 +12,7 @@
       "const": 1
     },
     "contentHash": {
-      "description": "SHA-256 over the blocks' expected content, so two exports can be compared and an edit to this file detected. For each block in order: its id, type, formatting (joined by \",\", empty when absent), and expected text, link, imageUrl and altText (each empty when absent), joined by U+001F; the blocks joined by U+001E; encoded as UTF-8; written \"sha256:\" and the lowercase hex digest.",
+      "description": "SHA-256 over the blocks' expected content, so two exports can be compared and an edit to this file detected. For each block in order: its id, type, formatting (joined by \",\", empty when absent), and expected text, link, imageName, imageUrl and altText (each empty when absent), joined by U+001F; the blocks joined by U+001E; encoded as UTF-8; written \"sha256:\" and the lowercase hex digest.",
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
@@ -76,10 +76,10 @@
           "enum": ["Header", "Text", "Image", "Button", "Spacer"]
         },
         "formatting": {
-          "description": "Emphasis on top of the widget: heading is a Text widget in the heading style.",
+          "description": "The style on top of the widget: heading1 is a Text widget in Square's Heading 1 style (body_text_h1 in Square's emails). A campaign has one heading level, so Heading 2 (body_text_h2) is never asked for.",
           "type": "array",
           "minItems": 1,
-          "items": { "enum": ["heading"] }
+          "items": { "enum": ["heading1"] }
         },
         "text": { "description": "What to paste, exactly, line breaks included.", "type": "string" },
         "url": { "description": "A button's link.", "type": "string", "format": "uri" },
@@ -100,6 +100,7 @@
           "properties": {
             "text": { "type": "string" },
             "link": { "type": "string", "format": "uri" },
+            "imageName": { "description": "The photo's name in the client's image library, on any block with a photo. Square does not show it: the image is compared by imageUrl, and the name is here so the hash covers which photo it is.", "type": "string", "minLength": 1 },
             "imageUrl": { "type": "string", "format": "uri" },
             "altText": { "type": "string" }
           }
@@ -108,15 +109,15 @@
       "allOf": [
         {
           "if": { "properties": { "type": { "const": "Button" } } },
-          "then": { "required": ["text", "url"], "properties": { "expected": { "required": ["text", "link"] } } }
+          "then": { "required": ["text", "url"], "properties": { "text": { "minLength": 1 }, "expected": { "required": ["text", "link"] } } }
         },
         {
           "if": { "properties": { "type": { "const": "Image" } } },
-          "then": { "required": ["image"], "not": { "required": ["text"] } }
+          "then": { "required": ["image"], "not": { "required": ["text"] }, "properties": { "expected": { "required": ["imageName"] } } }
         },
         {
           "if": { "properties": { "type": { "const": "Text" } } },
-          "then": { "required": ["text"], "properties": { "expected": { "required": ["text"] } } }
+          "then": { "required": ["text"], "properties": { "text": { "minLength": 1 }, "expected": { "required": ["text"] } } }
         },
         {
           "if": { "properties": { "type": { "const": "Spacer" } } },
@@ -124,7 +125,7 @@
         },
         {
           "if": { "properties": { "type": { "const": "Header" } } },
-          "then": { "required": ["text"] }
+          "then": { "required": ["text"], "properties": { "text": { "minLength": 1 } } }
         }
       ]
     }
