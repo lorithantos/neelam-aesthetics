@@ -20,6 +20,9 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     private static readonly Guid SameNames = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000003");
     private static readonly Guid SalonTwoCampaign = Guid.Parse("cccccccc-0000-0000-0000-000000000001");
 
+    private const string FinishedLabel = "Beauty Bank -- first send";
+    private const string SalonTwoLabel = "Salon two’s label";
+
     private async Task<(HttpStatusCode Status, string Page)> Get(string path, string[] roles, Guid[]? groups = null)
     {
         if ((await app.Clients.ListAsync()).Count == 0)
@@ -30,10 +33,14 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             var one = stores.Campaigns(SalonOne.Name);
             await one.SaveTemplateAsync(Membership, DraftFixtures.Membership);
             await one.SaveDraftAsync(Replayed, "Second send, replayed", DraftFixtures.SecondSendReplayed());
-            await one.SaveDraftAsync(Finished, "WE’RE TURNING ONE!", DraftFixtures.Finished());
+            var finished = DraftFixtures.Finished();
+            finished.Label = FinishedLabel;
+            await one.SaveDraftAsync(Finished, "WE’RE TURNING ONE!", finished);
             await one.SaveDraftAsync(SameNames, "Both tiers Platinum, no terms", DraftFixtures.SameNamesNoTerms());
             // Salon two has a campaign and no templates.
-            await stores.Campaigns(SalonTwo.Name).SaveDraftAsync(SalonTwoCampaign, "Salon two’s own campaign", DraftFixtures.StartAndFillText());
+            var salonTwos = DraftFixtures.StartAndFillText();
+            salonTwos.Label = SalonTwoLabel;
+            await stores.Campaigns(SalonTwo.Name).SaveDraftAsync(SalonTwoCampaign, "Salon two’s own campaign", salonTwos);
         }
         var client = app.CreateClient(new() { AllowAutoRedirect = false });
         if (roles.Length > 0) client.SignedIn(roles, groups ?? [SalonOne.GroupId]);
@@ -216,6 +223,68 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (_, editor) = await Get($"/campaigns/{partly}", [Features.Campaigns]);
         Assert.Contains("Save campaign", editor);
         Assert.Contains("Restore undone save", editor);
+    }
+
+    // Two sends of one email share the subject; her label tells them apart, the subject under it.
+    [Fact]
+    public async Task The_list_shows_her_label_with_the_subject_under_it()
+    {
+        var (_, page) = await Get("/campaigns", [Features.Campaigns]);
+
+        Assert.Matches(
+            $"<h3>{Regex.Escape(FinishedLabel)}</h3>\\s*<p class=\"campaign-subject\">{Regex.Escape("WE’RE TURNING ONE!")}</p>",
+            page);
+        // A campaign with no label is headed by its subject, as before.
+        Assert.Contains("<h3>Second send, replayed</h3>", page);
+
+        // The editor offers the label at the top, filled in.
+        var (_, editor) = await Get($"/campaigns/{Finished}", [Features.Campaigns]);
+        Assert.Contains("Label (just for you)", editor);
+        Assert.Contains($"value=\"{FinishedLabel}\"", editor);
+        Assert.True(editor.IndexOf("id=\"label\"", StringComparison.Ordinal) < editor.IndexOf("id=\"subject\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_undone_save_s_label_is_not_shown()
+    {
+        await Get("/campaigns", [Features.Campaigns]);
+        var store = app.Stores.Campaigns(SalonOne.Name);
+        var id = Guid.NewGuid();
+        var kept = DraftFixtures.Finished();
+        kept.Label = "Label of the kept save";
+        await store.SaveDraftAsync(id, "Relabelled campaign", kept);
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        var undone = DraftFixtures.Finished();
+        undone.Label = "Label of the undone save";
+        await store.MarkUndoneAsync(await store.SaveDraftAsync(id, "Relabelled campaign", undone));
+
+        var (_, list) = await Get("/campaigns", [Features.Campaigns]);
+
+        Assert.Contains("<h3>Label of the kept save</h3>", list);
+        Assert.DoesNotContain("Label of the undone save", list);
+    }
+
+    // Each client's labels are in its own container; listing one client's campaigns reads nothing
+    // of another's.
+    [Fact]
+    public async Task Another_client_s_labels_are_never_read()
+    {
+        await Get("/campaigns", [Features.Campaigns]);
+        var one = app.Containers.For(SalonOne.Name.Value);
+        var two = app.Containers.For(SalonTwo.Name.Value);
+        one.Reads.Clear();
+        two.Reads.Clear();
+
+        var (_, page) = await Get("/campaigns", [Features.Campaigns]);
+
+        Assert.Contains($"<h3>{FinishedLabel}</h3>", page);
+        Assert.NotEmpty(one.Reads);
+        Assert.Empty(two.Reads);
+        Assert.DoesNotContain(SalonTwoLabel, page);
+
+        var (_, other) = await Get("/campaigns", [Features.Campaigns], groups: [SalonTwo.GroupId]);
+        Assert.Contains($"<h3>{SalonTwoLabel}</h3>", other);
+        Assert.DoesNotContain(FinishedLabel, other);
     }
 
     [Fact]

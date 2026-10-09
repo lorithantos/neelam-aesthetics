@@ -10,6 +10,15 @@ public sealed class CampaignDraft
 {
     public string? TemplateName { get; }
 
+    /// <summary>
+    /// The client's own name for the campaign, such as "Beauty Bank -- first send", to tell apart
+    /// campaigns that share a subject. Hers alone: it is not part of the email, so
+    /// <see cref="Build"/> leaves it out, and nothing checks or exports it. Saved with the draft's
+    /// JSON, never in a blob's name or metadata. Null or blank when she has not given one; kept as
+    /// typed, and trimmed when saved.
+    /// </summary>
+    public string? Label { get; set; }
+
     public Slot<string> Subject { get; } = Slot<string>.Empty();
     public Slot<string> Preheader { get; } = Slot<string>.Empty();
 

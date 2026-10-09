@@ -8,7 +8,9 @@
    EditorExport.Blocks requires, so it stays locked, except on the demo (SiteMode, which is
    Prototype access): there an approved campaign the rules pass exports through
    CampaignGate.DemoReview, every block marked as not proofread. The offer and photo fields are
-   child components, which tell the page of each change so the checks follow what is typed. *@
+   child components, which tell the page of each change so the checks follow what is typed. The
+   label at the top is the client's own name for the campaign, saved with the draft and never part
+   of the email, its checks or its export. *@
 @attribute [Authorize(Policy = Features.Campaigns)]
 @rendermode InteractiveServer
 @inject ClientWorkspace Workspace
@@ -51,6 +53,12 @@ else if (_session is not null)
 
     <div class="workspace">
         <div class="workspace-main">
+            <div class="field">
+                <label for="label">Label (just for you)</label>
+                <input id="label" @bind="editor.Label" @bind:event="oninput" />
+                <span class="field-help">e.g. Beauty Bank -- first send. It names the campaign in your list, so two with the same subject can be told apart. It is never part of the email.</span>
+            </div>
+
             <div class="field">
                 <label for="subject">Subject line</label>
                 <input id="subject" @bind="editor.Subject.Text" @bind:event="oninput" />

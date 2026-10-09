@@ -96,6 +96,19 @@ public sealed class DraftSession
     public static Task<IReadOnlyList<SaveRef>> ListAsync(CampaignStore store, CancellationToken ct = default) =>
         store.LatestAsync(DocumentKind.Draft, ct);
 
+    /// <summary>
+    /// <see cref="ListAsync"/>, each campaign with the client's label for it. The label lives only in
+    /// the draft's JSON, so this reads each listed version once, all at the same time: one read per
+    /// campaign, from this client's store alone. Undone versions are never listed, so their labels
+    /// are never read.
+    /// </summary>
+    public static async Task<IReadOnlyList<CampaignListing>> ListLabelledAsync(CampaignStore store, CancellationToken ct = default)
+    {
+        var latest = await ListAsync(store, ct);
+        var drafts = await Task.WhenAll(latest.Select(save => store.LoadDraftAsync(save, ct)));
+        return latest.Zip(drafts, (save, draft) => new CampaignListing(save, draft.Label)).ToList();
+    }
+
     /// <summary>A new, unsaved campaign from a template's newest version, or null when the template has no saves.</summary>
     public static async Task<DraftSession?> StartAsync(CampaignStore store, Guid templateId, CancellationToken ct = default)
     {
@@ -200,3 +213,8 @@ public sealed class DraftSession
         return true;
     }
 }
+
+/// <summary>A campaign as its client's list shows it: its newest version, and her label for it.</summary>
+/// <param name="Save">The newest version in use; its title is the subject, from the blob's metadata as before.</param>
+/// <param name="Label">The client's own label, read from that version's JSON; null when it has none.</param>
+public sealed record CampaignListing(SaveRef Save, string? Label);

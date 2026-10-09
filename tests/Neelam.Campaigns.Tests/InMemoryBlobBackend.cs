@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Janet.Azure.Storage;
 using Neelam.Campaigns.Storage;
@@ -49,8 +50,14 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         return Task.FromResult(true);
     }
 
-    public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
-        Task.FromResult(Blobs[name].Blob);
+    /// <summary>The name of every blob read, in order, so a test can tell what a page read and what it never touched.</summary>
+    public ConcurrentQueue<string> Reads { get; } = new();
+
+    public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default)
+    {
+        Reads.Enqueue(name);
+        return Task.FromResult(Blobs[name].Blob);
+    }
 
     public Task<bool> SetMetadataAsync(
         string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default)

@@ -27,6 +27,16 @@ public sealed class CampaignEditor
 
     public TextField Subject { get; }
 
+    /// <summary>
+    /// The client's own label for the campaign (<see cref="CampaignDraft.Label"/>): saved with the
+    /// draft, and never part of the email or its checks.
+    /// </summary>
+    public string? Label
+    {
+        get => Draft.Label;
+        set => Draft.Label = value;
+    }
+
     /// <summary>Every block of the draft, in its template's order, spacers included.</summary>
     public IReadOnlyList<BlockEditor> Blocks { get; }
 

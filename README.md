@@ -99,6 +99,10 @@ a `Slot` that remembers where it came from:
   to change.
 - `Build()` reports what's left as findings (`draft-missing`, `draft-unreviewed-copy`), in the
   same shape as the gate. A built campaign still goes through the gate.
+- A draft may carry a **label**, the client's own name for the campaign ("Beauty Bank -- first
+  send"), so campaigns sharing a subject can be told apart. It is saved in the draft's JSON only,
+  never in a blob's name or metadata, and `Build()` leaves it out: it is never part of the email,
+  its checks or its export.
 
 ## Saving
 

@@ -39,10 +39,18 @@ else if (_campaigns is not null && _templates is not null)
     {
         <p>No campaigns yet.</p>
     }
-    @foreach (var campaign in _campaigns)
+    @foreach (var (campaign, label) in _campaigns)
     {
         <section class="card">
-            <h3>@campaign.Title</h3>
+            @if (!string.IsNullOrWhiteSpace(label))
+            {
+                <h3>@label</h3>
+                <p class="campaign-subject">@campaign.Title</p>
+            }
+            else
+            {
+                <h3>@campaign.Title</h3>
+            }
             <p class="muted">Last saved @campaign.SavedAt.ToString("d MMM yyyy, HH:mm") UTC</p>
             <a class="button" href="campaigns/@campaign.Id">Open</a>
         </section>
@@ -53,7 +61,8 @@ else if (_campaigns is not null && _templates is not null)
     private string? _denied;
     private ClientName? _client;
     private string? _displayName;
-    private IReadOnlyList<SaveRef>? _campaigns;
+    // Each with her label, read from its newest save's JSON: one read per campaign.
+    private IReadOnlyList<CampaignListing>? _campaigns;
     private IReadOnlyList<SaveRef>? _templates;
 
     protected override async Task OnInitializedAsync()
@@ -66,7 +75,7 @@ else if (_campaigns is not null && _templates is not null)
         }
         _displayName = await Workspace.DisplayNameAsync(_client);
         var store = Stores.Campaigns(_client);
-        _campaigns = await DraftSession.ListAsync(store);
+        _campaigns = await DraftSession.ListLabelledAsync(store);
         _templates = (await store.LatestAsync(DocumentKind.Template))
             .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
     }

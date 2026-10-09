@@ -26,7 +26,8 @@ public static class CampaignJson
     public static string SerializeDraft(CampaignDraft d) =>
         JsonSerializer.Serialize(new DraftDocument(
             SchemaVersion, d.TemplateName, Save(d.Subject), Save(d.Preheader),
-            d.Blocks.Select(Save).ToList()), Options);
+            d.Blocks.Select(Save).ToList(),
+            string.IsNullOrWhiteSpace(d.Label) ? null : d.Label.Trim()), Options);
 
     public static CampaignDraft DeserializeDraft(string json)
     {
@@ -37,7 +38,7 @@ public static class CampaignJson
         // Each block is rebuilt empty, the way its template would start it, and then every slot is
         // put back with its origin, so a copy nobody reviewed is still unreviewed.
         var blocks = doc.Blocks.Select(Restore).ToList();
-        var d = new CampaignDraft(doc.TemplateName, blocks);
+        var d = new CampaignDraft(doc.TemplateName, blocks) { Label = doc.Label };
         Restore(d.Subject, doc.Subject);
         Restore(d.Preheader, doc.Preheader);
         return d;
@@ -172,7 +173,10 @@ public static class CampaignJson
         string? TemplateName,
         SlotDocument<string> Subject,
         SlotDocument<string> Preheader,
-        IReadOnlyList<BlockDocument> Blocks);
+        IReadOnlyList<BlockDocument> Blocks,
+        // The client's own label (2026-10-09). Optional, and left out when there is none, so drafts
+        // saved before it read as unlabelled and the schema stays 2.
+        string? Label = null);
 
     // One saved block: which of the value fields is set follows from its type.
     private sealed record BlockDocument(

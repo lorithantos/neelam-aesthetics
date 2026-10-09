@@ -580,6 +580,13 @@ label.check {
     content: " \2713 Copied";
 }
 
+/* Campaigns list: her own label as the heading, the subject line just under it. */
+
+.campaign-subject {
+    margin-top: -0.5rem;
+    font-weight: 600;
+}
+
 /* Validation classes Blazor's forms emit */
 
 .valid.modified:not([type=checkbox]) {

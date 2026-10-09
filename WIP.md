@@ -124,6 +124,29 @@ drifting from hers, and no image file is copied or stored here.
   seated" (body photo) with no Square addresses, so adding them needs the addresses from her
   Square library.
 
+## Campaign label (owner, 2026-10-09)
+
+Her two sends of the Beauty Bank email share the subject "WE'RE TURNING ONE!", so her list could
+tell them apart only by time. **Decided:** a campaign has an optional label, for her own use only.
+
+- **Where it lives:** `CampaignDraft.Label`, saved by `CampaignJson` as an optional `label` in the
+  draft's JSON (trimmed; left out when blank, so schema stays 2 and older drafts read as
+  unlabelled). Never in a blob's name or metadata; the metadata `title` (the subject) is unchanged,
+  pending the owner's open call on whether the subject leaves metadata.
+- **Never in the email:** `Build()` and `DraftSoFar` leave it out, so no rule checks it and
+  `EditorExport` never shows it.
+- **Editor:** "Label (just for you)" at the top of the campaign page (`CampaignEditor.Label`).
+- **List:** `/campaigns` shows the label as the heading with the subject under it.
+  `DraftSession.ListLabelledAsync` reads each campaign's newest save in use, once, all at the same
+  time: **one blob read per campaign** on every list (fine for tens), from the client's own
+  container only. Undone saves are never listed, so their labels are never read.
+- **Approval:** a label-only change still counts as a change. Not changed here, deliberately: a
+  label edit is only kept by saving, a save is a new version, and an approval belongs to one save,
+  so keeping the approval would mean carrying it to the new save -- approval storage, which is
+  being moved out of blob metadata separately. That rework could key an approval on the draft
+  without its label.
+- **Not done:** no live campaign is labelled; that is a separate step after deploy.
+
 ## Open decisions (the owner's to make)
 
 Do not settle these on the owner's behalf. Bring options with a recommendation.
