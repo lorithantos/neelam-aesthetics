@@ -2,6 +2,8 @@ using Azure.Core;
 using Azure.Identity;
 using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Janet.Azure.Storage;
+using Microsoft.Extensions.Options;
+using Neelam.Web;
 using Neelam.Web.Security;
 using Neelam.Campaigns.Storage;
 using Neelam.Web.Components;
@@ -45,7 +47,18 @@ if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_
 // check has already allowed. Nothing is registered for "the" client: there is none.
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(storageClients);
-builder.Services.AddSingleton(new ClientStores(storageClients, TimeProvider.System));
+
+// Undo marks a save and the sweep deletes it once the grace period has passed (owner, 2026-10-09).
+// The period is a setting, Undo:GracePeriod, required: the app refuses to start without it.
+builder.Services.AddOptions<UndoOptions>()
+    .Bind(builder.Configuration.GetSection(UndoOptions.Section))
+    .Validate(undo => undo.Problem() is null,
+        "Undo:GracePeriod (required) and Undo:SweepInterval must be positive time spans, such as 1.00:00:00.")
+    .ValidateOnStart();
+builder.Services.AddSingleton(services => new ClientStores(
+    storageClients, services.GetRequiredService<TimeProvider>(),
+    services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod));
+builder.Services.AddHostedService<UndoSweep>();
 var metadata = new TableMetadata(storageClients);
 builder.Services.AddSingleton<IClientDirectory>(metadata);
 builder.Services.AddSingleton<ISupportGrantStore>(metadata);

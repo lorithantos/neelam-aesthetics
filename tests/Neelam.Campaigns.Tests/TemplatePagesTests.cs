@@ -17,7 +17,7 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         if ((await app.Clients.ListAsync()).Count == 0)
         {
             await app.Clients.AddAsync(SalonOne);
-            await new ClientStores(app.Containers.For, app.Clock).Campaigns(SalonOne.Name)
+            await app.Stores.Campaigns(SalonOne.Name)
                 .SaveTemplateAsync(Membership, DraftFixtures.Membership);
         }
         var client = app.CreateClient(new() { AllowAutoRedirect = false });

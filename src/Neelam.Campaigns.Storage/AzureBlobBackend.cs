@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Azure;
 using Azure.Storage.Blobs;
 using Azure.Storage.Blobs.Models;
 using Janet.Azure.Storage;
@@ -45,6 +46,22 @@ public sealed class AzureBlobBackend : IBlobBackend
 
     public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
         _container.ReadContentAsync(name, cancellationToken);
+
+    // Metadata only: the content, and its create-only guarantee, are untouched.
+    public async Task<bool> SetMetadataAsync(
+        string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await _container.GetBlobClient(name).SetMetadataAsync(
+                new Dictionary<string, string>(metadata), cancellationToken: cancellationToken);
+            return true;
+        }
+        catch (RequestFailedException ex) when (ex.Status == 404)
+        {
+            return false;
+        }
+    }
 
     public async Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default)
     {

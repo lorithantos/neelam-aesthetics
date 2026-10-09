@@ -7,7 +7,9 @@ public class TemplateSessionTests
     private readonly InMemoryBlobBackend _container = new();
     private readonly ManualClock _clock = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
-    private CampaignStore Store => new(_container, _clock);
+    private static readonly TimeSpan Grace = TimeSpan.FromDays(1);
+
+    private CampaignStore Store => new(_container, _clock, Grace);
 
     private TemplateSession NewWithOneBlock(string name)
     {
@@ -43,9 +45,10 @@ public class TemplateSessionTests
         Assert.Empty(_container.Blobs);
     }
 
-    // Undo is delete-the-newest: the version before comes back, and the deleted one leaves nothing.
+    // Undo hides the newest: the version before comes back, and the undone one is offered back
+    // until the sweep has had it, after which it leaves nothing.
     [Fact]
-    public async Task Undoing_the_last_save_puts_the_one_before_back_and_keeps_no_trace()
+    public async Task Undoing_the_last_save_puts_the_one_before_back_and_the_sweep_leaves_no_trace()
     {
         var session = NewWithOneBlock("Before");
         await session.SaveAsync();
@@ -56,20 +59,57 @@ public class TemplateSessionTests
         Assert.True(await session.UndoLastSaveAsync());
 
         Assert.Equal("Before", session.Editor.Name);
+        Assert.Equal(bad.BlobName, session.Restorable!.BlobName);
+        Assert.Equal(["Before"], (await Store.LatestAsync(DocumentKind.Template)).Select(s => s.Title));
+
+        _clock.Now += Grace;
+        await Store.SweepAsync();
         Assert.DoesNotContain(bad.BlobName, _container.Blobs.Keys);
         Assert.Single(_container.Blobs);
     }
 
     [Fact]
-    public async Task Undoing_the_only_save_leaves_no_template()
+    public async Task Undoing_the_only_save_leaves_no_template_until_it_is_restored()
     {
         var session = NewWithOneBlock("Only");
-        await session.SaveAsync();
+        var only = await session.SaveAsync();
 
         Assert.False(await session.UndoLastSaveAsync());
         Assert.Null(session.Latest);
-        Assert.Empty(_container.Blobs);
+        Assert.Empty(await Store.LatestAsync(DocumentKind.Template));
+        Assert.Null(await TemplateSession.OpenAsync(Store, only.Id));
         await Assert.ThrowsAsync<InvalidOperationException>(() => session.UndoLastSaveAsync());
+
+        // Back on the page later, within the period: it can come back.
+        _clock.Now += TimeSpan.FromHours(23);
+        var undone = await TemplateSession.RestorableAsync(Store, only.Id);
+        var restored = await TemplateSession.RestoreAsync(Store, undone!);
+        Assert.Equal("Only", restored!.Editor.Name);
+        Assert.Equal(only, restored.Latest);
+        Assert.Null(restored.Restorable);
+    }
+
+    [Fact]
+    public async Task Restore_in_the_editor_brings_the_undone_save_back_and_a_new_save_drops_the_offer()
+    {
+        var session = NewWithOneBlock("Before");
+        await session.SaveAsync();
+        _clock.Now += TimeSpan.FromMinutes(1);
+        session.Editor.Name = "After";
+        var after = await session.SaveAsync();
+        await session.UndoLastSaveAsync();
+
+        Assert.True(await session.RestoreAsync());
+        Assert.Equal("After", session.Editor.Name);
+        Assert.Equal(after, session.Latest);
+        Assert.Null(session.Restorable);
+
+        await session.UndoLastSaveAsync();
+        Assert.NotNull(session.Restorable);
+        _clock.Now += TimeSpan.FromMinutes(1);
+        await session.SaveAsync();
+        Assert.Null(session.Restorable);
+        Assert.Null((await TemplateSession.OpenAsync(Store, session.Id!.Value))!.Restorable);
     }
 
     [Fact]

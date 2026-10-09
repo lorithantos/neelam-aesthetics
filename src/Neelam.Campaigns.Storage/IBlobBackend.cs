@@ -6,10 +6,11 @@ namespace Neelam.Campaigns.Storage;
 public sealed record BlobEntry(string Name, IReadOnlyDictionary<string, string> Metadata);
 
 /// <summary>
-/// The four blob operations the stores need, in bytes: text is a thin layer on top
+/// The blob operations the stores need, in bytes: text is a thin layer on top
 /// (<see cref="BlobText"/>), so there is one storage path. <see cref="AzureBlobBackend"/> is the
 /// real backend, delegating to Janet.Azure.Storage; tests use an in-memory one. It exists so the
-/// stores can be tested without Azure. There is deliberately no overwrite and no update.
+/// stores can be tested without Azure. There is deliberately no overwrite and no update of content:
+/// only a blob's metadata can change, which is how Undo marks a save without deleting it.
 /// </summary>
 public interface IBlobBackend
 {
@@ -21,6 +22,12 @@ public interface IBlobBackend
         CancellationToken cancellationToken = default);
 
     Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Replaces the blob's metadata, leaving its content as it is. False if the blob is gone.
+    /// </summary>
+    Task<bool> SetMetadataAsync(
+        string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default);
 
     /// <summary>Deletes the blob. False if it was already gone.</summary>
     Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default);

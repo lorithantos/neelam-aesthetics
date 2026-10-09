@@ -24,23 +24,26 @@ public sealed class ClientStores
 
     private readonly Func<string, IBlobBackend> _container;
     private readonly TimeProvider _clock;
+    private readonly TimeSpan _undoGracePeriod;
 
     /// <param name="storage">The app's storage clients, built once at startup.</param>
-    public ClientStores(StorageClients storage, TimeProvider clock)
-        : this(container => new AzureBlobBackend(storage, container), clock)
+    /// <param name="undoGracePeriod">How long an undone draft or template can be restored (<see cref="UndoOptions"/>).</param>
+    public ClientStores(StorageClients storage, TimeProvider clock, TimeSpan undoGracePeriod)
+        : this(container => new AzureBlobBackend(storage, container), clock, undoGracePeriod)
     {
     }
 
     // Any backend per container name, so the layout, and the pages above it, are tested without
     // Azure. Internal: outside this assembly a client's container is reached only through Azure.
-    internal ClientStores(Func<string, IBlobBackend> container, TimeProvider clock)
+    internal ClientStores(Func<string, IBlobBackend> container, TimeProvider clock, TimeSpan undoGracePeriod)
     {
         _container = container;
         _clock = clock;
+        _undoGracePeriod = undoGracePeriod;
     }
 
     /// <summary>The client's drafts and templates.</summary>
-    public CampaignStore Campaigns(ClientName client) => new(_container(client.Value), _clock);
+    public CampaignStore Campaigns(ClientName client) => new(_container(client.Value), _clock, _undoGracePeriod);
 
     /// <summary>The procedures and medications the client offers.</summary>
     public DocumentStore<ClientCatalog> Catalog(ClientName client) => CatalogIn(_container(client.Value), _clock);

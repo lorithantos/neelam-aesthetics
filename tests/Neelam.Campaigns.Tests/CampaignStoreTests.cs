@@ -9,8 +9,10 @@ public class CampaignStoreTests
     private static readonly Guid Id = Guid.Parse("6b1f0c1e-9a35-4c2e-8e57-0d3c9c1a2b44");
 
     private readonly InMemoryBlobBackend _blobs = new();
+    private static readonly TimeSpan Grace = TimeSpan.FromDays(1);
+
     private readonly ManualClock _clock = new(Start);
-    private CampaignStore Store => new(_blobs, _clock);
+    private CampaignStore Store => new(_blobs, _clock, Grace);
 
     [Fact]
     public async Task Each_save_is_a_new_date_time_stamped_blob()
@@ -39,33 +41,125 @@ public class CampaignStoreTests
         Assert.True((await Store.LoadDraftAsync(latest)).Build().Succeeded);
     }
 
+    // To its client an undone save is gone at once: no list, history or latest shows it, though
+    // its blob waits, marked, for the sweep.
     [Fact]
-    public async Task Deleting_the_newest_save_leaves_no_trace_and_the_previous_becomes_latest()
+    public async Task An_undone_save_drops_out_of_every_list_and_the_previous_becomes_latest()
     {
         var older = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.SecondSendReplayed());
         _clock.Now = Start.AddMinutes(5);
         var newer = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
 
-        Assert.True(await Store.DeleteAsync(newer));
+        var undone = await Store.MarkUndoneAsync(newer);
 
+        Assert.Equal(Start.AddMinutes(5), undone.UndoneAt);
         Assert.Equal(older, Assert.Single(await Store.LatestAsync(DocumentKind.Draft)));
-        var remaining = Assert.Single(_blobs.Blobs);
-        Assert.DoesNotContain(newer.BlobName, remaining.Value.Blob.Content.ToString());
-        Assert.DoesNotContain(remaining.Value.Metadata.Values, v => v.Contains("143500"));
+        Assert.Equal(older, Assert.Single(await Store.ListAsync(DocumentKind.Draft)));
+        Assert.Equal(older, Assert.Single(await Store.HistoryAsync(DocumentKind.Draft, Id)));
+        // Marked in its own metadata, with nothing else written anywhere.
+        Assert.Equal(2, _blobs.Blobs.Count);
+        Assert.Equal("2026-10-02T14:35:00.0000000+00:00", _blobs.Blobs[newer.BlobName].Metadata["undone"]);
+    }
+
+    // The sweep deletes only what has been undone for the whole grace period, and then the save
+    // leaves no trace: not its blob, and nothing about it in the save that remains.
+    [Fact]
+    public async Task The_sweep_deletes_only_saves_undone_longer_ago_than_the_grace_period_and_leaves_no_trace()
+    {
+        var kept = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.SecondSendReplayed());
+        _clock.Now = Start.AddMinutes(5);
+        var early = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        var template = await Store.SaveTemplateAsync(Guid.NewGuid(), DraftFixtures.Membership);
+        await Store.MarkUndoneAsync(early);
+        await Store.MarkUndoneAsync(template);
+        _clock.Now = Start.AddHours(1);
+        var late = await Store.SaveDraftAsync(Guid.NewGuid(), "Another", DraftFixtures.Finished());
+        await Store.MarkUndoneAsync(late);
+
+        // One tick short of the period: nothing goes.
+        _clock.Now = Start.AddMinutes(5) + Grace - TimeSpan.FromTicks(1);
+        Assert.Equal(0, await Store.SweepAsync());
+        Assert.Equal(4, _blobs.Blobs.Count);
+
+        // The period over for the two undone at 14:35, not for the one undone at 15:30.
+        _clock.Now = Start.AddMinutes(5) + Grace;
+        Assert.Equal(2, await Store.SweepAsync());
+        Assert.Equal(new[] { kept.BlobName, late.BlobName }.Order(StringComparer.Ordinal).ToArray(),
+            _blobs.Blobs.Keys.Order(StringComparer.Ordinal).ToArray());
+        Assert.All(_blobs.Blobs.Values, b => Assert.DoesNotContain(b.Metadata.Values, v => v.Contains("143500")));
+
+        // Running again, as after a crash part-way, only finishes the job.
+        _clock.Now = Start.AddHours(1) + Grace;
+        Assert.Equal(1, await Store.SweepAsync());
+        Assert.Equal(0, await Store.SweepAsync());
+        Assert.Equal(kept, Assert.Single(await Store.LatestAsync(DocumentKind.Draft)));
+        Assert.Equal(kept.BlobName, Assert.Single(_blobs.Blobs).Key);
+    }
+
+    // A save nobody undid is never the sweep's, however old it is.
+    [Fact]
+    public async Task The_sweep_never_deletes_a_save_that_was_not_undone()
+    {
+        var save = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        var template = await Store.SaveTemplateAsync(Guid.NewGuid(), DraftFixtures.Membership);
+        _blobs.Put("drafts/readme.txt", "", new Dictionary<string, string> { ["undone"] = "2020-01-01T00:00:00.0000000+00:00" });
+        _blobs.Put($"drafts/{Id:N}/20261002T150000.0000000Z.json", "{}", new Dictionary<string, string> { ["undone"] = "not a time" });
+
+        _clock.Now = Start.AddYears(5);
+
+        Assert.Equal(0, await Store.SweepAsync());
+        Assert.Equal(4, _blobs.Blobs.Count);
+        Assert.Contains(save.BlobName, _blobs.Blobs.Keys);
+        Assert.Contains(template.BlobName, _blobs.Blobs.Keys);
     }
 
     [Fact]
-    public async Task Deleting_every_save_removes_the_campaign_entirely()
+    public async Task Restoring_within_the_grace_period_puts_the_save_back_in_use()
     {
-        var a = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
-        _clock.Now = Start.AddMinutes(1);
-        var b = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        var older = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.SecondSendReplayed());
+        _clock.Now = Start.AddMinutes(5);
+        var newer = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        var undone = await Store.MarkUndoneAsync(newer);
 
-        await Store.DeleteAsync(a);
-        await Store.DeleteAsync(b);
+        Assert.Equal(undone, await Store.RestorableAsync(DocumentKind.Draft, Id));
+        Assert.Equal(Start.AddMinutes(5) + Grace, Store.RestorableUntil(undone));
+        _clock.Now = Start.AddMinutes(5) + Grace - TimeSpan.FromTicks(1);
+        Assert.True(await Store.RestoreAsync(undone));
 
-        Assert.Empty(await Store.LatestAsync(DocumentKind.Draft));
-        Assert.Empty(_blobs.Blobs);
+        Assert.Equal(newer, (await Store.HistoryAsync(DocumentKind.Draft, Id))[0]);
+        Assert.DoesNotContain("undone", _blobs.Blobs[newer.BlobName].Metadata.Keys);
+        Assert.Equal("Year one", Uri.UnescapeDataString(_blobs.Blobs[newer.BlobName].Metadata["title"]));
+        Assert.Null(await Store.RestorableAsync(DocumentKind.Draft, Id));
+        _clock.Now = Start.AddYears(1);
+        Assert.Equal(0, await Store.SweepAsync());
+        Assert.Equal([newer, older], await Store.HistoryAsync(DocumentKind.Draft, Id));
+    }
+
+    [Fact]
+    public async Task Once_the_grace_period_has_passed_restore_is_neither_offered_nor_done()
+    {
+        var newer = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+        var undone = await Store.MarkUndoneAsync(newer);
+
+        _clock.Now = Start + Grace;
+
+        Assert.Null(await Store.RestorableAsync(DocumentKind.Draft, Id));
+        Assert.False(await Store.RestoreAsync(undone));
+        Assert.Empty(await Store.HistoryAsync(DocumentKind.Draft, Id));
+    }
+
+    // Undone, then saved over: the undone save is below one in use, so it is not offered back.
+    [Fact]
+    public async Task An_undone_save_that_was_saved_over_is_not_offered_back()
+    {
+        var older = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.SecondSendReplayed());
+        _clock.Now = Start.AddMinutes(5);
+        await Store.MarkUndoneAsync(await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished()));
+        _clock.Now = Start.AddMinutes(10);
+        var replacement = await Store.SaveDraftAsync(Id, "Year one", DraftFixtures.Finished());
+
+        Assert.Null(await Store.RestorableAsync(DocumentKind.Draft, Id));
+        Assert.Equal([replacement, older], await Store.HistoryAsync(DocumentKind.Draft, Id));
     }
 
     [Fact]

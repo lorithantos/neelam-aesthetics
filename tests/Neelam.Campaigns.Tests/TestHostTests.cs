@@ -21,7 +21,7 @@ public class TestHostTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task Stores_open_the_client_s_own_container_and_its_place_in_settings()
     {
         var containers = new InMemoryContainers();
-        var stores = new ClientStores(containers.For, Clock);
+        var stores = new ClientStores(containers.For, Clock, TimeSpan.FromDays(1));
 
         await stores.Catalog(SalonOne).SaveAsync(new ClientCatalog([]));
         await stores.Images(SalonOne).AddAsync("Front desk", new BinaryData(new byte[] { 1 }), "image/png");

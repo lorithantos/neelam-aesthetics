@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Neelam.Campaigns.Storage;
 using Neelam.Web.Security;
 
@@ -22,6 +23,9 @@ public sealed class EnforcedApp : WebApplicationFactory<Program>
     internal InMemorySupportGrants Grants { get; } = new();
     internal ManualClock Clock { get; } = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
+    /// <summary>The app's own stores, over <see cref="Containers"/>.</summary>
+    internal ClientStores Stores => Services.GetRequiredService<ClientStores>();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -34,7 +38,9 @@ public sealed class EnforcedApp : WebApplicationFactory<Program>
             services.AddTestSignIn();
 
             services.RemoveAll<TimeProvider>().AddSingleton<TimeProvider>(Clock);
-            services.RemoveAll<ClientStores>().AddSingleton(new ClientStores(Containers.For, Clock));
+            // In memory, with the grace period the app is configured with, as Program wires it.
+            services.RemoveAll<ClientStores>().AddSingleton(provider => new ClientStores(
+                Containers.For, Clock, provider.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod));
             services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(Clients);
             services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(Grants);
         });

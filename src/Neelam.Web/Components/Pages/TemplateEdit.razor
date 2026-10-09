@@ -20,6 +20,14 @@ else if (_missing)
     <h1>Template not found</h1>
     <p>There is no saved template here. It may have been deleted. <a href="templates">Back to templates</a></p>
 }
+else if (_undone is not null)
+{
+    <h1>@_undone.Title</h1>
+    <p>Its last save was undone, so it is gone from your templates. You can restore it until
+        @_store!.RestorableUntil(_undone)?.ToString("d MMM yyyy, HH:mm") UTC; after that it is deleted for good.</p>
+    <button class="button primary" @onclick="RestoreUndoneAsync">Restore</button>
+    <a class="button" href="templates">Back to templates</a>
+}
 else if (_session is not null)
 {
     var editor = _session.Editor;
@@ -187,14 +195,19 @@ else if (_session is not null)
                     <p class="muted">Last saved @latest.SavedAt.ToString("d MMM yyyy, HH:mm") UTC.</p>
                     @if (_confirmingUndo)
                     {
-                        <p>Delete the last saved version for good? The version before it comes back, and any changes not saved are lost.</p>
-                        <button class="button danger" @onclick="UndoAsync">Delete it</button>
+                        <p>Undo the last save? The version before it comes back, and any changes not saved are lost. The undone version can be restored for @Period(_store!.UndoGracePeriod), then it is deleted for good.</p>
+                        <button class="button danger" @onclick="UndoAsync">Undo it</button>
                         <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
                     }
                     else
                     {
                         <button class="button" @onclick="() => _confirmingUndo = true">Undo last save</button>
                     }
+                }
+                @if (_session.Restorable is not null)
+                {
+                    <p class="field-help">The last undo can be taken back until @_session.RestorableUntil?.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    <button class="button" @onclick="RestoreAsync">Restore undone save</button>
                 }
             </section>
 
@@ -234,7 +247,10 @@ else if (_session is not null)
 
     private string? _denied;
     private bool _missing;
+    private CampaignStore? _store;
     private TemplateSession? _session;
+    // A template whose every save is undone, while it can still be restored.
+    private SaveRef? _undone;
     private CampaignPolicy _policy = CampaignPolicy.Default;
     private IReadOnlyList<string> _photos = [];
     private string? _message;
@@ -251,11 +267,12 @@ else if (_session is not null)
             return;
         }
 
-        var store = Stores.Campaigns(client);
+        var store = _store = Stores.Campaigns(client);
         _session = Id is { } id ? await TemplateSession.OpenAsync(store, id)
             : From is { } from ? await TemplateSession.CopyAsync(store, from)
             : TemplateSession.New(store);
-        _missing = _session is null;
+        if (_session is null && Id is { } undoneId) _undone = await TemplateSession.RestorableAsync(store, undoneId);
+        _missing = _session is null && _undone is null;
         _policy = await Stores.PolicyInForceAsync(client);
         _photos = (await Stores.Images(client).ListAsync()).Select(i => i.Name).ToList();
     }
@@ -270,12 +287,39 @@ else if (_session is not null)
         if (isNew) Navigation.NavigateTo($"templates/{saved.Id}", replace: true);
     }
 
+    // Undo marks the save for deletion; nothing is deleted here, or by leaving the page.
     private async Task UndoAsync()
     {
         _confirmingUndo = false;
         if (await _session!.UndoLastSaveAsync())
-            _message = "The last save was deleted; the version before it is open.";
-        else
-            Navigation.NavigateTo("templates");
+        {
+            _message = "The last save was undone; the version before it is open.";
+            return;
+        }
+        // Nothing left in use: the template is gone from the list, and can still be restored.
+        _undone = _session.Restorable;
+        _session = null;
+        _message = null;
+        _missing = _undone is null;
     }
+
+    private async Task RestoreAsync()
+    {
+        _confirmingUndo = false;
+        _message = await _session!.RestoreAsync()
+            ? "The undone save is back and open."
+            : "That save can no longer be restored.";
+    }
+
+    private async Task RestoreUndoneAsync()
+    {
+        _session = await TemplateSession.RestoreAsync(_store!, _undone!);
+        _undone = null;
+        _missing = _session is null;
+        if (_session is not null) _message = "The undone save is back and open.";
+    }
+
+    // The grace period in words, such as "24 hours".
+    private static string Period(TimeSpan period) =>
+        period.TotalHours >= 1 ? $"{period.TotalHours:0.#} hours" : $"{period.TotalMinutes:0} minutes";
 }

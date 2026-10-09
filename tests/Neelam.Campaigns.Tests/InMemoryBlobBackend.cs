@@ -4,7 +4,7 @@ using Neelam.Campaigns.Storage;
 
 namespace Neelam.Campaigns.Tests;
 
-/// <summary>Behaves like the container for the stores' purposes: create-if-absent, list, read, delete.</summary>
+/// <summary>Behaves like the container for the stores' purposes: create-if-absent, list, read, set metadata, delete.</summary>
 internal sealed class InMemoryBlobBackend : IBlobBackend
 {
     public SortedDictionary<string, (BlobContent Blob, IReadOnlyDictionary<string, string> Metadata)> Blobs { get; } =
@@ -35,6 +35,14 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
 
     public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
         Task.FromResult(Blobs[name].Blob);
+
+    public Task<bool> SetMetadataAsync(
+        string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default)
+    {
+        if (!Blobs.TryGetValue(name, out var blob)) return Task.FromResult(false);
+        Blobs[name] = (blob.Blob, new Dictionary<string, string>(metadata));
+        return Task.FromResult(true);
+    }
 
     public Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default) =>
         Task.FromResult(Blobs.Remove(name));

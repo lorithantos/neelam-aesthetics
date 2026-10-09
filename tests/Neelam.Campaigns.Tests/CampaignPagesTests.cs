@@ -26,7 +26,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         {
             await app.Clients.AddAsync(SalonOne);
             await app.Clients.AddAsync(SalonTwo);
-            var stores = new ClientStores(app.Containers.For, app.Clock);
+            var stores = app.Stores;
             var one = stores.Campaigns(SalonOne.Name);
             await one.SaveTemplateAsync(Membership, DraftFixtures.Membership);
             await one.SaveDraftAsync(Replayed, "Second send, replayed", DraftFixtures.SecondSendReplayed());
@@ -184,6 +184,36 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             Assert.DoesNotContain("Copy into Square", page);
             Assert.DoesNotContain("clipboard", page);
         }
+    }
+
+    // Undo hides a save from every page at once; coming back to the campaign within the grace
+    // period offers it back, and nothing was deleted by leaving.
+    [Fact]
+    public async Task An_undone_campaign_is_gone_from_the_list_and_its_page_offers_restore()
+    {
+        await Get("/campaigns", [Features.Campaigns]);
+        var store = app.Stores.Campaigns(SalonOne.Name);
+        var onlySave = await store.SaveDraftAsync(Guid.NewGuid(), "Undone, all of it", DraftFixtures.Finished());
+        var partly = Guid.NewGuid();
+        await store.SaveDraftAsync(partly, "Kept version", DraftFixtures.Finished());
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        var undoneVersion = await store.SaveDraftAsync(partly, "Undone version", DraftFixtures.Finished());
+        await store.MarkUndoneAsync(onlySave);
+        await store.MarkUndoneAsync(undoneVersion);
+
+        var (_, list) = await Get("/campaigns", [Features.Campaigns]);
+        Assert.DoesNotContain("Undone, all of it", list);
+        Assert.DoesNotContain("Undone version", list);
+        Assert.Contains("Kept version", list);
+
+        var (_, gone) = await Get($"/campaigns/{onlySave.Id}", [Features.Campaigns]);
+        Assert.Contains("<h1>Undone, all of it</h1>", gone);
+        Assert.Contains("Its last save was undone", gone);
+        Assert.Contains(">Restore</button>", gone);
+
+        var (_, editor) = await Get($"/campaigns/{partly}", [Features.Campaigns]);
+        Assert.Contains("Save campaign", editor);
+        Assert.Contains("Restore undone save", editor);
     }
 
     [Fact]
