@@ -12,7 +12,12 @@ public class PhotoDescribedTests
 {
     private const string Rule = "photo-described";
 
-    private static readonly Approval ByPriya = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
+    // Approved, and shown what is worth a look at export and gone on past (ExportWarningsTests): a
+    // warning is listed once before the export, and never stops it.
+    private static readonly Approval ByPriya = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero))
+    {
+        WarningsSeen = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 1, 0, TimeSpan.Zero)),
+    };
 
     private static string Message(string name) =>
         $"The photo '{name}' has no description. Describe what it shows, and write any offer or dates it contains " +

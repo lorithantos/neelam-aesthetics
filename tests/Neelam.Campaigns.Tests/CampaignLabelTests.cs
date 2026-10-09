@@ -14,7 +14,11 @@ public class CampaignLabelTests
     private const string Label = "Beauty Bank savings account -- first send (label only)";
     private const string Marker = "label only";
 
-    private static readonly Approval ByPriya = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
+    // Approved, and shown what is worth a look at export and gone on past, so the export is there.
+    private static readonly Approval ByPriya = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero))
+    {
+        WarningsSeen = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 1, 0, TimeSpan.Zero)),
+    };
     private static readonly TimeSpan Grace = TimeSpan.FromDays(1);
 
     private readonly InMemoryBlobBackend _container = new();

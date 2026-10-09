@@ -52,12 +52,17 @@ public interface IProofreader
 /// </summary>
 public static class CampaignGate
 {
+    /// <param name="warningsSeen">
+    /// Who was shown this save's "Worth a look" findings at export and went on, as recorded with its
+    /// approval; null when nobody has, and then a report with any such finding does not export.
+    /// </param>
     public static async Task<ReviewReport> ReviewAsync(
         Campaign campaign,
         IProofreader proofreader,
         IReadOnlyCollection<Dismissal>? dismissals = null,
         CampaignPolicy? policy = null,
         BusinessContext? business = null,
+        WarningsSeen? warningsSeen = null,
         CancellationToken cancellationToken = default)
     {
         var findings = CampaignReview.Check(campaign, policy, business).Findings.ToList();
@@ -76,7 +81,7 @@ public static class CampaignGate
         }
 
         findings.AddRange(ai.Select(f => ApplyDismissals(f, dismissals)));
-        return new ReviewReport(campaign, findings, Proofread: true);
+        return new ReviewReport(campaign, findings, Proofread: true) { WarningsSeen = warningsSeen };
     }
 
     /// <summary>
@@ -85,13 +90,19 @@ public static class CampaignGate
     /// not proofread (<see cref="ReviewReport.Proofread"/> is false) and carries the approval; it
     /// allows export only when the rules find nothing blocking. The web app calls this only in
     /// Prototype access mode, which runs only on the test site; Enforced, as in production, never
-    /// does, so there export still needs <see cref="ReviewAsync"/> and the proofread.
+    /// does, so there export still needs <see cref="ReviewAsync"/> and the proofread. Whether its
+    /// "Worth a look" findings were shown at export is the approval's
+    /// (<see cref="Approval.WarningsSeen"/>), since both belong to the one save.
     /// </summary>
     public static ReviewReport DemoReview(
         Campaign campaign, Approval approval, CampaignPolicy? policy = null, BusinessContext? business = null)
     {
         ArgumentNullException.ThrowIfNull(approval);
-        return CampaignReview.Check(campaign, policy, business) with { DemoApproval = approval };
+        return CampaignReview.Check(campaign, policy, business) with
+        {
+            DemoApproval = approval,
+            WarningsSeen = approval.WarningsSeen,
+        };
     }
 
     private static Finding ApplyDismissals(Finding f, IReadOnlyCollection<Dismissal>? dismissals)

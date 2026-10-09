@@ -2,7 +2,7 @@ namespace Neelam.Campaigns;
 
 public enum Severity
 {
-    /// <summary>Worth a look; does not stop export.</summary>
+    /// <summary>Worth a look; shown to a person at export, who may go on (never a fix required).</summary>
     Warning,
 
     /// <summary>The email cannot be exported until this is fixed (or, for AI findings, dismissed).</summary>
@@ -40,9 +40,36 @@ public sealed record ReviewReport(Campaign Campaign, IReadOnlyList<Finding> Find
     public Approval? DemoApproval { get; internal init; }
 
     /// <summary>
+    /// Who was shown this version's "Worth a look" findings at export and went on, and when; null
+    /// until someone has. Set by <see cref="CampaignGate"/> alone (it cannot be set outside this
+    /// library), from what was recorded for the save the report is of.
+    /// </summary>
+    public WarningsSeen? WarningsSeen { get; internal init; }
+
+    /// <summary>
+    /// True while the report has "Worth a look" findings nobody has been shown at export yet: the one
+    /// thing a report that otherwise passes still waits for. Never true of a report with a blocker,
+    /// whose findings are for fixing first.
+    /// </summary>
+    public bool WarningsToSee =>
+        (Proofread || DemoApproval is not null) && !Blockers.Any() && Warnings.Any() && WarningsSeen is null;
+
+    /// <summary>
     /// Export needs both halves: the rule checks and the AI proofread, with nothing blocking.
     /// A rules-only report never allows export, except the demo's: approved by a person, with
-    /// nothing blocking, and marked as not proofread.
+    /// nothing blocking, and marked as not proofread. Either way, any "Worth a look" finding has
+    /// been shown to a person at export first, who chose to go on (owner, 2026-10-09: warnings are
+    /// handholding, not handcuffs, so going on is one click, never a fix).
     /// </summary>
-    public bool CanExport => (Proofread || DemoApproval is not null) && !Blockers.Any();
+    public bool CanExport =>
+        (Proofread || DemoApproval is not null) && !Blockers.Any() && (!Warnings.Any() || WarningsSeen is not null);
 }
+
+/// <summary>
+/// A person was shown a saved version's "Worth a look" findings when exporting it, and chose to go
+/// on. It belongs to that save, as its approval does: a new save (other than one that changes only
+/// her label) is shown its findings again. Who and when only, never which findings or what they said.
+/// </summary>
+/// <param name="By">Who went on. In Prototype, the name typed for the approval; from the sign-in once there is one.</param>
+/// <param name="At">When, in UTC.</param>
+public sealed record WarningsSeen(string By, DateTimeOffset At);

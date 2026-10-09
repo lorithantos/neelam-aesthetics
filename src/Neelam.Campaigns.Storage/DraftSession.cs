@@ -138,11 +138,40 @@ public sealed class DraftSession
     /// </summary>
     public ReviewReport? DemoExportReport(CampaignPolicy? policy = null, BusinessContext? business = null)
     {
+        var report = DemoReview(policy, business);
+        return report?.CanExport == true ? report : null;
+    }
+
+    /// <summary>
+    /// The "Worth a look" findings to show before the demo export, or none: what stands between an
+    /// approved campaign, unchanged since and with nothing to fix, and its export, while nobody has
+    /// been shown them at export for this version. Every one of them, in the order the checks give.
+    /// Warnings never stop the email (owner, 2026-10-09): going on is
+    /// <see cref="WarningsSeenAtExportAsync"/>, one click, and fixing one is an edit like any other.
+    /// </summary>
+    public IReadOnlyList<Finding> WarningsBeforeExport(CampaignPolicy? policy = null, BusinessContext? business = null) =>
+        DemoReview(policy, business) is { WarningsToSee: true } report ? report.Warnings.ToList() : [];
+
+    /// <summary>
+    /// Goes on to export past this version's "Worth a look" findings: recorded with its approval, by
+    /// who and when, so they are not shown again for this version. A new save shows them again,
+    /// unless it changes only her label.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The version as it stands is not approved.</exception>
+    public async Task<WarningsSeen> WarningsSeenAtExportAsync(CancellationToken ct = default)
+    {
+        if (CurrentApproval is null || Latest?.Approval is null)
+            throw new InvalidOperationException("Approve this version first: export is of an approved version.");
+        Latest = await _store.WarningsSeenAtExportAsync(Latest, ct);
+        return Latest.Approval!.WarningsSeen!;
+    }
+
+    // The demo's review of the campaign as it stands, approved and unchanged since; null otherwise.
+    private ReviewReport? DemoReview(CampaignPolicy? policy, BusinessContext? business)
+    {
         if (CurrentApproval is not { } approval) return null;
         var review = Editor.Status(policy, business).Review;
-        if (review is null) return null;
-        var report = CampaignGate.DemoReview(review.Campaign, approval, policy, business);
-        return report.CanExport ? report : null;
+        return review is null ? null : CampaignGate.DemoReview(review.Campaign, approval, policy, business);
     }
 
     /// <summary>

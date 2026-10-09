@@ -19,10 +19,12 @@ public class DemoReviewTests
     [Fact]
     public void An_approved_campaign_the_rules_pass_exports_marked_as_not_proofread()
     {
-        var report = CampaignGate.DemoReview(Build(DraftFixtures.Finished()), ByPriya);
+        // Shown what is worth a look at export, and went on (ExportWarningsTests).
+        var approval = ByPriya with { WarningsSeen = new WarningsSeen("Priya", ByPriya.At.AddMinutes(1)) };
+        var report = CampaignGate.DemoReview(Build(DraftFixtures.Finished()), approval);
 
         Assert.False(report.Proofread);
-        Assert.Equal(ByPriya, report.DemoApproval);
+        Assert.Equal(approval, report.DemoApproval);
         Assert.True(report.CanExport);
         Assert.Equal(EditorExport.PreviewBlocks(report.Campaign), EditorExport.Blocks(report));
     }
@@ -98,6 +100,11 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
         return save;
     }
 
+    // Approved, and shown what is worth a look at export and gone on, as "Export anyway" does
+    // (ExportWarningsTests): the export itself is what these tests look at.
+    private async Task<SaveRef> ApprovedAndSeen(CampaignDraft draft) =>
+        await Store.WarningsSeenAtExportAsync(await Store.ApproveAsync(await Saved(draft), "Priya"));
+
     private static MatchCollection ExportBlocks(string page) =>
         Regex.Matches(page, "<li class=\"export-block\">(.*?)</li>", RegexOptions.Singleline);
 
@@ -116,7 +123,7 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
     [Fact]
     public async Task An_approved_campaign_exports_each_block_with_a_copy_button_and_the_notice()
     {
-        var save = await Store.ApproveAsync(await Saved(DraftFixtures.Finished()), "Priya");
+        var save = await ApprovedAndSeen(DraftFixtures.Finished());
 
         var page = await Get($"/campaigns/{save.Id}");
         // In her time zone: approved at 12:00 UTC on 3 October, five in the morning in Washington.
@@ -147,7 +154,7 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
     [Fact]
     public async Task Every_copy_button_has_a_line_for_copying_by_hand()
     {
-        var save = await Store.ApproveAsync(await Saved(DraftFixtures.Finished()), "Priya");
+        var save = await ApprovedAndSeen(DraftFixtures.Finished());
 
         var page = await Get($"/campaigns/{save.Id}");
 
@@ -187,6 +194,8 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
 
         Assert.Contains("Must fix", page);
         Assert.DoesNotContain("Copy into Square", page);
+        // Nor the list of warnings to go on past: a Must fix is fixed, never gone on past.
+        Assert.DoesNotContain("Export anyway", page);
         Assert.DoesNotContain("data-copy", page);
     }
 
@@ -263,6 +272,7 @@ public class EnforcedIsNotTheDemoTests(EnforcedApp app) : IClassFixture<Enforced
 
         Assert.Contains("Approved by Priya", page);
         Assert.Contains("Export comes once the AI proofread is switched on.", page);
+        Assert.DoesNotContain("Export anyway", page);
         Assert.DoesNotContain("Copy into Square", page);
         Assert.DoesNotContain("data-copy", page);
         Assert.DoesNotContain("Not proofread by AI yet", page);

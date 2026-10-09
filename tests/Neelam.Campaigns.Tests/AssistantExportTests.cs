@@ -16,7 +16,12 @@ namespace Neelam.Campaigns.Tests;
 /// </summary>
 public class AssistantExportTests
 {
-    private static readonly Approval ByPriya = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
+    // Approved, and shown what is worth a look at export, and went on: the corrected email keeps
+    // "Beauty Bank" on purpose, so there is always something worth a look.
+    private static readonly WarningsSeen SeenByPriya = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 5, 0, TimeSpan.Zero));
+
+    private static readonly Approval ByPriya =
+        new("Priya", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)) { WarningsSeen = SeenByPriya };
 
     private static readonly Uri HeaderPhotoOnSquare =
         new("https://square-web-production-f.squarecdn.com/files/abc123/original.jpeg?enable=upscale&height=196&width=640");
@@ -72,19 +77,72 @@ public class AssistantExportTests
     // Enforced: the proofread and an approval, both. An approval without the proofread is not
     // enough, nor the proofread without an approval.
     [Fact]
-    public void Enforced_needs_the_proofread_and_the_approval()
+    public async Task Enforced_needs_the_proofread_and_the_approval()
     {
         var campaign = BeautyBankEmail.Corrected();
         var rulesOnly = CampaignReview.Check(campaign);
         Assert.Throws<CampaignBlockedException>(() => AssistantExport.Build(rulesOnly, ByPriya));
 
-        var proofread = new ReviewReport(campaign, rulesOnly.Findings, Proofread: true);
+        var proofread = await CampaignGate.ReviewAsync(campaign, FakeProofreader.Clean, warningsSeen: SeenByPriya);
         Assert.Throws<AssistantExportRefusedException>(() => AssistantExport.Build(proofread));
 
         var doc = Parse(Exported(proofread, ByPriya));
         Assert.True(doc["review"]!["proofread"]!.GetValue<bool>());
         Assert.Equal("Priya", doc["review"]!["approval"]!["by"]!.GetValue<string>());
         Assert.Null(doc["review"]!["notice"]);
+        // Enforced too: the warnings were shown at export, by whom and when.
+        Assert.Equal("Priya", doc["review"]!["worthALookSeen"]!["by"]!.GetValue<string>());
+    }
+
+    // The owner, 2026-10-09: "We should pop up a list of warnings when exporting", and then "This
+    // is handholding, not handcuffs." Each worthALook list in the file says who was shown it at
+    // export and went on, and when, in UTC; never which finding was which, and no internal id.
+    [Fact]
+    public void The_json_says_who_was_shown_the_warnings_and_when()
+    {
+        var doc = Parse(Exported(Demo(BeautyBankEmail.Corrected()), context: Context));
+
+        var review = doc["review"]!;
+        Assert.NotEmpty(review["worthALook"]!.AsArray());
+        var seen = review["worthALookSeen"]!.AsObject();
+        Assert.Equal(["at", "by"], seen.Select(p => p.Key).Order(StringComparer.Ordinal));
+        Assert.Equal("Priya", seen["by"]!.GetValue<string>());
+        Assert.Equal(SeenByPriya.At, seen["at"]!.GetValue<DateTimeOffset>());
+        Assert.EndsWith("+00:00", seen["at"]!.GetValue<string>());
+        // Every item is still plain text, as before: there is nothing per item to acknowledge.
+        Assert.All(review["worthALook"]!.AsArray(), item => Assert.Equal(System.Text.Json.JsonValueKind.String, item!.GetValueKind()));
+    }
+
+    // Not shown, no file: the same gate as the copy blocks, so neither exists without the other.
+    [Fact]
+    public void There_is_no_json_until_the_warnings_were_shown()
+    {
+        var unseen = CampaignGate.DemoReview(BeautyBankEmail.Corrected(), ByPriya with { WarningsSeen = null });
+
+        Assert.True(unseen.WarningsToSee);
+        var blocked = Assert.Throws<CampaignBlockedException>(() => AssistantExport.Json(unseen));
+        Assert.Equal(Assert.Throws<CampaignBlockedException>(() => EditorExport.Blocks(unseen)).Message, blocked.Message);
+        var offer = AssistantExport.Offer(unseen);
+        Assert.Null(offer.Json);
+        Assert.Contains("worth a look", offer.Refusal);
+    }
+
+    // With nothing worth a look, the file says nothing of it being seen, and the schema holds the
+    // two together both ways.
+    [Fact]
+    public async Task With_nothing_worth_a_look_the_json_says_nothing_was_seen()
+    {
+        var clean = await CampaignGate.ReviewAsync(
+            new Campaign("Hello", [new HeadingBlock("Headline", "Hello")]), FakeProofreader.Clean);
+        Assert.Empty(clean.Warnings);
+
+        var doc = Parse(Exported(clean, ByPriya));
+
+        Assert.Empty(doc["review"]!["worthALook"]!.AsArray());
+        Assert.Null(doc["review"]!["worthALookSeen"]);
+        var withSeen = doc.DeepClone();
+        withSeen["review"]!["worthALookSeen"] = new JsonObject { ["by"] = "Priya", ["at"] = "2026-10-09T12:05:00+00:00" };
+        Assert.NotEmpty(ExportSchema.Problems(withSeen.ToJsonString()));
     }
 
     [Fact]
@@ -286,7 +344,7 @@ public class AssistantExportTests
         "schemaVersion", "contentHash", "instructions", "campaign", "blocks", "review",
         "id", "label", "subject", "preheader", "template",
         "type", "formatting", "text", "url", "image", "name", "squareUrl", "altText", "expected", "link", "imageName", "imageUrl",
-        "proofread", "approval", "by", "at", "worthALook", "notice",
+        "proofread", "approval", "by", "at", "worthALook", "worthALookSeen", "notice",
     ];
 
     [Fact]
@@ -501,6 +559,8 @@ public class AssistantExportTests
         { "no-blocks", "/blocks", true },
         { "no-subject", "/campaign/subject", true },
         { "no-approver", "/review/approval/by", true },
+        { "worth-a-look-unseen", "/review/worthALookSeen", true },
+        { "worth-a-look-seen-by-nobody", "/review/worthALookSeen/by", true },
         { "version", "/schemaVersion", true },
         // What the schema cannot say: only the code holds these.
         { "id-out-of-place", "/blocks/3/id", false },
@@ -547,6 +607,8 @@ public class AssistantExportTests
             "no-blocks" => Rehashed(doc with { Blocks = [] }),
             "no-subject" => doc with { Campaign = doc.Campaign with { Subject = "" } },
             "no-approver" => doc with { Review = doc.Review with { Approval = doc.Review.Approval with { By = "" } } },
+            "worth-a-look-unseen" => doc with { Review = doc.Review with { WorthALookSeen = null } },
+            "worth-a-look-seen-by-nobody" => doc with { Review = doc.Review with { WorthALookSeen = doc.Review.WorthALookSeen! with { By = "" } } },
             "version" => doc with { SchemaVersion = 2 },
             "id-out-of-place" => Rehashed(Block(3, b => b with { Id = "b9" })),
             "hash" => doc with { ContentHash = "sha256:" + new string('0', 64) },
@@ -765,11 +827,13 @@ public class AssistantExportPageTests(DemoApp app) : IClassFixture<DemoApp>
     {
         var draft = DraftFixtures.Finished();
         draft.Label = "Beauty Bank -- first send";
-        var save = await Store.ApproveAsync(await Saved(draft), "Priya");
+        var save = await Store.WarningsSeenAtExportAsync(await Store.ApproveAsync(await Saved(draft), "Priya"));
 
         var page = await Get($"/campaigns/{save.Id}");
 
         var (json, fileName) = Downloaded(page) ?? throw new Xunit.Sdk.XunitException("No download on the page.");
+        // Shown the warnings at export and went on, in the name typed for the approval (no sign-in yet).
+        Assert.Equal("Priya", JsonNode.Parse(json)!["review"]!["worthALookSeen"]!["by"]!.GetValue<string>());
         Assert.Equal("beauty-bank-first-send.json", fileName);
         ExportSchema.Valid(json);
         var doc = JsonNode.Parse(json)!;

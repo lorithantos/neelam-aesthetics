@@ -65,6 +65,9 @@ else if (_session is not null)
     // report was made with (DraftSession.DemoExportReport: the approval in force, never the
     // latest save's, which an unsaved edit leaves in place).
     var exportReport = ExportReport();
+    // Before the export, every "Worth a look" finding she has not been shown at export for this
+    // version: listed with a way to each field, and one button to go on. Never a fix required.
+    var warningsFirst = WarningsBeforeExport();
     var export = exportReport is null ? null : EditorExport.Blocks(exportReport);
     var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, exportReport.DemoApproval,
         new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
@@ -94,7 +97,7 @@ else if (_session is not null)
                 var block = editor.Blocks[index];
                 if (block is not SpacerBlockEditor)
                 {
-                    <section class="card block-card" aria-label="@block.Label">
+                    <section class="card block-card" id="block-@index" aria-label="@block.Label">
                         <div class="block-card-head">
                             <h3>@block.Label</h3>
                             <span class="muted">@BlockGuide.For(block.Type).Name@(block.IsFixed ? " · the same in every campaign" : block.Required ? "" : " · optional")</span>
@@ -375,6 +378,36 @@ else if (_session is not null)
                     </ol>
                 </section>
             }
+            else if (warningsFirst.Count > 0)
+            {
+                @* Shown at export, once per version: the owner's "pop up a list of warnings when
+                   exporting", as handholding, not handcuffs. Each finding links to its field; one
+                   button goes on. Nothing here can be exported until she goes on. *@
+                <section class="card export-warnings" role="dialog" aria-labelledby="export-warnings-title">
+                    <h2 id="export-warnings-title">Before you copy it into Square</h2>
+                    <p>@(warningsFirst.Count == 1 ? "One thing is" : $"{warningsFirst.Count} things are") worth a look. None of them stops the email. If one is a mistake, go to it and fix it; if it is right as written, carry on.</p>
+                    <ul class="findings">
+                        @foreach (var warning in warningsFirst)
+                        {
+                            <li class="finding warning">
+                                <strong>Worth a look</strong>
+                                @if (JumpTo(warning) is { } jump)
+                                {
+                                    <a class="muted" href="@jump">@warning.Location</a>
+                                }
+                                else
+                                {
+                                    <span class="muted">@warning.Location</span>
+                                }
+                                <span>@warning.Message</span>
+                            </li>
+                        }
+                    </ul>
+                    <p class="field-help">Fixing one changes the campaign: save it again and approve the new version.</p>
+                    <button class="button primary" @onclick="ExportAnywayAsync">Export anyway</button>
+                    <p class="field-help">You won't be asked again about this version. The export notes that you saw these and went on.</p>
+                </section>
+            }
             else
             {
                 <section class="card">
@@ -598,6 +631,39 @@ else
     // everywhere else, Enforced included, where export waits for the proofread.
     private ReviewReport? ExportReport() =>
         Site.IsDemo && _canReview ? _session!.DemoExportReport(_policy, Business) : null;
+
+    // The same gate's findings to show before that export, on the demo only, as the export is.
+    private IReadOnlyList<Finding> WarningsBeforeExport() =>
+        Site.IsDemo && _canReview ? _session!.WarningsBeforeExport(_policy, _business) : [];
+
+    // "Export anyway": recorded with this version's approval, who and when only, and then the
+    // export is there. A failure says why; the campaign is untouched either way.
+    private async Task ExportAnywayAsync()
+    {
+        if (!Site.IsDemo || !_canReview) return;
+        try
+        {
+            await _session!.WarningsSeenAtExportAsync();
+            _message = null;
+        }
+        catch (InvalidOperationException ex)
+        {
+            _message = ex.Message;
+        }
+    }
+
+    // Where a finding's field is on this page: the subject line, or the block it is in. The address
+    // is this campaign's own, so the link only moves down the page. Null for the whole email.
+    private string? JumpTo(Finding finding)
+    {
+        var editor = _session!.Editor;
+        var anchor = finding.Location == FindingPlace.Subject
+            ? "subject"
+            : FindingPlace.BlockIndex(finding.Location, editor.Blocks.Select(b => b.Label).ToList()) is { } i
+                ? $"block-{i}"
+                : null;
+        return anchor is null ? null : $"campaigns/{_session.Id}#{anchor}";
+    }
 
     // The JSON as a link to download, with no endpoint: an endpoint would be a second way out.
     private static string DataUrl(string json) =>

@@ -153,7 +153,8 @@ public sealed class CampaignStore(
     /// <summary>
     /// Carries an approval from one save to a later save of the same campaign whose content is the
     /// same, the client's label aside (<see cref="DraftSession"/> decides that): a row for the later
-    /// save with the same approver and time. The earlier row stays as it is. Unchanged when the
+    /// save with the same approver and time, and the same record of who went on past its warnings
+    /// at export, if anyone has. The earlier row stays as it is. Unchanged when the
     /// earlier save's approval no longer stands.
     /// </summary>
     public async Task<SaveRef> KeepApprovalAsync(SaveRef approved, SaveRef later, CancellationToken ct = default)
@@ -166,6 +167,31 @@ public sealed class CampaignStore(
         // On the later save, by whoever saved it: ids only, as every event.
         await RecordAsync(later, ActivityAction.ApprovalCarriedToLabelOnlySave, ct);
         return later with { Approval = row.Approval };
+    }
+
+    /// <summary>
+    /// Records, on the save's approval row, that someone was shown its "Worth a look" findings when
+    /// exporting it and went on (owner, 2026-10-09: "This is handholding, not handcuffs"): who and
+    /// when, never which findings or what they said. It goes with the approval: a label-only save
+    /// carries it (<see cref="KeepApprovalAsync"/>), and any other save, a withdrawal or an undo
+    /// leaves it behind. Recorded once; asked again, the first record stands.
+    /// </summary>
+    /// <returns>The save with its approval, now carrying <see cref="Approval.WarningsSeen"/>.</returns>
+    /// <exception cref="InvalidOperationException">The save's approval does not stand.</exception>
+    public async Task<SaveRef> WarningsSeenAtExportAsync(SaveRef save, CancellationToken ct = default)
+    {
+        Expect(save, DocumentKind.Draft);
+        var row = await StandingApprovalAsync(save, ct)
+                  ?? throw new InvalidOperationException("Approve this version first: export is of an approved version.");
+        if (row.Approval.WarningsSeen is null)
+        {
+            // Signed in, the user; in Prototype, the name typed for this version's approval, as approvals are.
+            var by = activity.Actor.NameFor(row.ApprovedBy);
+            row = row with { WarningsSeenBy = by, WarningsSeenAt = clock.GetUtcNow() };
+            await approvals.PutAsync(row, ct);
+            await RecordAsync(save, ActivityAction.WarningsSeenAtExport, ct, by);
+        }
+        return save with { Approval = row.Approval };
     }
 
     // This save's approval, while it stands.

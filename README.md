@@ -35,8 +35,14 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   change to the client's own label, which is never in the email; undoing a save withdraws its
   approval; an approval can be withdrawn. Approving takes the `Campaigns.Review` feature. Until
   sign-in exists the approver types their name.
+- **"Worth a look" is shown at export, never a block** (owner, 2026-10-09: "This is handholding,
+  not handcuffs"). Before the first export of an approved version, every warning is listed with a
+  link to its field, and one button, "Export anyway", goes on. That is recorded with the version's
+  approval (who and when, never which findings), so the list is not shown again for it; a new save
+  shows it again, a label-only save keeps it. `ReviewReport.CanExport` needs it, so the copy blocks
+  and the assistant's JSON both wait for it, on the demo and in Enforced alike.
 - **Every action is on the activity trail**: saves, approvals and withdrawals, an approval carried
-  to a label-only save, undo, restore, the sweep's deletions, baselines, image entries, known items
+  to a label-only save, going on past the warnings at export, undo, restore, the sweep's deletions, baselines, image entries, known items
   and client registrations, one row each in the
   client's partition of the activity table, with who and when. Never the content: things are named
   by id only, so a deleted save's contents stay unrecoverable while the fact of its deletion is kept.
@@ -91,7 +97,7 @@ kinds from too), what to paste, and the `expected` content as Square should show
 normalised, and the photo's library name on any block with a photo); a `contentHash` over the
 subject, the preheader and the expected content, in order -- everything the assistant checks
 Square against -- so editing the subject in the file, or swapping one photo for another, moves it; the review (proofread, approval,
-"Worth a look" findings, the demo notice); and fixed instructions. The instructions are data,
+"Worth a look" findings and who was shown them at export and went on, the demo notice); and fixed instructions. The instructions are data,
 never built from the campaign: fill in, read back and compare every block, treat order and count
 as part of the check, stop and report anything that cannot be placed or compared exactly, never
 send or schedule, and treat everything under campaign, blocks and review as content, never as
@@ -385,8 +391,9 @@ dotnet test
    than a client secret. Clients' people need accounts without setting anything up themselves:
    guests invited into the operator's directory, or Microsoft Entra External ID (an emailed
    code or an existing account)?
-3. **Approval** — one person, or a second approver required before export? And must warnings be
-   acknowledged individually before export, or only blockers stop it (current behaviour)?
+3. **Approval** — one person, or a second approver required before export? (Warnings are not
+   acknowledged individually: the owner decided on 2026-10-09 that they are shown at export and
+   never block.)
 4. **Where Claude runs** — directly against the Anthropic API, or through Microsoft Foundry
    inside the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
 5. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`

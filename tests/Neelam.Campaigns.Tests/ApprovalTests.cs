@@ -254,8 +254,12 @@ public class ApprovalTests
         Assert.Null(Json(session));
 
         var approval = await session.ApproveAsync("Priya");
+        // What is worth a look comes first, once (ExportWarningsTests); then the export.
+        Assert.Null(Offered(session));
+        Assert.NotEmpty(session.WarningsBeforeExport());
+        await session.WarningsSeenAtExportAsync();
         Assert.NotEmpty(Offered(session)!);
-        Assert.Equal(approval, session.DemoExportReport()!.DemoApproval);
+        Assert.Equal((approval.By, approval.At), (session.DemoExportReport()!.DemoApproval!.By, session.DemoExportReport()!.DemoApproval!.At));
         var approved = Json(session)!.Json ?? throw new Xunit.Sdk.XunitException(Json(session)!.Refusal);
         ExportSchema.Valid(approved);
 

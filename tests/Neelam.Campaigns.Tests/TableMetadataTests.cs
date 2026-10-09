@@ -36,6 +36,14 @@ public class TableMetadataTests
         Assert.Equal(standing, TableMetadata.ToApproval(row));
         Assert.Equal(true, TableMetadata.FromApproval(withdrawn)["Withdrawn"]);
         Assert.Equal(withdrawn, TableMetadata.ToApproval(TableMetadata.FromApproval(withdrawn)));
+        // Who went on past the warnings at export, and when: left out until then, kept once there.
+        Assert.False(row.ContainsKey("WarningsSeenBy"));
+        Assert.Null(TableMetadata.ToApproval(row).Approval.WarningsSeen);
+        var seen = standing with { WarningsSeenBy = "Priya", WarningsSeenAt = Now.AddMinutes(2) };
+        var seenRow = TableMetadata.FromApproval(seen);
+        Assert.Equal(("Priya", Now.AddMinutes(2)), (seenRow["WarningsSeenBy"], seenRow["WarningsSeenAt"]));
+        Assert.Equal(seen, TableMetadata.ToApproval(seenRow));
+        Assert.Equal(new WarningsSeen("Priya", Now.AddMinutes(2)), TableMetadata.ToApproval(seenRow).Approval.WarningsSeen);
     }
 
     // Withdrawn with no time, as something outside the app might leave it, is still withdrawn.

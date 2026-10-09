@@ -34,6 +34,12 @@ public enum ActivityAction
     /// </summary>
     ApprovalCarriedToLabelOnlySave,
 
+    /// <summary>
+    /// Shown the save's "Worth a look" findings at export, and went on to export it. Which findings,
+    /// and what they said, are never recorded.
+    /// </summary>
+    WarningsSeenAtExport,
+
     /// <summary>A save marked undone: gone from every list, restorable for the grace period.</summary>
     Undone,
     Restored,

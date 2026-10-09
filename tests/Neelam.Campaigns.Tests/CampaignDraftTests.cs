@@ -145,7 +145,12 @@ public class CampaignDraftTests
 
         Assert.True(result.Succeeded, string.Join("\n", result.Problems.Select(p => p.Message)));
         Assert.Equal(EditorExport.Preview(Target), EditorExport.Preview(result.Campaign!));
-        Assert.True((await CampaignGate.ReviewAsync(result.Campaign!, FakeProofreader.Clean)).CanExport);
+        // Nothing blocks it; what is worth a look is shown at export first, and then it goes.
+        var review = await CampaignGate.ReviewAsync(result.Campaign!, FakeProofreader.Clean);
+        Assert.Empty(review.Blockers);
+        Assert.True(review.WarningsToSee);
+        Assert.True((await CampaignGate.ReviewAsync(result.Campaign!, FakeProofreader.Clean,
+            warningsSeen: new WarningsSeen("Neelam", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)))).CanExport);
     }
 
     [Fact]

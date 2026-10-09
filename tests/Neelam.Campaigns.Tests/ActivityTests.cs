@@ -356,6 +356,8 @@ public class ActivityTests
         // A label-only save carries an approval.
         var relabelled = await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished);
         await store.ApproveAsync(relabelled, "Priya");
+        // Shown what is worth a look at export, and gone on past it.
+        await store.WarningsSeenAtExportAsync(relabelled);
         _clock.Now += TimeSpan.FromMinutes(1);
         finished.Label = Label + " (sent)";
         await store.KeepApprovalAsync(relabelled, await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished));
@@ -399,6 +401,22 @@ public class ActivityTests
             Assert.Equal(
                 ["Action", "Actor", "At", "Entity", "EntityId", "PartitionKey", "RowKey", .. activity.SaveStamp is null ? Array.Empty<string>() : ["SaveStamp"]],
                 row.Keys.Where(k => k is not ("odata.etag" or "Timestamp")).Order(StringComparer.Ordinal));
+        }
+
+        // The approvals rows too, with who went on past the warnings at export: names and times only.
+        Assert.Contains(Records.Approvals.Rows, r => r.WarningsSeenBy is not null);
+        foreach (var approval in Records.Approvals.Rows)
+        {
+            var row = TableMetadata.FromApproval(approval);
+            var values = row.Where(p => p.Key is not ("odata.etag" or "Timestamp"))
+                .Select(p => Convert.ToString(p.Value, System.Globalization.CultureInfo.InvariantCulture) ?? "").ToList();
+            Assert.Empty(
+                from text in content.Where(t => !t.All(char.IsAsciiDigit))
+                from value in values
+                where value.Contains(text, StringComparison.OrdinalIgnoreCase)
+                select $"{text} in {value}");
+            Assert.Empty(row.Keys.Except(
+                ["PartitionKey", "RowKey", "ApprovedBy", "ApprovedAt", "Withdrawn", "WithdrawnAt", "WarningsSeenBy", "WarningsSeenAt", "odata.etag", "Timestamp"]));
         }
     }
 

@@ -162,6 +162,9 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
             ["Withdrawn"] = approval.Withdrawn,
         };
         if (approval.WithdrawnAt is { } withdrawnAt) row["WithdrawnAt"] = withdrawnAt;
+        // Who went on past the warnings at export, and when: left out until someone has.
+        if (approval.WarningsSeenBy is { } seenBy) row["WarningsSeenBy"] = seenBy;
+        if (approval.WarningsSeenAt is { } seenAt) row["WarningsSeenAt"] = seenAt;
         return row;
     }
 
@@ -178,7 +181,9 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
             new ClientName(row.PartitionKey), campaignId, key[1],
             row.GetString("ApprovedBy") ?? throw new InvalidDataException("An approval has no approver."),
             row.GetDateTimeOffset("ApprovedAt") ?? throw new InvalidDataException("An approval has no time."),
-            withdrawnAt);
+            withdrawnAt,
+            row.GetString("WarningsSeenBy"),
+            row.GetDateTimeOffset("WarningsSeenAt"));
     }
 
     // One partition per client; rows sort by time, and the id keeps two events in the same instant

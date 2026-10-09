@@ -141,6 +141,11 @@ public static partial class AssistantExport
         var exported = blocks.Select((b, i) => Block(b, i, widgets, context.SquareUrl)).ToList();
         var campaign = new ExportedCampaign(
             context.Id, Blank(context.Label), report.Campaign.Subject, Blank(report.Campaign.Preheader), Blank(context.TemplateName));
+        var worthALook = report.Warnings.Select(f => $"{f.Location}: {f.Message}").ToList();
+        // The gate let it through, so anything worth a look was shown to someone, who went on.
+        var seen = worthALook.Count > 0 && report.WarningsSeen is { } s
+            ? new ExportedWarningsSeen(s.By, s.At.ToUniversalTime())
+            : null;
         return new AssistantExportDocument(
             SchemaVersion,
             ContentHash(campaign, exported),
@@ -150,7 +155,8 @@ public static partial class AssistantExport
             new ExportedReview(
                 report.Proofread,
                 new ExportedApproval(approvedBy.By, approvedBy.At.ToUniversalTime()),
-                report.Warnings.Select(f => $"{f.Location}: {f.Message}").ToList(),
+                worthALook,
+                seen,
                 report.Proofread ? null : DemoNotice));
     }
 
@@ -193,7 +199,8 @@ public static partial class AssistantExport
     /// <summary>
     /// Where a document is not one the export may offer, one line each, located as a JSON pointer;
     /// empty when it may. The checks are in code, so the app needs no schema at run time: the
-    /// version; the instructions, exactly the fixed list; a subject and an approver; every block in
+    /// version; the instructions, exactly the fixed list; a subject and an approver; who was shown
+    /// the worthALook items at export, exactly when there are any; every block in
     /// place (<c>b1</c> first), of a Square widget type and formatting from <see cref="SquareWidgets.ByKind"/>,
     /// with what its type needs and nothing it must not have (a button's link absolute http(s), and
     /// its expected link the same); and the content hash, recomputed.
@@ -213,6 +220,13 @@ public static partial class AssistantExport
             Fail("/campaign/subject", "is empty.");
         if (Empty(document.Review.Approval.By))
             Fail("/review/approval/by", "is empty.");
+        // Anything worth a look was shown to a person at export, who went on: said exactly when there is something.
+        if (document.Review.WorthALook.Count > 0 && document.Review.WorthALookSeen is null)
+            Fail("/review/worthALookSeen", "is missing: nobody was shown the worthALook items at export.");
+        else if (document.Review.WorthALook.Count == 0 && document.Review.WorthALookSeen is not null)
+            Fail("/review/worthALookSeen", "is present with nothing worth a look.");
+        else if (document.Review.WorthALookSeen is { } seen && Empty(seen.By))
+            Fail("/review/worthALookSeen/by", "is empty.");
         if (document.Blocks.Count == 0)
             Fail("/blocks", "has no blocks.");
 
@@ -374,6 +388,13 @@ public sealed record ExportedImage(string Name, Uri? SquareUrl, string? AltText)
 /// <param name="ImageName">The photo's name in the client's image library, on any block with a photo.</param>
 public sealed record ExpectedContent(string? Text, string? Link, string? ImageName, string? ImageUrl, string? AltText);
 
-public sealed record ExportedReview(bool Proofread, ExportedApproval Approval, IReadOnlyList<string> WorthALook, string? Notice);
+/// <param name="WorthALookSeen">
+/// Who was shown the <paramref name="WorthALook"/> items when exporting and went on, and when; present
+/// exactly when there are any.
+/// </param>
+public sealed record ExportedReview(
+    bool Proofread, ExportedApproval Approval, IReadOnlyList<string> WorthALook, ExportedWarningsSeen? WorthALookSeen, string? Notice);
 
 public sealed record ExportedApproval(string By, DateTimeOffset At);
+
+public sealed record ExportedWarningsSeen(string By, DateTimeOffset At);
