@@ -31,8 +31,9 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   change to the client's own label, which is never in the email; undoing a save withdraws its
   approval; an approval can be withdrawn. Approving takes the `Campaigns.Review` feature. Until
   sign-in exists the approver types their name.
-- **Every action is on the activity trail**: saves, approvals and withdrawals, undo, restore, the
-  sweep's deletions, baselines, image entries and client registrations, one row each in the
+- **Every action is on the activity trail**: saves, approvals and withdrawals, an approval carried
+  to a label-only save, undo, restore, the sweep's deletions, baselines, image entries, known items
+  and client registrations, one row each in the
   client's partition of the activity table, with who and when. Never the content: things are named
   by id only, so a deleted save's contents stay unrecoverable while the fact of its deletion is kept.
 
@@ -44,7 +45,9 @@ approval in `DemoApproval`, and every exported block says "Not proofread by AI y
 a proofread result. Enforced access, which production runs, never takes this path, so there
 export still needs `CampaignGate.ReviewAsync` and the proofread; tests pin both sides
 (`EnforcedIsNotTheDemoTests`, `The_rules_alone_never_unlock_export`). Real security arrives with
-the real approval and sign-in.
+the real approval and sign-in. Because Prototype lets everyone through every policy, the operator's
+pages do not exist on the demo: every page or endpoint that names the `Operator` policy answers a
+plain 404 there (`OperatorPagesInDemo`), decided from its policy, not its address.
 
 ## Templates and drafts
 
@@ -150,9 +153,10 @@ the client's own container (see [Clients and access](#clients-and-access)):
 - **Every save is a new blob.** Nothing is overwritten; two saves in the same instant get
   different names.
 - **Saves have no index.** Lists are read from the blob names, and the title is in the blob's own
-  metadata. The tables hold clients and support grants, never a list of saves. Deleting a
-  blob therefore leaves no record of it: delete the newest save and the previous one becomes the
-  latest; delete them all and the campaign is gone.
+  metadata. No table holds a list of saves or any save's contents. Deleting a blob therefore
+  leaves no copy of what it held: delete the newest save and the previous one becomes the
+  latest; delete them all and the campaign is gone. What remains is by id only: the activity
+  event saying that save was deleted, and when, and an approval row keyed by the save's stamp.
 - **Undo marks a save; a sweep deletes it a day later.** Undo on a draft or template does not
   delete at once. It writes the time into that blob's own metadata (`undone`), and from then on
   every list, history, check and preview leaves the save out, so to the client it is gone.
@@ -163,7 +167,8 @@ the client's own container (see [Clients and access](#clients-and-access)):
   `Prototype:Client` as well. It keeps no state, so a run cut short is finished by the next, and
   each delete holds only if the blob is unchanged since listed (If-Match on its ETag), so a save
   restored in the meantime survives. This is a deliberate, bounded exception to the rule below:
-  for the grace period an undone save still exists; once swept, it leaves no record. A client's
+  for the grace period an undone save still exists; once swept, its contents leave no record (its
+  `DeletedBySweep` event, by id, stays). A client's
   catalog, policy and look have no undo page yet and still delete outright.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
@@ -284,7 +289,7 @@ both, and the tests pin which rules each trips.
 
 | Problem in the sent email | Rule | Severity |
 |---|---|---|
-| First send: both options the same $299 tier, name and contents | Tier copy marks every benefit unreviewed; `tier-content-distinct` | Blocker |
+| First send: both options the same $299 tier, contents and all, as "Option 1 Platinum Member" and "Option 2 Platinum Member" | Tier copy marks every benefit unreviewed; `tier-content-distinct`, `tier-prices-increase`. The names differ by "Option N", so `tier-names-unique` (whole names) does not fire: an open owner decision | Blocker |
 | Second send, 38 minutes later: option 1 fixed to the $149 tier, both still named "Platinum Member" | Tier copy doesn't copy the name; `tier-names-unique` | Blocker |
 | "50% Complimentary Wellness Injections" — free or half off? | Not expressible: benefits are typed (`FreeItem` / `DiscountedItem`) and worded by the model; `benefit-value` rejects 100%-off | Blocker |
 | A button ("Come visit", to the clinic's site), but nothing to join the offer with | The proofread: a button that does not match the offer. `cta-required` blocks an offer with no button at all; `cta-https` a button without https | Proofread; blockers |
@@ -336,8 +341,10 @@ With no known items of a kind, nothing is said about that kind.
   `SupportGrant`), the caller from the sign-in (`CallerClaims`) and `CredentialGuard`. Storage
   clients come from **Janet.Azure.Storage** and sign-in reading from **Janet.Entra**, both from
   the sibling `Janet.Shared` repo through the local feed in `nuget.config`.
-- `src/Neelam.Web` — the Blazor Server host. It wires up storage and the credential guard; it
-  shows no campaign pages until sign-in exists.
+- `src/Neelam.Web` — the Blazor Server host: storage and the credential guard, the feature
+  policies, and the pages (templates, campaigns, images, known items, How it works; Clients under
+  `/admin`). Its own files are served by `MapStaticAssets` at fingerprinted addresses, and every
+  page's footer shows the deploy's build stamp (the App Service setting `LATEST_BUILD_INFO`).
 - `infra/main.bicep` — App Service, storage account, container, Application Insights and role
   assignments.
 - `tests/Neelam.Campaigns.Tests` — both real sends and a corrected version, one test per rule,
