@@ -40,6 +40,12 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         foreach (var step in new[] { "1. Start from a template", "2. Write the campaign", "3. Check it, twice", "4. Approve", "5. Copy it into Square and send" })
             Assert.Contains(step, page);
 
+        // The template deduced from it: its name, which parts are fixed, and the placeholders.
+        Assert.Contains("Membership announcement", page);
+        Assert.Contains("written once", page);
+        Assert.Contains("‹Opening: written for each campaign›", page);
+        Assert.Contains("‹Photo: chosen for each campaign, or left out›", page);
+
         // The real email, every problem the rules find in it, and the corrected version.
         Assert.Contains("WE’RE TURNING ONE! 🥂✨", page);
         Assert.Contains("Must fix", page);

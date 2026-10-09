@@ -105,6 +105,37 @@ public static class BeautyBankEmail
         "Wellness injections are provided after consultation with a licensed provider " +
         "and are subject to eligibility.");
 
+    /// <summary>
+    /// Neelam's membership-announcement template, deduced from this email: the corrected email's
+    /// blocks, with the parts that stay the same from send to send fixed (header, greeting, closing,
+    /// sign-off, disclaimer) and everything else left for each campaign to fill.
+    /// </summary>
+    /// <remarks>
+    /// In the library since 2026-10-09 so the How it works page can show it to Neelam's people
+    /// before sign-in exists. It is the template their client would start with; it is not saved
+    /// anywhere, and putting it in their own container waits for the real site.
+    /// </remarks>
+    public static CampaignTemplate MembershipTemplate()
+    {
+        var corrected = Corrected();
+        T Fixed<T>(string label) where T : Block => corrected.Blocks.OfType<T>().Single(b => b.Label == label);
+
+        return new CampaignTemplate("Membership announcement",
+        [
+            new TemplateBlock("Header", BlockType.Header, Fixed: Fixed<HeaderBlock>("Header")),
+            new TemplateBlock("Spacer", BlockType.Spacer),
+            new TemplateBlock("Headline", BlockType.Heading),
+            new TemplateBlock("Greeting", BlockType.Greeting, Fixed: Fixed<GreetingBlock>("Greeting")),
+            new TemplateBlock("Opening", BlockType.Paragraphs),
+            new TemplateBlock("Offer", BlockType.Offer, Recurring: true, Marker: "🤍"),
+            new TemplateBlock("Closing", BlockType.Paragraphs, Fixed: Fixed<ParagraphsBlock>("Closing")),
+            new TemplateBlock("Sign-off", BlockType.SignOff, Fixed: Fixed<SignOffBlock>("Sign-off")),
+            new TemplateBlock("Disclaimer", BlockType.FinePrint, Required: false, Fixed: Fixed<FinePrintBlock>("Disclaimer")),
+            new TemplateBlock("Photo", BlockType.Image, Required: false),
+            new TemplateBlock("Call to action", BlockType.Button),
+        ]);
+    }
+
     // In the order Square rendered the real sends: header photo with the business name, a spacer,
     // the headline, the greeting and opening, the offer through to the sign-off, then a photo and
     // the button.

@@ -23,13 +23,22 @@
         that never change, such as your sign-off, are written once in the template. A new kind of
         email is a new template, and your templates are yours.
     </p>
-    <p>The Beauty Bank email has this shape:</p>
+    <p>
+        Here is your template, worked out from the Beauty Bank email:
+        <strong>@Template.Name</strong>. Five parts are written once and go out the same every time;
+        the rest you write for each campaign.
+    </p>
     <ol class="shape">
-        @foreach (var block in Sent.Blocks)
+        @foreach (var block in Template.Blocks.Where(b => b.Type != BlockType.Spacer))
         {
-            <li>@block.Label</li>
+            <li>
+                <strong>@block.Label</strong>
+                <span class="muted">@(block.Fixed is not null ? "written once" : "you write it each time")@(block.Required ? "" : ", optional")</span>
+            </li>
         }
     </ol>
+    <p>And what any email from it looks like, with the parts you fill in marked:</p>
+    <EmailPreview Blocks="TemplateBlocks" />
     <p class="muted">Ready to try now: <a href="templates">Templates</a>.</p>
 </section>
 
@@ -114,6 +123,8 @@
 
 @code {
     // Static: the sample and the rules are the same for every visitor, so they are worked out once.
+    private static readonly CampaignTemplate Template = BeautyBankEmail.MembershipTemplate();
+    private static readonly IReadOnlyList<EditorBlock> TemplateBlocks = TemplatePreview.Blocks(Template.Blocks);
     private static readonly Campaign Sent = BeautyBankEmail.SecondSend();
     private static readonly IReadOnlyList<EditorBlock> SentBlocks = EditorExport.PreviewBlocks(Sent);
     private static readonly ReviewReport SentReview = CampaignReview.Check(Sent);

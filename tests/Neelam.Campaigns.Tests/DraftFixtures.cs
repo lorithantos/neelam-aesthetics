@@ -8,23 +8,11 @@ internal static class DraftFixtures
     private static readonly Campaign Target = SampleCampaigns.Corrected();
 
     /// <summary>
-    /// Neelam's membership-announcement template, as data: the corrected email's blocks, with the
-    /// parts that stay the same from send to send fixed and everything else left to fill.
+    /// Neelam's membership-announcement template. The content lives in
+    /// <see cref="BeautyBankEmail.MembershipTemplate"/>, since the How it works page shows it too;
+    /// every test that builds a draft from it reads the library's copy.
     /// </summary>
-    public static readonly CampaignTemplate Membership = new("Membership announcement",
-    [
-        new TemplateBlock("Header", BlockType.Header, Fixed: Target.Block<HeaderBlock>("Header")),
-        new TemplateBlock("Spacer", BlockType.Spacer),
-        new TemplateBlock("Headline", BlockType.Heading),
-        new TemplateBlock("Greeting", BlockType.Greeting, Fixed: Target.Block<GreetingBlock>("Greeting")),
-        new TemplateBlock("Opening", BlockType.Paragraphs),
-        new TemplateBlock("Offer", BlockType.Offer, Recurring: true, Marker: "🤍"),
-        new TemplateBlock("Closing", BlockType.Paragraphs, Fixed: Target.Block<ParagraphsBlock>("Closing")),
-        new TemplateBlock("Sign-off", BlockType.SignOff, Fixed: Target.Block<SignOffBlock>("Sign-off")),
-        new TemplateBlock("Disclaimer", BlockType.FinePrint, Required: false, Fixed: Target.Block<FinePrintBlock>("Disclaimer")),
-        new TemplateBlock("Photo", BlockType.Image, Required: false),
-        new TemplateBlock("Call to action", BlockType.Button),
-    ]);
+    public static readonly CampaignTemplate Membership = BeautyBankEmail.MembershipTemplate();
 
     /// <summary>Everything a campaign author types, apart from the tiers.</summary>
     public static CampaignDraft StartAndFillText(CampaignTemplate? template = null)
