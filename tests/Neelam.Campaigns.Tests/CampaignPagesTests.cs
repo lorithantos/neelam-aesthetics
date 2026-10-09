@@ -130,7 +130,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         Assert.Matches(MustFix("Offer › Terms link has not been filled in."), page);
         Assert.Contains("What the checks say", page);
-        Assert.Contains("Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart.", page);
+        Assert.Contains("Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart. Rename either one.", page);
         // In the preview, set apart as a placeholder.
         Assert.Matches($"<p class=\"placeholder\">\\s*{Regex.Escape("‹Offer › Terms link: not filled in yet›")}\\s*</p>", page);
     }
@@ -165,8 +165,10 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var (_, unfinished) = await Get($"/campaigns/{Replayed}", [Features.Campaigns]);
         Assert.Contains("Still to do", unfinished);
-        Assert.Matches(MustFix("Offer › Tier 2 › Name has not been filled in."), unfinished);
+        Assert.Matches($"<strong>Must fix</strong>\\s*<span>{Regex.Escape("Offer › Tier 2 › Benefit 3 was copied from Tier 1 and not reviewed")}", unfinished);
         Assert.Contains("Checked so far: the parts filled in.", unfinished);
+        // The copy kept the name, and the checks say so without saying which tier to rename.
+        Assert.Contains("Tiers 1 and 2 share the name 'Gold Member'; customers cannot tell them apart. Rename either one.", unfinished);
 
         var (_, sameNames) = await Get($"/campaigns/{SameNames}", [Features.Campaigns]);
 

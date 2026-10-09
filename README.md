@@ -92,9 +92,11 @@ a `Slot` that remembers where it came from:
 - A **template** fills only the parts that stay the same. Everything else starts empty, never
   as last time's text, and an offer can never be fixed by a template.
 - **Copying a tier** (`OfferDraft.CopyTier`) copies its benefit list for convenience, but marks
-  each benefit `Copied`, and does **not** copy the name or price — those are what make it a
-  different tier. The draft will not build until every copied benefit is edited or confirmed
-  and the new tier has its own name and price.
+  each benefit `Copied`. The draft will not build until every copied benefit is edited or
+  confirmed. The name and price are copied as they stand (owner, 2026-10-09): renaming or
+  repricing either tier is easier than inventing new ones, and until one changes, the rules
+  `tier-names-unique` and `tier-prices-increase` stop the campaign, without saying which tier
+  to change.
 - `Build()` reports what's left as findings (`draft-missing`, `draft-unreviewed-copy`), in the
   same shape as the gate. A built campaign still goes through the gate.
 

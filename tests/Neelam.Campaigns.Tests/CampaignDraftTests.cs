@@ -26,16 +26,18 @@ public class CampaignDraftTests
             Locations(result, "draft-missing"));
     }
 
+    // The name and price are copied as they stand, not as unreviewed: the rules flag them while
+    // they match (owner, 2026-10-09). Only the benefits wait to be looked at.
     [Fact]
-    public void Copied_tier_keeps_benefits_but_not_name_or_price()
+    public void Copied_tier_keeps_its_name_and_price_and_marks_only_the_benefits_unreviewed()
     {
         var o = Membership.Start().Offer("Offer");
         DraftFixtures.AddGold(o);
 
         var copy = o.CopyTier(0);
 
-        Assert.False(copy.Name.HasValue);
-        Assert.False(copy.MonthlyPrice.HasValue);
+        Assert.Equal(("Gold Member", Origin.Entered), (copy.Name.Value, copy.Name.Origin));
+        Assert.Equal((149m, Origin.Entered), (copy.MonthlyPrice.Value, copy.MonthlyPrice.Origin));
         Assert.Equal(3, copy.Benefits.Count);
         Assert.All(copy.Benefits, b => Assert.Equal(Origin.Copied, b.Origin));
         Assert.All(copy.Benefits, b => Assert.Equal("Tier 1", b.CopiedFrom));
@@ -43,17 +45,20 @@ public class CampaignDraftTests
 
     /// <summary>
     /// Second send, replayed: tier 2 started as a copy, some benefits were updated, the rest and
-    /// the name were left as they were. The draft will not build, and says exactly what is left.
+    /// the name were left as they were. The draft will not build, and says exactly what is left;
+    /// the name both tiers share, the second send's mistake, is a rule's Must fix meanwhile.
     /// </summary>
     [Fact]
-    public void Second_send_replayed_cannot_build_with_an_unnamed_tier_and_unreviewed_benefits()
+    public void Second_send_replayed_cannot_build_with_an_unreviewed_benefit_and_its_shared_name_is_flagged()
     {
         var d = DraftFixtures.SecondSendReplayed();
 
         var result = d.Build();
 
         Assert.False(result.Succeeded);
-        Assert.Equal(["Offer › Tier 2 › Name"], Locations(result, "draft-missing"));
+        Assert.Empty(Locations(result, "draft-missing"));
+        Assert.Contains(CampaignEditor.Open(d).Status().Findings,
+            f => f.Severity == Severity.Blocker && f.Rule == "tier-names-unique");
         var unreviewed = Assert.Single(result.Problems, p => p.Rule == "draft-unreviewed-copy");
         Assert.Equal("Offer › Tier 2 › Benefit 3", unreviewed.Location);
         Assert.Contains("copied from Tier 1", unreviewed.Message);

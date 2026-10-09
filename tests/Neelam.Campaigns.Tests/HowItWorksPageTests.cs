@@ -41,6 +41,8 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         foreach (var step in new[] { "1. Start from a template", "2. Write the campaign", "3. Check it, twice", "4. Approve", "5. Copy it into Square and send" })
             Assert.Contains(step, page);
+        // Step 2 on Copy tier, as it behaves (owner, 2026-10-09).
+        Assert.Contains("keeps the name and price until you change them, in either tier", page);
 
         // The template deduced from it: its name, which parts are fixed, and the placeholders.
         Assert.Contains("Membership announcement", page);

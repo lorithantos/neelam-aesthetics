@@ -178,8 +178,10 @@ public class CampaignEditorTests
                 .Select(a => ((string)a.TypeDiscriminator!, a.DerivedType)).OrderBy(k => k.Item1, StringComparer.Ordinal),
             BenefitKind.All.Select(k => (k.Key, k.Type)).OrderBy(k => k.Key, StringComparer.Ordinal));
 
+    // The owner's call (2026-10-09): the copy keeps the name and price, and the rules, not the copy,
+    // see that one of the two tiers changes each. Only the benefits wait to be looked at.
     [Fact]
-    public void A_copied_tier_has_no_name_or_price_and_each_benefit_waits_until_changed_or_confirmed()
+    public void A_copied_tier_keeps_its_name_and_price_and_each_benefit_waits_until_changed_or_confirmed()
     {
         var editor = Start();
         var offer = OfferOf(editor);
@@ -191,7 +193,10 @@ public class CampaignEditorTests
 
         var copy = offer.CopyTier(gold);
 
-        Assert.Equal(["", ""], new[] { copy.Name.Text, copy.Price.Text });
+        Assert.Equal(["Gold Member", "149"], new[] { copy.Name.Text, copy.Price.Text });
+        var copied = editor.Draft.Offer("Offer").Tiers[1];
+        Assert.Equal([Origin.Entered, Origin.Entered], new[] { copied.Name.Origin, copied.MonthlyPrice.Origin });
+        Assert.DoesNotContain(editor.Status().Missing, m => m.Location is "Offer › Tier 2 › Name" or "Offer › Tier 2 › Price");
         Assert.All(copy.Benefits, b => Assert.True(b.IsUnreviewed));
         Assert.Equal("Tier 1", copy.Benefits[0].CopiedFrom);
         Assert.Equal("25", copy.Benefits[0].Amount);
@@ -221,6 +226,70 @@ public class CampaignEditorTests
         gold.RemoveBenefit(empty);
         Assert.True(offer.CanCopy(gold));
         Assert.Single(offer.CopyTier(gold).Benefits);
+    }
+
+    // A copy whose benefits are looked at but whose name and price are as copied.
+    private static CampaignEditor CopiedAsItStands() => CampaignEditor.Open(DraftFixtures.CopiedAsItStands());
+
+    private static string[] BlockerRules(CampaignEditor editor) =>
+        editor.Status().Review!.Blockers.Select(f => f.Rule).Order(StringComparer.Ordinal).ToArray();
+
+    // The rules are what make her change a copied name and price, and they do not say which tier.
+    // Each is one finding, however many tiers it names.
+    [Fact]
+    public void A_copy_left_with_its_name_and_price_is_a_must_fix_for_each_until_either_tier_changes()
+    {
+        var status = CopiedAsItStands().Status();
+
+        Assert.Empty(status.Missing);
+        Assert.Equal(
+            [
+                ("tier-names-unique", "Tiers 1 and 2 share the name 'Gold Member'; customers cannot tell them apart. Rename either one."),
+                ("tier-prices-increase", "Tier 2 costs no more than tier 1; change either price, or reorder the tiers so they run cheapest first."),
+            ],
+            status.Review!.Blockers.Select(f => (f.Rule, f.Message)).OrderBy(f => f.Rule, StringComparer.Ordinal));
+    }
+
+    // With three alike, renaming either one is not enough, and the one finding says so.
+    [Fact]
+    public void Three_tiers_sharing_a_name_are_one_finding_asking_to_rename_all_but_one()
+    {
+        var draft = DraftFixtures.CopiedAsItStands();
+        var third = draft.Offer("Offer").CopyTier(1);
+        third.MonthlyPrice.Set(299m);
+        third.Benefits[0].Set(new BirthdayCredit(100m));
+        third.Benefits[1].Confirm();
+        third.Benefits[2].Confirm();
+
+        var finding = Assert.Single(CampaignEditor.Open(draft).Status().Review!.Blockers, f => f.Rule == "tier-names-unique");
+
+        Assert.Equal(
+            "Tiers 1 and 2 and 3 share the name 'Gold Member'; customers cannot tell them apart. Rename all but one of them.",
+            finding.Message);
+    }
+
+    [Theory]
+    [InlineData(1)] // the copy
+    [InlineData(0)] // the original instead
+    public void Renaming_either_tier_clears_the_shared_name(int tier)
+    {
+        var editor = CopiedAsItStands();
+
+        OfferOf(editor).Tiers[tier].Name.Text = "Platinum Member";
+
+        Assert.Equal(["tier-prices-increase"], BlockerRules(editor));
+    }
+
+    [Theory]
+    [InlineData(1, "299")] // the copy, up
+    [InlineData(0, "99")] // the original instead, down
+    public void Changing_either_price_clears_the_price_finding(int tier, string price)
+    {
+        var editor = CopiedAsItStands();
+
+        OfferOf(editor).Tiers[tier].Price.Text = price;
+
+        Assert.Equal(["tier-names-unique"], BlockerRules(editor));
     }
 
     [Fact]
@@ -268,7 +337,7 @@ public class CampaignEditorTests
         var missing = Assert.Single(status.Missing);
         Assert.Equal((Severity.Blocker, "Offer › Terms link has not been filled in."), (missing.Severity, missing.Message));
         Assert.Contains(status.Findings, f => f.Severity == Severity.Blocker && f.Rule == "tier-names-unique"
-            && f.Message == "Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart.");
+            && f.Message == "Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart. Rename either one.");
     }
 
     // The client's own policy is what the checks run with while parts are missing, as once the

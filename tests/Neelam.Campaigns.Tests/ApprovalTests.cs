@@ -73,6 +73,19 @@ public class ApprovalTests
         Assert.DoesNotContain(_container.Blobs.Values, b => b.Metadata.ContainsKey("approvedby"));
     }
 
+    // A copied tier keeps its name and price (owner, 2026-10-09): until either tier changes each,
+    // the rules' Must fix items stop the approval, with nothing else left to fill in.
+    [Fact]
+    public async Task A_copy_still_sharing_its_name_and_price_cannot_be_approved()
+    {
+        var session = await SavedFinished(DraftFixtures.CopiedAsItStands());
+
+        Assert.Empty(session.Editor.Status().Missing);
+        Assert.Equal("Fix everything marked Must fix first.", session.CannotApprove());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.ApproveAsync("Priya"));
+        Assert.DoesNotContain(_container.Blobs.Values, b => b.Metadata.ContainsKey("approvedby"));
+    }
+
     private async Task<Guid> SavedTemplate()
     {
         var id = Guid.NewGuid();

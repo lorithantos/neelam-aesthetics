@@ -90,6 +90,8 @@ public static class CampaignReview
                 $"The link must be an absolute https:// address, not '{url}'.");
     }
 
+    // Says nothing about which tier to rename: a copied tier keeps its name, and the one to change
+    // may as well be the original.
     private static IEnumerable<Finding> TierNamesUnique(string label, Offer offer) =>
         offer.Tiers
             .Select((t, i) => (Key: t.Name.Trim().ToLowerInvariant(), Index: i + 1))
@@ -97,7 +99,8 @@ public static class CampaignReview
             .Where(g => g.Count() > 1)
             .Select(g => new Finding(Severity.Blocker, "tier-names-unique", label,
                 $"Tiers {string.Join(" and ", g.Select(x => x.Index))} share the name " +
-                $"'{offer.Tiers[g.First().Index - 1].Name}'; customers cannot tell them apart."));
+                $"'{offer.Tiers[g.First().Index - 1].Name}'; customers cannot tell them apart. " +
+                (g.Count() == 2 ? "Rename either one." : "Rename all but one of them.")));
 
     /// <summary>Two tiers offering exactly the same benefits are one offer shown twice.</summary>
     private static IEnumerable<Finding> TierContentDistinct(string label, Offer offer)
@@ -120,9 +123,10 @@ public static class CampaignReview
             if (tier.MonthlyPrice <= 0)
                 yield return new(Severity.Blocker, "tier-price-positive", $"{label} › Tier {i + 1}",
                     $"'{tier.Name}' has no price.");
+            // Neutral about which tier to change, as for names: a copy keeps its price too.
             if (i > 0 && tier.MonthlyPrice <= offer.Tiers[i - 1].MonthlyPrice)
                 yield return new(Severity.Blocker, "tier-prices-increase", $"{label} › Tier {i + 1}",
-                    $"'{tier.Name}' costs no more than the tier before it; list tiers cheapest first.");
+                    $"Tier {i + 1} costs no more than tier {i}; change either price, or reorder the tiers so they run cheapest first.");
         }
     }
 

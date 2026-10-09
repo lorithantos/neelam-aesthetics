@@ -395,8 +395,9 @@ public sealed class OfferEditor
     public bool CanCopy(TierEditor tier) => _tiers.Contains(tier) && tier.Tier.Benefits.All(b => b.HasValue);
 
     /// <summary>
-    /// A new tier from this one, through <see cref="OfferDraft.CopyTier"/>: no name, no price, and
-    /// every benefit copied but marked unreviewed until it is changed or confirmed.
+    /// A new tier from this one, through <see cref="OfferDraft.CopyTier"/>: the same name and price,
+    /// which the rules flag until one of the two tiers changes each; and every benefit copied but
+    /// marked unreviewed until it is changed or confirmed.
     /// </summary>
     public TierEditor CopyTier(TierEditor tier)
     {

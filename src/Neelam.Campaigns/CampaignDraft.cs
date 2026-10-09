@@ -187,14 +187,20 @@ public sealed class OfferDraft
     /// <summary>
     /// Starts a new tier from an existing one without silently duplicating it. The benefit
     /// list is copied for convenience, but each benefit is marked as copied and must be edited
-    /// or confirmed. The name and price — what makes a tier a different tier — are not copied
-    /// at all and must be entered.
+    /// or confirmed. The name and price are copied as they stand: while the two tiers share a
+    /// name, or the later one costs no more than the one before it, the rules stop the campaign,
+    /// so the client changes whichever tier she means to rather than being made to invent a name
+    /// or a price for the new one.
     /// </summary>
     public TierDraft CopyTier(int index)
     {
         var source = _tiers[index];
         var label = $"Tier {index + 1}";
         var tier = new TierDraft();
+        if (source.Name.HasValue)
+            tier.Name.Set(source.Name.Value);
+        if (source.MonthlyPrice.HasValue)
+            tier.MonthlyPrice.Set(source.MonthlyPrice.Value);
         foreach (var b in source.Benefits)
             tier.AddCopiedBenefit(b.Value, label);
         _tiers.Add(tier);

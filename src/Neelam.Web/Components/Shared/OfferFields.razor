@@ -1,6 +1,7 @@
 @* A tiered offer being written: its name and summary, then each tier with its typed benefits.
-   Copying a tier is OfferDraft.CopyTier's: no name or price, and every copied benefit marked as not
-   yet checked until it is changed or confirmed. *@
+   Copying a tier is OfferDraft.CopyTier's: the same name and price, which the rules flag until one
+   of the two tiers changes each, and every copied benefit marked as not yet checked until it is
+   changed or confirmed. *@
 @implements IHandleEvent
 <div class="field">
     <label for="offer-name-@Index">Offer name</label>

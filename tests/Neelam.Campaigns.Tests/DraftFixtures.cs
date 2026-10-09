@@ -43,7 +43,11 @@ internal static class DraftFixtures
         return gold;
     }
 
-    /// <summary>Second send, replayed: tier 2 copied, two benefits updated, name and benefit 3 untouched.</summary>
+    /// <summary>
+    /// Second send, replayed: tier 2 copied, price and two benefits updated, name and benefit 3
+    /// untouched. The copy keeps the name, so both tiers are "Gold Member", as both sent tiers
+    /// shared a name.
+    /// </summary>
     public static CampaignDraft SecondSendReplayed()
     {
         var d = StartAndFillText();
@@ -53,6 +57,22 @@ internal static class DraftFixtures
         platinum.MonthlyPrice.Set(299m);
         platinum.Benefits[0].Set(new BirthdayCredit(75m));
         platinum.Benefits[1].Set(new PercentOff(10, "any qualifying treatments"));
+        return d;
+    }
+
+    /// <summary>
+    /// Gold copied, every copied benefit changed or confirmed, and the name and price left as they
+    /// were copied: it builds, and the rules stop it until either tier changes each.
+    /// </summary>
+    public static CampaignDraft CopiedAsItStands()
+    {
+        var d = StartAndFillText();
+        var o = d.Offer("Offer");
+        AddGold(o);
+        var copy = o.CopyTier(0);
+        copy.Benefits[0].Set(new BirthdayCredit(75m));
+        copy.Benefits[1].Set(new PercentOff(10, "any qualifying treatments"));
+        copy.Benefits[2].Confirm();
         return d;
     }
 
