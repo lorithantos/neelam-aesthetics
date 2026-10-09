@@ -58,10 +58,11 @@ reachable over HTTP:
   secret (Application Insights') is fine where nobody would expect it to be
   passed on, such as an App Service setting, but never in anything that reaches
   GitHub: files, history, PRs. `RepositoryTests` scans what git would commit.
-- **A deleted save leaves no record.** No versioning, soft delete, change feed,
-  index or storage logging. This is about blob history, so a deleted save's
-  contents cannot be recovered. Telemetry naming a blob is fine: customer data
-  does not live in blob names or metadata.
+- **A deleted save's contents leave no record.** No versioning, soft delete,
+  change feed, index or storage logging, so they cannot be recovered. The
+  activity table does record that a save was deleted, and when, by ids only,
+  never the content. Telemetry naming a blob is fine: customer data does not
+  live in blob names or metadata.
 - **The operator does not read client data.** Clients are kept apart in code
   by Entra: a group per client, and Operator as an app role. The operator manages clients and each
   client's look, but reading a client's drafts, templates, catalog or check policy takes a
