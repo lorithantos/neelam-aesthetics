@@ -248,18 +248,78 @@ public class CampaignEditorTests
     // ---- Where it stands
 
     [Fact]
-    public void Status_is_what_is_missing_until_the_draft_builds_then_the_rule_findings_and_the_preview()
+    public void A_finished_draft_has_nothing_missing_and_the_whole_email_s_findings_and_preview()
     {
-        var unfinished = CampaignEditor.Open(DraftFixtures.SecondSendReplayed()).Status();
-        Assert.Contains(unfinished.Missing, m => m.Rule == "draft-unreviewed-copy");
-        Assert.Contains(unfinished.Missing, m => m.Rule == "draft-missing" && m.Location == "Offer › Tier 2 › Name");
-        Assert.Null(unfinished.Review);
-        Assert.Null(unfinished.Preview);
-
         var finished = CampaignEditor.Open(DraftFixtures.Finished()).Status();
+        var campaign = DraftFixtures.Finished().Build().Campaign!;
+
         Assert.Empty(finished.Missing);
-        Assert.Equal(CampaignReview.Check(DraftFixtures.Finished().Build().Campaign!).Findings, finished.Review!.Findings);
-        Assert.Contains(finished.Preview!, b => b.Kind == BlockKind.Button && b.Text == "Join the Beauty Bank");
+        Assert.Equal(CampaignReview.Check(campaign).Findings, finished.Review!.Findings);
+        Assert.Equal(finished.Review.Findings, finished.Findings);
+        Assert.Equal(EditorExport.PreviewBlocks(campaign), finished.Preview);
+    }
+
+    // Priya's case: the email as sent had no terms link, and the checks still catch the tier names.
+    [Fact]
+    public void With_a_part_missing_the_rules_still_check_what_is_filled_in()
+    {
+        var status = CampaignEditor.Open(DraftFixtures.SameNamesNoTerms()).Status();
+
+        var missing = Assert.Single(status.Missing);
+        Assert.Equal((Severity.Blocker, "Offer › Terms link has not been filled in."), (missing.Severity, missing.Message));
+        Assert.Contains(status.Findings, f => f.Severity == Severity.Blocker && f.Rule == "tier-names-unique"
+            && f.Message == "Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart.");
+    }
+
+    [Fact]
+    public void The_preview_marks_each_missing_part_and_shows_the_rest_as_the_export_would()
+    {
+        var campaign = DraftFixtures.Finished().Build().Campaign!;
+        var finished = EditorExport.PreviewBlocks(campaign);
+        var terms = $"Full terms: {campaign.OfferOf().TermsUrl}";
+        var draft = DraftFixtures.Finished();
+        draft.Offer("Offer").TermsUrl.Clear();
+        draft.Button("Call to action").Clear();
+
+        var preview = CampaignEditor.Open(draft).Status().Preview;
+
+        // The same email, block for block, with a placeholder where each missing part goes.
+        var expected = finished.Select(b => b.Kind == BlockKind.Button
+            ? new EditorBlock(BlockKind.Button, "‹Call to action: not filled in yet›")
+            : b with { Text = b.Text.Replace(terms, "‹Offer › Terms link: not filled in yet›") });
+        Assert.Equal(expected, preview);
+        Assert.Contains(finished, b => b.Text.Contains(terms));
+    }
+
+    // Findings name tiers by their place in the form, so a finished tier after an unfinished one
+    // waits for it rather than being numbered as if the gap were not there.
+    [Fact]
+    public void A_tier_after_an_unfinished_one_is_checked_once_that_one_is_finished()
+    {
+        // Tier 1 "Gold Member", tier 2 with its name cleared, tier 3 "Gold Member" again.
+        var draft = DraftFixtures.Finished();
+        var offer = draft.Offer("Offer");
+        var third = offer.CopyTier(0);
+        third.Name.Set("Gold Member");
+        third.MonthlyPrice.Set(399m);
+        offer.Tiers[1].Name.Clear();
+
+        var status = CampaignEditor.Open(draft).Status();
+
+        Assert.Contains(status.Missing, m => m.Location == "Offer › Tier 2 › Name");
+        Assert.DoesNotContain(status.Findings, f => f.Rule == "tier-names-unique");
+        Assert.Contains("‹Offer › Tier 2 › Name: not filled in yet›:", string.Join("\n", status.Preview.Select(b => b.Text)));
+    }
+
+    // Nothing about the gate loosens: until the draft builds there is no review at all to export.
+    [Fact]
+    public void A_draft_with_parts_missing_has_no_review_to_export()
+    {
+        var status = CampaignEditor.Open(DraftFixtures.SameNamesNoTerms()).Status();
+
+        Assert.NotEmpty(status.Missing);
+        Assert.NotEmpty(status.Findings);
+        Assert.Null(status.Review);
     }
 
     // The owner's rule: export needs the AI proofread too, so the page's review can never export.

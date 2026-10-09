@@ -71,4 +71,17 @@ internal static class DraftFixtures
         platinum.AddBenefit(new DiscountedItem(50, "wellness injection", "per visit", "any additional"));
         return d;
     }
+
+    /// <summary>
+    /// Finished, but with both tiers named "Platinum Member", as the second send had them, and no
+    /// terms link, as the email went out: one part missing, and a mistake the rules catch.
+    /// </summary>
+    public static CampaignDraft SameNamesNoTerms()
+    {
+        var d = Finished();
+        var o = d.Offer("Offer");
+        o.Tiers[0].Name.Set("Platinum Member");
+        o.TermsUrl.Clear();
+        return d;
+    }
 }

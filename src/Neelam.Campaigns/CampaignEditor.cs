@@ -68,22 +68,40 @@ public sealed class CampaignEditor
     }
 
     /// <summary>
-    /// Where the campaign stands: what is still missing, or, once it builds, what the rule checks
-    /// find and the email as Square will show it. A rules-only review never allows export.
+    /// Where the campaign stands: what is still missing, what the rule checks find, and the email as
+    /// Square will show it. The checks and the preview run while parts are missing too, over what is
+    /// filled in (<see cref="DraftSoFar"/>), with each missing part marked in the preview; the
+    /// missing parts still block. A rules-only review never allows export.
     /// </summary>
     public DraftStatus Status(CampaignPolicy? policy = null)
     {
         var built = Draft.Build();
-        return built.Campaign is { } campaign
-            ? new DraftStatus([], CampaignReview.Check(campaign, policy),EditorExport.PreviewBlocks(campaign))
-            : new DraftStatus(built.Problems, null, null);
+        if (built.Campaign is { } campaign)
+        {
+            var review = CampaignReview.Check(campaign, policy);
+            return new DraftStatus([], review.Findings, review, EditorExport.PreviewBlocks(campaign));
+        }
+        return new DraftStatus(
+            built.Problems,
+            CampaignReview.Check(DraftSoFar.Campaign(Draft), policy).Findings,
+            null,
+            DraftSoFar.Preview(Draft));
     }
 }
 
-/// <param name="Missing">The draft's build problems; empty once it builds.</param>
-/// <param name="Review">The rule checks, once it builds; never proofread, so never exportable.</param>
-/// <param name="Preview">The built email's blocks, for showing only.</param>
-public sealed record DraftStatus(IReadOnlyList<Finding> Missing, ReviewReport? Review, IReadOnlyList<EditorBlock>? Preview);
+/// <param name="Missing">The draft's build problems, each one blocking; empty once it builds.</param>
+/// <param name="Findings">
+/// The rule checks: over the whole email once it builds, and over what is filled in until then.
+/// </param>
+/// <param name="Review">
+/// The rule checks' report, only once the draft builds; never proofread, so never exportable. Null
+/// while anything is missing, so no report over part of an email ever exists.
+/// </param>
+/// <param name="Preview">
+/// The email's blocks, for showing only; while parts are missing, each is a placeholder.
+/// </param>
+public sealed record DraftStatus(
+    IReadOnlyList<Finding> Missing, IReadOnlyList<Finding> Findings, ReviewReport? Review, IReadOnlyList<EditorBlock> Preview);
 
 /// <summary>One block of the campaign as the form holds it.</summary>
 public abstract class BlockEditor

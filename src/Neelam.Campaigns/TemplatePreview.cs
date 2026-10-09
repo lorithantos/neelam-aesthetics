@@ -25,6 +25,9 @@ public static class TemplatePreview
     private const string Open = "‹";
     private const string Close = "›";
 
+    /// <summary>Text marked as a placeholder, as <see cref="IsPlaceholder"/> recognises it; the campaign editor's preview marks its missing parts the same way.</summary>
+    internal static string Marked(string text) => $"{Open}{text}{Close}";
+
     private static string Placeholder(TemplateBlock b)
     {
         var what = b.Type switch
@@ -34,7 +37,7 @@ public static class TemplatePreview
             BlockType.Offer => "set out",
             _ => "written",
         };
-        return $"{Open}{b.Label}: {what} for each campaign{(b.Required ? "" : ", or left out")}{Close}";
+        return Marked($"{b.Label}: {what} for each campaign{(b.Required ? "" : ", or left out")}");
     }
 }
 

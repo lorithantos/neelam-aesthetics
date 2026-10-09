@@ -1,6 +1,7 @@
 @* A tiered offer being written: its name and summary, then each tier with its typed benefits.
    Copying a tier is OfferDraft.CopyTier's: no name or price, and every copied benefit marked as not
    yet checked until it is changed or confirmed. *@
+@implements IHandleEvent
 <div class="field">
     <label for="offer-name-@Index">Offer name</label>
     <input id="offer-name-@Index" @bind="Offer.Name.Text" @bind:event="oninput" />
@@ -135,6 +136,18 @@
 @code {
     [Parameter, EditorRequired] public OfferEditor Offer { get; set; } = null!;
     [Parameter, EditorRequired] public int Index { get; set; }
+
+    /// <summary>Told after every change here, so the page around it can follow what is typed.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    // Blazor re-renders only the component that handled an event, so without this the page's
+    // "Still to do" kept saying the offer had no tiers until something on the page itself changed.
+    async Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg)
+    {
+        await callback.InvokeAsync(arg);
+        StateHasChanged();
+        await Changed.InvokeAsync();
+    }
 
     // The item and how often: shared by "something free" and "percent off an item".
     private RenderFragment ItemFields(BenefitEditor benefit, string id) => @<text>

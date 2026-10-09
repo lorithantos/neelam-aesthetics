@@ -1,8 +1,10 @@
 @page "/campaigns/new/{TemplateId:guid}"
 @page "/campaigns/{Id:guid}"
 @* Writing a campaign: the access check decides whose, on top of the policy. The page only binds to
-   CampaignEditor (through DraftSession); the checks shown are the rules alone, and export stays
-   locked until the AI proofread is switched on, as EditorExport.Blocks requires. *@
+   CampaignEditor (through DraftSession); the checks shown are the rules alone, run over what is
+   filled in even while parts are missing, and export stays locked until the AI proofread is
+   switched on, as EditorExport.Blocks requires. The offer and photo fields are child components,
+   which tell the page of each change so the checks follow what is typed. *@
 @attribute [Authorize(Policy = Features.Campaigns)]
 @rendermode InteractiveServer
 @inject ClientWorkspace Workspace
@@ -110,17 +112,17 @@ else if (_session is not null)
                                         <label for="text-@index">Business name</label>
                                         <input id="text-@index" @bind="header.Text" @bind:event="oninput" />
                                     </div>
-                                    <PhotoFields Block="header" Index="index" Photos="_photos" Optional="true" />
+                                    <PhotoFields Block="header" Index="index" Photos="_photos" Optional="true" Changed="StateHasChanged" />
                                     break;
                                 case ImageBlockEditor image:
-                                    <PhotoFields Block="image" Index="index" Photos="_photos" Optional="!block.Required" />
+                                    <PhotoFields Block="image" Index="index" Photos="_photos" Optional="!block.Required" Changed="StateHasChanged" />
                                     @if (!block.Required)
                                     {
                                         <span class="field-help">Leave the photo empty to send the email without it.</span>
                                     }
                                     break;
                                 case OfferBlockEditor offerBlock:
-                                    <OfferFields Offer="offerBlock.Offer" Index="index" />
+                                    <OfferFields Offer="offerBlock.Offer" Index="index" Changed="StateHasChanged" />
                                     break;
                             }
                             @if (block.Error is { } error)
@@ -163,49 +165,46 @@ else if (_session is not null)
             {
                 <section class="card">
                     <h2>Still to do</h2>
-                    <p class="field-help">The checks run once nothing is missing and every copied line has been looked at.</p>
-                    <ul class="advice">
+                    <p class="field-help">Every part the template needs, filled in, and every copied line looked at. Each one stops the email going out.</p>
+                    <ul class="findings">
                         @foreach (var item in status.Missing)
                         {
-                            <li>@item.Message</li>
-                        }
-                    </ul>
-                </section>
-            }
-            else if (status.Review is { } review)
-            {
-                <section class="card">
-                    <h2>What the checks say</h2>
-                    @if (review.Findings.Count == 0)
-                    {
-                        <p>The rules find nothing to fix.</p>
-                    }
-                    <ul class="findings">
-                        @foreach (var finding in review.Findings.OrderByDescending(f => f.Severity))
-                        {
-                            <li class="finding @(finding.Severity == Severity.Blocker ? "blocker" : "warning")">
-                                <strong>@(finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
-                                <span class="muted">@finding.Location</span>
-                                <span>@finding.Message</span>
+                            <li class="finding blocker">
+                                <strong>Must fix</strong>
+                                <span>@item.Message</span>
                             </li>
                         }
                     </ul>
-                    <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
                 </section>
             }
 
             <section class="card">
-                <h2>Preview</h2>
-                @if (status.Preview is { } preview)
+                <h2>What the checks say</h2>
+                @if (status.Missing.Count > 0)
                 {
-                    <p class="field-help">The email's blocks as Square will show them.</p>
-                    <EmailPreview Blocks="preview" />
+                    <p class="field-help">Checked so far: the parts filled in. The rest is checked as it is filled in.</p>
                 }
-                else
+                @if (status.Findings.Count == 0)
                 {
-                    <p class="muted">The preview appears once nothing is missing.</p>
+                    <p>The rules find nothing to fix@(status.Missing.Count > 0 ? " so far" : "").</p>
                 }
+                <ul class="findings">
+                    @foreach (var finding in status.Findings.OrderByDescending(f => f.Severity))
+                    {
+                        <li class="finding @(finding.Severity == Severity.Blocker ? "blocker" : "warning")">
+                            <strong>@(finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
+                            <span class="muted">@finding.Location</span>
+                            <span>@finding.Message</span>
+                        </li>
+                    }
+                </ul>
+                <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
             </section>
+
+            <section class="card">
+                <h2>Preview</h2>
+                <p class="field-help">The email's blocks as Square will show them@(status.Missing.Count > 0 ? "; each part still to fill in is marked ‹like this›" : "").</p>
+                <EmailPreview Blocks="status.Preview" />            </section>
 
             <section class="card">
                 <h2>Export</h2>

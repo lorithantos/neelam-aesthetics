@@ -17,6 +17,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     private static readonly Guid Membership = Guid.Parse("aaaaaaaa-0000-0000-0000-000000000001");
     private static readonly Guid Replayed = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000001");
     private static readonly Guid Finished = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
+    private static readonly Guid SameNames = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000003");
     private static readonly Guid SalonTwoCampaign = Guid.Parse("cccccccc-0000-0000-0000-000000000001");
 
     private async Task<(HttpStatusCode Status, string Page)> Get(string path, string[] roles, Guid[]? groups = null)
@@ -30,6 +31,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             await one.SaveTemplateAsync(Membership, DraftFixtures.Membership);
             await one.SaveDraftAsync(Replayed, "Second send, replayed", DraftFixtures.SecondSendReplayed());
             await one.SaveDraftAsync(Finished, "WE’RE TURNING ONE!", DraftFixtures.Finished());
+            await one.SaveDraftAsync(SameNames, "Both tiers Platinum, no terms", DraftFixtures.SameNamesNoTerms());
             // Salon two has a campaign and no templates.
             await stores.Campaigns(SalonTwo.Name).SaveDraftAsync(SalonTwoCampaign, "Salon two’s own campaign", DraftFixtures.StartAndFillText());
         }
@@ -110,7 +112,23 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("Subject has not been filled in.", page);
         Assert.Contains("Headline has not been filled in.", page);
         Assert.Contains("Save campaign", page);
-        Assert.DoesNotContain("Must fix", page);
+        // The email so far, each part to write marked where it goes.
+        Assert.Contains("‹Headline: not filled in yet›", page);
+    }
+
+    private static string MustFix(string message) => $"<strong>Must fix</strong>\\s*<span>{Regex.Escape(message)}</span>";
+
+    // Priya's campaign as it went out: no terms link, which blocks, and the checks still run over the rest.
+    [Fact]
+    public async Task With_a_part_missing_the_page_lists_it_as_must_fix_and_still_shows_the_findings_and_the_preview()
+    {
+        var (_, page) = await Get($"/campaigns/{SameNames}", [Features.Campaigns]);
+
+        Assert.Matches(MustFix("Offer › Terms link has not been filled in."), page);
+        Assert.Contains("What the checks say", page);
+        Assert.Contains("Tiers 1 and 2 share the name 'Platinum Member'; customers cannot tell them apart.", page);
+        // In the preview, set apart as a placeholder.
+        Assert.Matches($"<p class=\"placeholder\">\\s*{Regex.Escape("‹Offer › Terms link: not filled in yet›")}\\s*</p>", page);
     }
 
     [Theory]
@@ -143,16 +161,20 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var (_, unfinished) = await Get($"/campaigns/{Replayed}", [Features.Campaigns]);
         Assert.Contains("Still to do", unfinished);
-        Assert.DoesNotContain("What the checks say", unfinished);
-        Assert.Contains("The preview appears once nothing is missing.", unfinished);
+        Assert.Matches(MustFix("Offer › Tier 2 › Name has not been filled in."), unfinished);
+        Assert.Contains("Checked so far: the parts filled in.", unfinished);
+
+        var (_, sameNames) = await Get($"/campaigns/{SameNames}", [Features.Campaigns]);
 
         var (_, finished) = await Get($"/campaigns/{Finished}", [Features.Campaigns]);
         Assert.DoesNotContain("Still to do", finished);
+        Assert.DoesNotContain("Checked so far", finished);
+        Assert.DoesNotContain("not filled in yet", finished);
         Assert.Contains("What the checks say", finished);
         Assert.Contains("Worth a look", finished);
         Assert.Contains("Join the Beauty Bank", finished);
 
-        foreach (var page in new[] { unfinished, finished })
+        foreach (var page in new[] { unfinished, sameNames, finished })
         {
             Assert.Contains("Export comes once the AI proofread is switched on.", page);
             Assert.DoesNotContain("Copy into Square", page);

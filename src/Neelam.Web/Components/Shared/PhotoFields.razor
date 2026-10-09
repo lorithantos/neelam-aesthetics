@@ -1,4 +1,5 @@
 @* A photo from the client's image library, by name, and its alt text. *@
+@implements IHandleEvent
 <div class="field">
     <label for="photo-@Index">Photo@(Optional ? " (optional)" : "")</label>
     <input id="photo-@Index" list="library-photos-@Index" @bind="Block.PhotoName" @bind:event="oninput" />
@@ -27,4 +28,16 @@
     [Parameter, EditorRequired] public int Index { get; set; }
     [Parameter, EditorRequired] public IReadOnlyList<string> Photos { get; set; } = [];
     [Parameter] public bool Optional { get; set; }
+
+    /// <summary>Told after every change here, so the page around it can follow what is typed.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    // Blazor re-renders only the component that handled an event; the page's checks and preview
+    // need to hear of it too.
+    async Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg)
+    {
+        await callback.InvokeAsync(arg);
+        StateHasChanged();
+        await Changed.InvokeAsync();
+    }
 }

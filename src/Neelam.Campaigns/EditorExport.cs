@@ -121,14 +121,20 @@ public static class EditorExport
         yield return offer.Summary;
         if (offer.TiersNote is not null) yield return offer.TiersNote;
         foreach (var tier in offer.Tiers)
-        {
-            var price = tier.MonthlyPrice % 1 == 0 ? $"${tier.MonthlyPrice:0}" : $"${tier.MonthlyPrice:0.00}";
-            var lines = new List<string> { $"{tier.Name}:", $"{marker} {price}{(offer.IsRecurring ? "/month" : "")}" };
-            lines.AddRange(tier.Benefits.Select(b => $"{marker} {b.Describe()}"));
-            yield return string.Join("\n", lines);
-        }
-        if (offer.TermsUrl is not null) yield return $"Full terms: {offer.TermsUrl}";
+            yield return TierText(tier.Name, PriceText(tier.MonthlyPrice, offer.IsRecurring), tier.Benefits.Select(b => b.Describe()), marker);
+        if (offer.TermsUrl is not null) yield return TermsText(offer.TermsUrl);
     }
+
+    // The pieces of an offer's wording, shared with the editor's preview of an unfinished draft
+    // (DraftSoFar), so the parts written so far read exactly as they will be exported.
+
+    internal static string TierText(string name, string price, IEnumerable<string> items, string marker) =>
+        string.Join("\n", items.Select(i => $"{marker} {i}").Prepend($"{marker} {price}").Prepend($"{name}:"));
+
+    internal static string PriceText(decimal monthlyPrice, bool isRecurring) =>
+        (monthlyPrice % 1 == 0 ? $"${monthlyPrice:0}" : $"${monthlyPrice:0.00}") + (isRecurring ? "/month" : "");
+
+    internal static string TermsText(Uri termsUrl) => $"Full terms: {termsUrl}";
 
     internal static string ToPlainText(IEnumerable<EditorBlock> blocks) =>
         string.Join("\n\n", blocks.Where(b => b.Kind != BlockKind.Spacer).Select(b => b.Kind switch
