@@ -185,7 +185,7 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants, dismissals, approvals (one row per approved save), the activity trail (one row per action, ids only, never content) and known items (one row per treatment, benefit line or tier she picks from), each client's in its own partition | The app. The operator manages clients |
+| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, the phone numbers it may publish, and the time zone its pages show times in, Pacific when none), support grants, dismissals, approvals (one row per approved save), the activity trail (one row per action, ids only, never content) and known items (one row per treatment, benefit line or tier she picks from), each client's in its own partition | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json` | That client's members and the operator; the standard baseline is read for every client |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline if it saved one | The client's members. The operator only under a support grant |
 

@@ -61,6 +61,7 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
 
     public async Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default)
     {
+        ClientDirectoryRules.CheckRegistration(client);
         if ((await ListAsync(cancellationToken)).Any(c => c.GroupId == client.GroupId))
             throw new InvalidOperationException($"Entra group {client.GroupId} already belongs to another client.");
         try
@@ -103,10 +104,13 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
         if (client.Description is { } description) row["Description"] = description;
         // Each number as its digits with the country code, comma-separated; left out when none.
         if (client.Phones.Count > 0) row["Phones"] = string.Join(",", client.Phones.Select(p => p.Digits));
+        // The zone's IANA id; left out for the default.
+        if (!string.IsNullOrWhiteSpace(client.TimeZone)) row["TimeZone"] = client.TimeZone;
         return row;
     }
 
-    // A row written before phone numbers were registered has none.
+    // A row written before phone numbers or time zones were registered has none. A zone is read as
+    // written, known or not: the pages fall back to the default for one they cannot use.
     internal static ClientRecord ToClient(TableEntity row) =>
         new(new ClientName(row.RowKey),
             row.GetGuid("GroupId") ?? throw new InvalidDataException($"Client {row.RowKey} has no Entra group."),
@@ -117,6 +121,7 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
                 ? new PhoneNumbers(phones.Split(',').Select(digits => PhoneNumber.FromDigits(digits)
                     ?? throw new InvalidDataException($"Client {row.RowKey} has a phone number that is not one: '{digits}'.")))
                 : PhoneNumbers.None,
+            TimeZone = row.GetString("TimeZone") is { Length: > 0 } zone ? zone : null,
         };
 
     // One partition per client; rows sort by when the grant was given, and the id keeps two grants

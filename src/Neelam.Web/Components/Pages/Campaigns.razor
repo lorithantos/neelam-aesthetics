@@ -7,7 +7,6 @@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
-@inject LocalTime Times
 
 <PageTitle>Campaigns</PageTitle>
 
@@ -96,6 +95,9 @@ else if (_campaigns is not null && _templates is not null)
     // Campaigns whose every save is undone, still restorable; read from names and marks only.
     private IReadOnlyList<SaveRef>? _deleted;
     private string? _restoreMessage;
+    // In the client's own zone, once it is known.
+    private LocalTime? _times;
+    private LocalTime Times => _times ?? Workspace.DefaultTimes;
 
     protected override async Task OnInitializedAsync()
     {
@@ -106,6 +108,7 @@ else if (_campaigns is not null && _templates is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(_client);
+        _times = await Workspace.TimesAsync(_client);
         var store = _store = Stores.Campaigns(_client, await Workspace.ActorAsync());
         _campaigns = await DraftSession.ListLabelledAsync(store);
         _templates = (await store.LatestAsync(DocumentKind.Template))

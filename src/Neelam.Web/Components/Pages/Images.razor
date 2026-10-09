@@ -66,7 +66,7 @@ else if (_images is not null)
             }
             else
             {
-                <p class="muted">Uploaded@(image.AddedAt > DateTimeOffset.MinValue ? $" {image.AddedAt:d MMM yyyy}" : "").</p>
+                <p class="muted">Uploaded@(image.AddedAt > DateTimeOffset.MinValue ? $" {Times.Date(image.AddedAt)}" : "").</p>
             }
         </section>
     }
@@ -112,6 +112,9 @@ else if (_images is not null)
     private IReadOnlyList<string> _errors = [];
     private string? _message;
     private string? _confirming;
+    // In the client's own zone, once it is known: the day a photo was uploaded is her day.
+    private LocalTime? _times;
+    private LocalTime Times => _times ?? Workspace.DefaultTimes;
 
     protected override async Task OnInitializedAsync()
     {
@@ -122,6 +125,7 @@ else if (_images is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(client);
+        _times = await Workspace.TimesAsync(client);
         _library = Stores.Images(client, await Workspace.ActorAsync());
         _images = await _library.ListAsync();
     }

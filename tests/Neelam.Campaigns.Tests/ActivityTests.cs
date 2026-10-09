@@ -183,6 +183,7 @@ public class ActivityTests
         await Registry.AddAsync(Registration, Asha);
         await Assert.ThrowsAsync<InvalidOperationException>(() => Registry.AddAsync(Registration, Asha));
         await Assert.ThrowsAsync<InvalidOperationException>(() => Registry.UpdateAsync(Registration with { Name = Other }, Asha));
+        await Assert.ThrowsAsync<ArgumentException>(() => Registry.UpdateAsync(Registration with { TimeZone = "Mars/Olympus_Mons" }, Asha));
         Assert.Equal(before + 1, Records.Activity.Events.Count);
         Assert.Equal(ActivityAction.ClientRegistered, Records.Activity.Events[^1].Action);
     }
@@ -202,6 +203,7 @@ public class ActivityTests
         await library.DeleteAsync(Photo);
         await Registry.AddAsync(Registration, Asha);
         await Registry.UpdateAsync(Registration with { DisplayName = "Neelam" }, Asha);
+        await Registry.UpdateAsync(Registration with { TimeZone = "America/New_York" }, Asha);
 
         Assert.Equal(
             [
@@ -211,6 +213,7 @@ public class ActivityTests
                 (ActivityEntity.ImageEntry, ActivityAction.ImageEntryAdded),
                 (ActivityEntity.ImageEntry, ActivityAction.ImageEntryRemoved),
                 (ActivityEntity.ClientRegistration, ActivityAction.ClientRegistered),
+                (ActivityEntity.ClientRegistration, ActivityAction.ClientChanged),
                 (ActivityEntity.ClientRegistration, ActivityAction.ClientChanged),
             ],
             Trail());
@@ -223,7 +226,8 @@ public class ActivityTests
         Assert.Matches("^[0-9a-f]{32}$", events[2].EntityId);
         Assert.Equal(events[2].EntityId, events[4].EntityId);
         Assert.NotEqual(events[2].EntityId, events[3].EntityId);
-        Assert.Equal([Salon.Value, Salon.Value], events.Skip(5).Select(e => e.EntityId));
+        // A changed zone is a change of registration like any other, by the client's name, never the zone.
+        Assert.Equal([Salon.Value, Salon.Value, Salon.Value], events.Skip(5).Select(e => e.EntityId));
     }
 
     // In Prototype nobody signs in: an approval goes against the name typed for it, and everything

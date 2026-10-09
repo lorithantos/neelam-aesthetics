@@ -26,7 +26,6 @@
 @inject ActivityRecorder Recorder
 @inject ILogger<CampaignEdit> Log
 @inject IJSRuntime JS
-@inject LocalTime Times
 
 <PageTitle>@Title</PageTitle>
 
@@ -446,6 +445,9 @@ else
     private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
+    // In the client's own zone, once it is known.
+    private LocalTime? _times;
+    private LocalTime Times => _times ?? Workspace.DefaultTimes;
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthenticationState { get; set; }
@@ -465,6 +467,8 @@ else
             return;
         }
         _client = client;
+        // Before the campaign, which streams in showing its times.
+        _times = await Workspace.TimesAsync(client);
         if (AuthenticationState is not null)
             _canReview = (await Authorization.AuthorizeAsync((await AuthenticationState).User, Features.Review)).Succeeded;
 

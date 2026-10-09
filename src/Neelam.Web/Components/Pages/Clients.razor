@@ -8,6 +8,7 @@
 @inject ClientRegistry Registry
 @inject ICallerSource Callers
 @inject TimeProvider Clock
+@inject DefaultTimeZone Default
 
 <PageTitle>Clients</PageTitle>
 
@@ -56,6 +57,11 @@ else
                         <textarea id="edit-phones" @bind="_edit.Phones"></textarea>
                         <span class="field-help">@PhonesHelp</span>
                     </div>
+                    <div class="field">
+                        <label for="edit-zone">Time zone</label>
+                        <input id="edit-zone" list="us-zones" @bind="_edit.TimeZone" />
+                        <span class="field-help">@ZoneHelp</span>
+                    </div>
                     <Problems Messages="_editErrors" />
                     <button class="button primary" @onclick="SaveEditAsync">Save</button>
                     <button class="button" @onclick="CancelEdit">Cancel</button>
@@ -66,6 +72,7 @@ else
                     <p class="muted">@client.Name · Entra group @client.GroupId</p>
                     <p>@(client.Description ?? "No description yet.")</p>
                     <p>@(client.Phones.Count > 0 ? $"Registered phone numbers: {client.Phones}" : "No phone numbers registered yet, so campaigns' numbers are not checked.")</p>
+                    <p>@ZoneOf(client)</p>
                     <button class="button" @onclick="() => StartEdit(client)">Edit</button>
                 }
             </section>
@@ -98,14 +105,39 @@ else
             <textarea id="new-phones" @bind="_new.Phones"></textarea>
             <span class="field-help">@PhonesHelp</span>
         </div>
+        <div class="field">
+            <label for="new-zone">Time zone</label>
+            <input id="new-zone" list="us-zones" @bind="_new.TimeZone" />
+            <span class="field-help">@ZoneHelp</span>
+        </div>
         <Problems Messages="_newErrors" />
         <button class="button primary" @onclick="AddAsync">Add client</button>
     </section>
+
+    @* Suggestions only: any IANA zone can be typed. *@
+    <datalist id="us-zones">
+        @foreach (var zone in UsZones)
+        {
+            <option value="@zone"></option>
+        }
+    </datalist>
 }
 
 @code {
     private const string PhonesHelp =
         "One per line, such as a main line and a booking line. The checks flag any other number in a campaign; with none registered, numbers are not checked.";
+
+    // The zones of the mainland US, Alaska and Hawaii, offered as suggestions.
+    private static readonly string[] UsZones =
+        ["America/Los_Angeles", "America/Denver", "America/Phoenix", "America/Chicago", "America/New_York", "America/Anchorage", "Pacific/Honolulu"];
+
+    private string ZoneHelp =>
+        $"The zone the client's pages show times in, as its IANA name, such as America/New_York. Left blank, the default: {Default.Times.Zone.Id}.";
+
+    private string ZoneOf(ClientRecord client) =>
+        string.IsNullOrWhiteSpace(client.TimeZone) ? $"Times shown in {Default.Times.Zone.Id}, the default."
+        : LocalTime.ProblemWith(client.TimeZone) is null ? $"Times shown in {client.TimeZone}."
+        : $"Time zone {client.TimeZone} is not one this app knows, so times are shown in {Default.Times.Zone.Id}, the default. Edit it to fix it.";
 
     private string? _denied;
     private IReadOnlyList<ClientRecord>? _clients;
@@ -144,7 +176,7 @@ else
         {
             await Registry.AddAsync(client, _actor);
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             _newErrors = [ex.Message];
             return;

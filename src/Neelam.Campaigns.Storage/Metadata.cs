@@ -14,6 +14,13 @@ public sealed record ClientRecord(ClientName Name, Guid GroupId, string DisplayN
     /// </summary>
     public PhoneNumbers Phones { get; init; } = PhoneNumbers.None;
 
+    /// <summary>
+    /// The time zone its people read times in, as an IANA id such as America/New_York; null for the
+    /// deployment's default, Pacific (owner, 2026-10-09). <see cref="ClientDirectoryRules"/> refuses one
+    /// this machine does not know; one stored anyway is shown as the default, never an error.
+    /// </summary>
+    public string? TimeZone { get; init; }
+
     /// <summary>What the checks and the proofread are told about who is sending the email.</summary>
     public BusinessContext Business => new(DisplayName, Description) { Phones = Phones };
 }
@@ -27,7 +34,7 @@ public interface IClientDirectory
     Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Changes a client's display name, description and phone numbers. Its name and Entra group are who it is,
+    /// Changes a client's display name, description, phone numbers and time zone. Its name and Entra group are who it is,
     /// so an update naming an unknown client, or a different group, is refused.
     /// </summary>
     Task UpdateAsync(ClientRecord client, CancellationToken cancellationToken = default);
@@ -36,6 +43,12 @@ public interface IClientDirectory
 /// <summary>The clients table's rules, the same for every implementation of it.</summary>
 public static class ClientDirectoryRules
 {
+    /// <summary>Refuses a registration, added or changed, whose time zone this machine does not know, naming it.</summary>
+    public static void CheckRegistration(ClientRecord client)
+    {
+        if (LocalTime.ProblemWith(client.TimeZone) is { } problem) throw new ArgumentException(problem);
+    }
+
     /// <summary>Refuses an update that would change who a client is rather than how it is described.</summary>
     public static void CheckUpdate(IEnumerable<ClientRecord> clients, ClientRecord updated)
     {
@@ -46,6 +59,7 @@ public static class ClientDirectoryRules
                 $"{updated.Name}'s Entra group is part of who it is, so it is not changed by an update.");
         if (string.IsNullOrWhiteSpace(updated.DisplayName))
             throw new ArgumentException("A client needs a display name.", nameof(updated));
+        CheckRegistration(updated);
     }
 }
 

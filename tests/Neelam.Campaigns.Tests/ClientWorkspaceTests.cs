@@ -8,13 +8,86 @@ public class ClientWorkspaceTests
     private static readonly ClientName SalonOne = new("test-salon-one");
     private static readonly ClientName SalonTwo = new("test-salon-two");
     private static readonly ManualClock Clock = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
+    // The deployment's default zone, as appsettings.json sets it.
+    private static readonly DefaultTimeZone Pacific = new(LocalTime.For("America/Los_Angeles"));
+    private static readonly DateTimeOffset Noon = new(2026, 10, 3, 12, 0, 0, TimeSpan.Zero);
+
+    private static ClientWorkspace Over(IClientDirectory clients, ListLogger<ClientWorkspace>? log = null) =>
+        new(new FixedCaller(null), new InMemorySupportGrants(), clients, new InMemoryKnownItems(), Clock, Pacific,
+            log ?? new ListLogger<ClientWorkspace>());
+
+    // The owner, 2026-10-09: "Pacific is fine as a default, but the setting should be in the client
+    // metadata". A client registered in New York reads its times in Eastern time.
+    [Fact]
+    public async Task A_client_with_a_zone_sees_times_in_that_zone()
+    {
+        var workspace = Over(new InMemoryClientDirectory(
+            new ClientRecord(SalonOne, Guid.NewGuid(), "Salon One") { TimeZone = "America/New_York" }));
+
+        Assert.Equal("3 Oct 2026, 8:00 AM EDT", (await workspace.TimesAsync(SalonOne)).DateAndTime(Noon));
+    }
+
+    // No zone registered, or no row at all: the deployment's default, Pacific.
+    [Fact]
+    public async Task A_client_with_no_zone_sees_times_in_the_default_zone()
+    {
+        var workspace = Over(new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Salon One")));
+
+        Assert.Equal("3 Oct 2026, 5:00 AM PDT", (await workspace.TimesAsync(SalonOne)).DateAndTime(Noon));
+        Assert.Equal("3 Oct 2026, 5:00 AM PDT", (await workspace.TimesAsync(SalonTwo)).DateAndTime(Noon));
+    }
+
+    // A zone the rules would refuse, stored anyway (by hand, or on another machine): the page still
+    // shows its times, in the default zone, and the log names the client but not the zone.
+    [Fact]
+    public async Task A_stored_zone_this_machine_does_not_know_falls_back_to_the_default_and_is_logged()
+    {
+        var clients = new InMemoryClientDirectory();
+        clients.Put(new ClientRecord(SalonOne, Guid.NewGuid(), "Salon One") { TimeZone = "Mars/Olympus_Mons" });
+        var log = new ListLogger<ClientWorkspace>();
+
+        var times = await Over(clients, log).TimesAsync(SalonOne);
+
+        Assert.Equal("3 Oct 2026, 5:00 AM PDT", times.DateAndTime(Noon));
+        var entry = Assert.Single(log.Entries);
+        Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Warning, entry.Level);
+        Assert.Contains("test-salon-one", entry.Message);
+        Assert.DoesNotContain("Mars", entry.Message);
+    }
+
+    // Each client reads its own zone, whichever row the table lists first.
+    [Fact]
+    public async Task Two_clients_with_different_zones_each_see_their_own()
+    {
+        var one = new ClientRecord(SalonOne, Guid.NewGuid(), "Salon One") { TimeZone = "America/New_York" };
+        var two = new ClientRecord(SalonTwo, Guid.NewGuid(), "Salon Two") { TimeZone = "Pacific/Honolulu" };
+
+        foreach (var table in new[] { new[] { one, two }, new[] { two, one } })
+        {
+            var workspace = Over(new InMemoryClientDirectory(table));
+            Assert.Equal("3 Oct 2026, 8:00 AM EDT", (await workspace.TimesAsync(SalonOne)).DateAndTime(Noon));
+            Assert.Equal("3 Oct 2026, 2:00 AM HST", (await workspace.TimesAsync(SalonTwo)).DateAndTime(Noon));
+        }
+    }
+
+    // A clients table with a row that cannot be read stops the campaign checks, but never the times.
+    [Fact]
+    public async Task An_unreadable_clients_table_gives_the_default_zone_and_is_logged()
+    {
+        var log = new ListLogger<ClientWorkspace>();
+
+        var times = await Over(new UnreadableClients(), log).TimesAsync(SalonOne);
+
+        Assert.Equal("3 Oct 2026, 5:00 AM PDT", times.DateAndTime(Noon));
+        Assert.IsType<InvalidDataException>(Assert.Single(log.Entries).Error);
+    }
 
     private static Task<(ClientName? Client, string Reason)> For(Caller? caller) =>
-        new ClientWorkspace(new FixedCaller(caller), new InMemorySupportGrants(), new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>())
+        new ClientWorkspace(new FixedCaller(caller), new InMemorySupportGrants(), new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, Pacific, new ListLogger<ClientWorkspace>())
             .ClientDataAsync();
 
     private static Task<string> DisplayName(ClientName client, params ClientRecord[] table) =>
-        new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(), new InMemoryClientDirectory(table), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>())
+        new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(), new InMemoryClientDirectory(table), new InMemoryKnownItems(), Clock, Pacific, new ListLogger<ClientWorkspace>())
             .DisplayNameAsync(client);
 
     // Known items reach the checks with the registration, the way the phone numbers do, and only the
@@ -26,7 +99,7 @@ public class ClientWorkspaceTests
         await known.AddAsync(SalonOne, new KnownTreatment(KnownItem.NewId(), "Wellness injection"));
         await known.AddAsync(SalonTwo, new KnownTreatment(KnownItem.NewId(), "Hydrafacial"));
         var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
-            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")), known, Clock, new ListLogger<ClientWorkspace>());
+            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")), known, Clock, Pacific, new ListLogger<ClientWorkspace>());
 
         var one = await workspace.BusinessAsync(SalonOne);
         var two = await workspace.BusinessAsync(SalonTwo);
@@ -37,7 +110,7 @@ public class ClientWorkspaceTests
         Assert.Equal("test-salon-two", two!.Name);
         Assert.Equal(["Hydrafacial"], two.Known.All.Select(i => i.Text));
         Assert.Null(await new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
-            new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>()).BusinessAsync(SalonOne));
+            new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, Pacific, new ListLogger<ClientWorkspace>()).BusinessAsync(SalonOne));
     }
 
     // Two registered clients, each with its own phones and description: each campaign is checked
@@ -55,7 +128,7 @@ public class ClientWorkspaceTests
         foreach (var table in new[] { new[] { one, two }, new[] { two, one } })
         {
             var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
-                new InMemoryClientDirectory(table), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>());
+                new InMemoryClientDirectory(table), new InMemoryKnownItems(), Clock, Pacific, new ListLogger<ClientWorkspace>());
 
             Assert.Equal(one.Business, await workspace.BusinessAsync(SalonOne));
             Assert.Equal(two.Business, await workspace.BusinessAsync(SalonTwo));
@@ -103,7 +176,7 @@ public class ClientWorkspaceTests
     public async Task The_actor_is_the_signed_in_user_or_the_demo_user()
     {
         static Task<Actor> ActorOf(ICallerSource callers) =>
-            new ClientWorkspace(callers, new InMemorySupportGrants(), new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, new ListLogger<ClientWorkspace>()).ActorAsync();
+            new ClientWorkspace(callers, new InMemorySupportGrants(), new InMemoryClientDirectory(), new InMemoryKnownItems(), Clock, Pacific, new ListLogger<ClientWorkspace>()).ActorAsync();
 
         Assert.Equal(new Actor("Priya Sharma", true),
             await ActorOf(new FixedCaller(new Caller("u", false, [SalonOne]) { Name = "Priya Sharma" })));
@@ -119,7 +192,7 @@ public class ClientWorkspaceTests
         var log = new ListLogger<ClientWorkspace>();
         var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
             new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")),
-            new UnreadableKnownItems(), Clock, log);
+            new UnreadableKnownItems(), Clock, Pacific, log);
 
         var business = await workspace.BusinessAsync(SalonOne);
 
@@ -144,7 +217,7 @@ public class ClientWorkspaceTests
         });
         var log = new ListLogger<ClientWorkspace>();
         var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
-            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")), known, Clock, log);
+            new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")), known, Clock, Pacific, log);
 
         var business = await workspace.BusinessAsync(SalonOne);
 
@@ -165,7 +238,7 @@ public class ClientWorkspaceTests
         var log = new ListLogger<ClientWorkspace>();
         var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
             new InMemoryClientDirectory(new ClientRecord(SalonOne, Guid.NewGuid(), "Neelam Aesthetics")),
-            new UnreadableKnownItems(new InvalidDataException("A known item of another client was read for test-salon-one.")), Clock, log);
+            new UnreadableKnownItems(new InvalidDataException("A known item of another client was read for test-salon-one.")), Clock, Pacific, log);
 
         var business = await workspace.BusinessAsync(SalonOne);
 
@@ -180,7 +253,7 @@ public class ClientWorkspaceTests
     {
         var log = new ListLogger<ClientWorkspace>();
         var workspace = new ClientWorkspace(new FixedCaller(null), new InMemorySupportGrants(),
-            new UnreadableClients(), new InMemoryKnownItems(), Clock, log);
+            new UnreadableClients(), new InMemoryKnownItems(), Clock, Pacific, log);
 
         var ex = await Assert.ThrowsAsync<RegistrationUnreadableException>(() => workspace.BusinessAsync(SalonOne));
 

@@ -47,11 +47,31 @@ public class LocalTimeTests
         Assert.Throws<TimeZoneNotFoundException>(() => LocalTime.For("Mars/Olympus_Mons"));
     }
 
-    // The app's own setting: Pacific, where the clinic is.
+    // The app's own default, for a client that registers no zone: Pacific, where the first clinic is
+    // (owner, 2026-10-09). The setting is read by the name the code reads it by.
     [Fact]
-    public void The_app_shows_pacific_time()
+    public void The_app_s_default_zone_is_pacific()
     {
         var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "appsettings.json")))!;
-        Assert.Equal("America/Los_Angeles", settings["Display"]!["TimeZone"]!.GetValue<string>());
+        Assert.Equal("Display:DefaultTimeZone", LocalTime.Setting);
+        Assert.Equal("America/Los_Angeles", settings["Display"]!["DefaultTimeZone"]!.GetValue<string>());
     }
+
+    // What a registered zone may be: one this machine knows, or none. The refusal names what was given.
+    [Fact]
+    public void A_zone_this_machine_does_not_know_is_a_problem_named_by_its_id()
+    {
+        Assert.Null(LocalTime.ProblemWith(null));
+        Assert.Null(LocalTime.ProblemWith(" "));
+        Assert.Null(LocalTime.ProblemWith("America/New_York"));
+        Assert.Equal(
+            "\"Mars/Olympus_Mons\" is not a time zone: give its IANA name, such as America/Los_Angeles or America/New_York.",
+            LocalTime.ProblemWith(" Mars/Olympus_Mons "));
+        Assert.Null(LocalTime.TryFor("Mars/Olympus_Mons"));
+    }
+
+    // A date alone is the day it was in the client's zone: 03:00 UTC on 10 October is still the 9th in Pacific time.
+    [Fact]
+    public void A_date_is_the_day_in_the_client_s_zone() =>
+        Assert.Equal("9 Oct 2026", Pacific.Date(Utc(10, 10, 3, 0)));
 }

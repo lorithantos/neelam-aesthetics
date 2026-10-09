@@ -3,7 +3,7 @@ namespace Neelam.Campaigns.Storage;
 /// <summary>
 /// Registering a client and changing its registration, as the operator does on the Clients page:
 /// the clients table, with each change on that client's activity trail. The event names the client
-/// and says what happened; it never holds the description, display name or phone numbers.
+/// and says what happened; it never holds the description, display name, phone numbers or time zone.
 /// </summary>
 public sealed class ClientRegistry(IClientDirectory clients, ActivityRecorder activity)
 {
@@ -15,7 +15,10 @@ public sealed class ClientRegistry(IClientDirectory clients, ActivityRecorder ac
             ActivityEntity.ClientRegistration, client.Name.Value, null, ActivityAction.ClientRegistered, ct);
     }
 
-    /// <summary>Changes a client's description; refuses a change to who it is, and then records nothing.</summary>
+    /// <summary>
+    /// Changes a client's description; refuses a change to who it is, or a time zone this machine does
+    /// not know, and then records nothing.
+    /// </summary>
     public async Task UpdateAsync(ClientRecord client, Actor actor, CancellationToken ct = default)
     {
         await clients.UpdateAsync(client, ct);

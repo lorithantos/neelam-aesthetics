@@ -10,8 +10,37 @@ namespace Neelam.Web.Security;
 /// </summary>
 public sealed class ClientWorkspace(
     ICallerSource callers, ISupportGrantStore grants, IClientDirectory clients, IKnownItemStore knownItems, TimeProvider clock,
-    ILogger<ClientWorkspace> log)
+    DefaultTimeZone defaultZone, ILogger<ClientWorkspace> log)
 {
+    /// <summary>
+    /// Times in the deployment's default zone, for what a page shows before it knows its client.
+    /// </summary>
+    public LocalTime DefaultTimes => defaultZone.Times;
+
+    /// <summary>
+    /// The client's times as its people read them: in the zone its row in the clients table names, else
+    /// the deployment's default, Pacific (owner, 2026-10-09). One read of the table, once per page, as for
+    /// the display name. A stored zone this machine does not know, or a row that cannot be read, is logged
+    /// by the client's name and gives the default: the time shown never stops a page.
+    /// </summary>
+    public async Task<LocalTime> TimesAsync(ClientName client, CancellationToken ct = default)
+    {
+        string? zone;
+        try
+        {
+            zone = (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client)?.TimeZone;
+        }
+        catch (Exception ex) when (IsMalformedRow(ex))
+        {
+            log.LogError(ex, "The clients table has a row that cannot be read, so {Client}'s times are shown in the default zone.", client.Value);
+            return defaultZone.Times;
+        }
+        if (string.IsNullOrWhiteSpace(zone)) return defaultZone.Times;
+        if (LocalTime.TryFor(zone) is { } times) return times;
+        log.LogWarning("The time zone registered for {Client} is not one this machine knows, so its times are shown in the default zone.", client.Value);
+        return defaultZone.Times;
+    }
+
     /// <summary>
     /// The client's known items, to add, change and pick from. Only for a client
     /// <see cref="ClientDataAsync"/> gave, as for every other store of client data.

@@ -7,7 +7,6 @@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
-@inject LocalTime Times
 
 <PageTitle>@Title</PageTitle>
 
@@ -269,6 +268,9 @@ else if (_session is not null)
     private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
+    // In the client's own zone, once it is known.
+    private LocalTime? _times;
+    private LocalTime Times => _times ?? Workspace.DefaultTimes;
 
     private string Title => _session?.Editor.Name is { Length: > 0 } name ? name : "New template";
 
@@ -281,6 +283,7 @@ else if (_session is not null)
             return;
         }
 
+        _times = await Workspace.TimesAsync(client);
         var actor = await Workspace.ActorAsync();
         var store = _store = Stores.Campaigns(client, actor);
         _session = Id is { } id ? await TemplateSession.OpenAsync(store, id)

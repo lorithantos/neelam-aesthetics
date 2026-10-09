@@ -49,9 +49,11 @@ if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton(storageClients);
 
-// Pages show times in the client's own zone, Display:TimeZone (Pacific when unset: the clinic is in
-// Washington); a zone the machine does not know stops the app here, at startup.
-builder.Services.AddSingleton(LocalTime.For(builder.Configuration[LocalTime.Setting]));
+// Pages show times in the client's own zone, registered with the client in the clients table
+// (ClientWorkspace.TimesAsync). A client with none gets the default, Display:DefaultTimeZone (Pacific
+// when unset: the first client is in Washington); a default the machine does not know stops the app
+// here, at startup.
+builder.Services.AddSingleton(new DefaultTimeZone(LocalTime.For(builder.Configuration[LocalTime.Setting])));
 
 // Undo marks a save and the sweep deletes it once the grace period has passed (owner, 2026-10-09).
 // The period is a setting, Undo:GracePeriod, required: the app refuses to start without it.

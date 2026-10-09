@@ -3,7 +3,6 @@
 @attribute [Authorize(Policy = Features.Templates)]
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
-@inject LocalTime Times
 
 <PageTitle>Templates</PageTitle>
 
@@ -40,6 +39,9 @@ else if (_templates is not null)
     private ClientName? _client;
     private string? _displayName;
     private IReadOnlyList<SaveRef>? _templates;
+    // In the client's own zone, once it is known.
+    private LocalTime? _times;
+    private LocalTime Times => _times ?? Workspace.DefaultTimes;
 
     protected override async Task OnInitializedAsync()
     {
@@ -50,6 +52,7 @@ else if (_templates is not null)
             return;
         }
         _displayName = await Workspace.DisplayNameAsync(_client);
+        _times = await Workspace.TimesAsync(_client);
         _templates = (await Stores.Campaigns(_client, await Workspace.ActorAsync()).LatestAsync(DocumentKind.Template))
             .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
     }

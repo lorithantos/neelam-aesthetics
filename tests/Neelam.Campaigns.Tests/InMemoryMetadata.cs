@@ -12,8 +12,15 @@ internal sealed class InMemoryClientDirectory(params ClientRecord[] clients) : I
         lock (_clients) return Task.FromResult<IReadOnlyList<ClientRecord>>(_clients.ToList());
     }
 
+    /// <summary>A row put in the table by hand, past the rules, as a stored zone this machine does not know would be.</summary>
+    public void Put(ClientRecord client)
+    {
+        lock (_clients) _clients.Add(client);
+    }
+
     public Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default)
     {
+        ClientDirectoryRules.CheckRegistration(client);
         lock (_clients)
         {
             if (_clients.Any(c => c.Name == client.Name || c.GroupId == client.GroupId))
