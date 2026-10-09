@@ -13,6 +13,8 @@ namespace Neelam.Campaigns;
 [JsonDerivedType(typeof(PercentOff), "percent-off")]
 [JsonDerivedType(typeof(FreeItem), "free-item")]
 [JsonDerivedType(typeof(DiscountedItem), "discounted-item")]
+[JsonDerivedType(typeof(DollarsOff), "dollars-off")]
+[JsonDerivedType(typeof(Credit), "credit")]
 public abstract record Benefit
 {
     /// <summary>Benefits of the same kind are compared across tiers.</summary>
@@ -214,4 +216,52 @@ public sealed record DiscountedItem(int Percent, string ItemName, string Per, st
 
     public override Benefit WithAmount(string field, decimal value) =>
         field == PercentField.Name ? this with { Percent = Whole(field, value) } : throw NoSuchAmount(field);
+}
+
+/// <summary>
+/// Dollars off something, as her back-to-school email offered it: "$50 off 30+ units" (owner,
+/// 2026-10-09: "Otherwise, yes, add the benefit types").
+/// </summary>
+/// <param name="Amount">The dollars off: "$50".</param>
+/// <param name="AppliesTo">What it is off: "units", "any facial".</param>
+/// <param name="Minimum">Optional: how many at least, read "30+" before what it is off.</param>
+public sealed record DollarsOff(decimal Amount, string AppliesTo, int? Minimum = null) : Benefit
+{
+    public static AmountField AmountField { get; } = new(nameof(Amount), "dollars off", AmountUnit.Dollars);
+    public static AmountField MinimumField { get; } = new(nameof(Minimum), "minimum", AmountUnit.Count);
+
+    public override string Kind => "dollars-off";
+    public override string Describe() => $"{Money(Amount)} off {AtLeast(Minimum?.ToString(CultureInfo.InvariantCulture))}{AppliesTo}";
+    public override string Pattern() => $"{AmountMark} off {AtLeast(Minimum is null ? null : AmountMark)}{AppliesTo}";
+
+    // The minimum is an amount too when there is one: "$50 off 30+ units" and "$100 off 60+ units"
+    // are one line. Without one, the line has none to limit.
+    public override IReadOnlyList<BenefitAmount> Amounts =>
+        Minimum is { } least ? [new(AmountField, Amount), new(MinimumField, least)] : [new(AmountField, Amount)];
+
+    public override Benefit WithAmount(string field, decimal value) =>
+        field == AmountField.Name ? this with { Amount = value }
+        : field == MinimumField.Name && Minimum is not null ? this with { Minimum = Whole(field, value) }
+        : throw NoSuchAmount(field);
+
+    private static string AtLeast(string? least) => least is null ? "" : $"{least}+ ";
+}
+
+/// <summary>
+/// A credit toward something, as her back-to-school email offered it: "$50 credit toward your next
+/// appointment" (owner, 2026-10-09).
+/// </summary>
+/// <param name="Amount">The credit: "$50".</param>
+/// <param name="Toward">What it is toward: "your next appointment".</param>
+public sealed record Credit(decimal Amount, string Toward) : Benefit
+{
+    public static AmountField AmountField { get; } = new(nameof(Amount), "credit", AmountUnit.Dollars);
+
+    public override string Kind => "credit";
+    public override string Describe() => $"{Money(Amount)} credit toward {Toward}";
+    public override string Pattern() => $"{AmountMark} credit toward {Toward}";
+    public override IReadOnlyList<BenefitAmount> Amounts => [new(AmountField, Amount)];
+
+    public override Benefit WithAmount(string field, decimal value) =>
+        field == AmountField.Name ? this with { Amount = value } : throw NoSuchAmount(field);
 }

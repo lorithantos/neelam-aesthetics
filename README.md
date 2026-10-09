@@ -242,7 +242,9 @@ for them. A client's people only sign in and work on their campaigns.
   carries its own lines, word for word, rather than pointing at benefit items, so changing a
   benefit item never changes a tier. Something free is worded "complimentary" or "free", her
   choice (owner, 2026-10-09: "Complimentary is the same as free, so allow either"); the checks
-  treat the two as the same benefit, against her known items and between tiers.
+  treat the two as the same benefit, against her known items and between tiers. Dollars off
+  ("$50 off 30+ units") and a credit ("$50 credit toward your next appointment") are kinds too,
+  from the back-to-school email (owner, 2026-10-09: "Otherwise, yes, add the benefit types").
 - **So is how strict the checks are.** The restricted terms, medical terms and emoji limit that
   `CampaignPolicy` holds today become each client's own policy, in their container at
   `{client}/policy/{stamp}.json`. These are the client's decisions: they see and control them,

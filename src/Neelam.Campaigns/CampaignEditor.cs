@@ -516,6 +516,8 @@ public sealed record BenefitKind(string Key, string Name, Type Type, IReadOnlyLi
         new("percent-off", "Percent off treatments", typeof(PercentOff), [PercentOff.PercentField]),
         new("free-item", "Something free", typeof(FreeItem), [FreeItem.QuantityField]),
         new("discounted-item", "Percent off an item", typeof(DiscountedItem), [DiscountedItem.PercentField]),
+        new("dollars-off", "Dollars off", typeof(DollarsOff), [DollarsOff.AmountField, DollarsOff.MinimumField]),
+        new("credit", "Credit toward something", typeof(Credit), [Credit.AmountField]),
     ];
 
     /// <summary>The kind under <paramref name="key"/>, or null.</summary>
@@ -538,6 +540,8 @@ public sealed class BenefitEditor
     private string _per = "";
     private string _condition = "";
     private FreeWording _wording = FreeWording.Complimentary;
+    private string _minimum = "";
+    private string _toward = "";
     private string? _error;
 
     internal BenefitEditor(Slot<Benefit> slot)
@@ -557,6 +561,12 @@ public sealed class BenefitEditor
                 break;
             case DiscountedItem d:
                 (_kind, _percent, _item, _per, _condition) = ("discounted-item", Number(d.Percent), d.ItemName, d.Per, d.Condition ?? "");
+                break;
+            case DollarsOff o:
+                (_kind, _amount, _appliesTo, _minimum) = ("dollars-off", Number(o.Amount), o.AppliesTo, o.Minimum is { } least ? Number(least) : "");
+                break;
+            case Credit c:
+                (_kind, _amount, _toward) = ("credit", Number(c.Amount), c.Toward);
                 break;
         }
     }
@@ -603,14 +613,20 @@ public sealed class BenefitEditor
     /// <summary>The kind's <see cref="BenefitKind.Key"/>, or blank before one is chosen.</summary>
     public string Kind { get => _kind; set { _kind = value ?? ""; Apply(); } }
 
-    /// <summary>Birthday credit: dollars.</summary>
+    /// <summary>Birthday credit, dollars off, or a credit: dollars.</summary>
     public string Amount { get => _amount; set { _amount = value ?? ""; Apply(); } }
 
     /// <summary>Percent off, or percent off an item.</summary>
     public string Percent { get => _percent; set { _percent = value ?? ""; Apply(); } }
 
-    /// <summary>Percent off: what it applies to, e.g. "any qualifying treatments".</summary>
+    /// <summary>Percent off or dollars off: what it applies to, e.g. "any qualifying treatments" or "units".</summary>
     public string AppliesTo { get => _appliesTo; set { _appliesTo = value ?? ""; Apply(); } }
+
+    /// <summary>Dollars off: an optional least number, read "30+" before what it is off.</summary>
+    public string Minimum { get => _minimum; set { _minimum = value ?? ""; Apply(); } }
+
+    /// <summary>A credit: what it is toward, e.g. "your next appointment".</summary>
+    public string Toward { get => _toward; set { _toward = value ?? ""; Apply(); } }
 
     /// <summary>Something free: how many.</summary>
     public string Quantity { get => _quantity; set { _quantity = value ?? ""; Apply(); } }
@@ -656,6 +672,8 @@ public sealed class BenefitEditor
             "percent-off" => Typed([_percent, _appliesTo]) ? MakePercentOff(problems) : null,
             "free-item" => Typed([_quantity, _item, _per]) ? MakeFreeItem(problems) : null,
             "discounted-item" => Typed([_percent, _item, _per, _condition]) ? MakeDiscountedItem(problems) : null,
+            "dollars-off" => Typed([_amount, _appliesTo, _minimum]) ? MakeDollarsOff(problems) : null,
+            "credit" => Typed([_amount, _toward]) ? MakeCredit(problems) : null,
             _ => null,
         };
         if (benefit is not null)
@@ -697,6 +715,23 @@ public sealed class BenefitEditor
         var per = FormText.Need(_per, "how often, such as \"per visit\"", problems);
         var condition = FormText.Clean(_condition);
         return problems.Count == 0 ? new DiscountedItem(percent!.Value, item, per, condition.Length > 0 ? condition : null) : null;
+    }
+
+    private DollarsOff? MakeDollarsOff(List<string> problems)
+    {
+        var amount = FormText.Money(_amount, "the amount", problems);
+        var appliesTo = FormText.Need(_appliesTo, "what it is off, such as \"units\"", problems);
+        // Typed as the email reads it, "30+", or as a number.
+        var least = FormText.Clean(_minimum).TrimEnd('+').Trim();
+        var minimum = least.Length > 0 ? FormText.Whole(least, "the minimum", problems) : null;
+        return problems.Count == 0 ? new DollarsOff(amount!.Value, appliesTo, minimum) : null;
+    }
+
+    private Credit? MakeCredit(List<string> problems)
+    {
+        var amount = FormText.Money(_amount, "the amount", problems);
+        var toward = FormText.Need(_toward, "what it is toward, such as \"your next appointment\"", problems);
+        return problems.Count == 0 ? new Credit(amount!.Value, toward) : null;
     }
 
     private static string Number(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);

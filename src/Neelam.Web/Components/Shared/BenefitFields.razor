@@ -58,6 +58,33 @@
             <span class="field-help">Such as "any additional".</span>
         </div>
         break;
+    case "dollars-off":
+        <div class="field">
+            <label for="benefit-amount-@Id">Dollars off</label>
+            <input id="benefit-amount-@Id" inputmode="decimal" @bind="Benefit.Amount" @bind:event="oninput" />
+        </div>
+        <div class="field">
+            <label for="benefit-applies-@Id">Off what</label>
+            <input id="benefit-applies-@Id" @bind="Benefit.AppliesTo" @bind:event="oninput" />
+            <span class="field-help">Such as "units".</span>
+        </div>
+        <div class="field">
+            <label for="benefit-minimum-@Id">At least how many (optional)</label>
+            <input id="benefit-minimum-@Id" inputmode="numeric" @bind="Benefit.Minimum" @bind:event="oninput" />
+            <span class="field-help">Such as 30, which reads "$50 off 30+ units".</span>
+        </div>
+        break;
+    case "credit":
+        <div class="field">
+            <label for="benefit-amount-@Id">Credit, in dollars</label>
+            <input id="benefit-amount-@Id" inputmode="decimal" @bind="Benefit.Amount" @bind:event="oninput" />
+        </div>
+        <div class="field">
+            <label for="benefit-toward-@Id">Toward what</label>
+            <input id="benefit-toward-@Id" @bind="Benefit.Toward" @bind:event="oninput" />
+            <span class="field-help">Such as "your next appointment".</span>
+        </div>
+        break;
 }
 @if (Benefit.Error is { } benefitError)
 {

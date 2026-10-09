@@ -33,9 +33,15 @@ public sealed class AmountLimitsForm
         return fields;
     }
 
-    /// <summary>The boxes to show beside a benefit form: one pair per amount of its chosen kind.</summary>
+    /// <summary>
+    /// The boxes to show beside a benefit form: one pair per amount of the benefit as typed, once it
+    /// is complete, else of its chosen kind. An optional amount (dollars off's minimum) has boxes
+    /// only while the line has one, as only then can it be limited.
+    /// </summary>
     public IReadOnlyList<AmountLimitFields> FieldsFor(BenefitEditor benefit) =>
-        BenefitKind.Of(benefit.Kind)?.Amounts.Select(For).ToList() ?? [];
+        benefit.Value is { } value
+            ? value.Amounts.Select(a => For(a.Field)).ToList()
+            : BenefitKind.Of(benefit.Kind)?.Amounts.Select(For).ToList() ?? [];
 
     /// <returns>
     /// The known line under <paramref name="id"/>: <paramref name="benefit"/> at its usual amounts,

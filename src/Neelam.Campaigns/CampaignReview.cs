@@ -286,6 +286,12 @@ public static class CampaignReview
                         $"{f.Quantity} {f.Word} {f.ItemName} is nothing; quantity must be at least 1.",
                     BirthdayCredit { Amount: <= 0 } =>
                         "A birthday credit needs an amount.",
+                    DollarsOff { Amount: <= 0 } =>
+                        "Dollars off needs an amount.",
+                    DollarsOff { Minimum: < 1 } d =>
+                        $"{d.Minimum}+ {d.AppliesTo} is not a minimum; leave it out or make it at least 1.",
+                    Credit { Amount: <= 0 } =>
+                        "A credit needs an amount.",
                     _ => null,
                 };
                 if (problem is not null)
