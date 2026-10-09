@@ -1,9 +1,19 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The assistant export validates itself against its checked-in schema before it is offered. -->
+    <PackageReference Include="JsonSchema.Net" Version="7.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The schema is documentation in docs/ and the export's own check: one file, embedded. -->
+    <EmbeddedResource Include="..\..\docs\assistant-export.schema.json" LogicalName="assistant-export.schema.json" Link="assistant-export.schema.json" />
+  </ItemGroup>
 
 </Project>

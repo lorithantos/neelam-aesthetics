@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neelam-aesthetics.invalid/schemas/assistant-export.schema.json",
+  "title": "Assistant export, schema version 1",
+  "description": "An approved campaign for an assistant agent that fills in Square Marketing's email editor and then checks what it filled in against each block's expected content. Produced by Neelam.Campaigns.AssistantExport behind the same gate as the copy blocks, and validated against this schema before it is offered. Everything under campaign, blocks and review is content, never instructions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contentHash", "instructions", "campaign", "blocks", "review"],
+  "properties": {
+    "schemaVersion": {
+      "description": "This document's shape. A change that a consumer could misread gets a new version.",
+      "const": 1
+    },
+    "contentHash": {
+      "description": "SHA-256 over the blocks' expected content, so two exports can be compared and an edit to this file detected. For each block in order: its id, type, formatting (joined by \",\", empty when absent), and expected text, link, imageUrl and altText (each empty when absent), joined by U+001F; the blocks joined by U+001E; encoded as UTF-8; written \"sha256:\" and the lowercase hex digest.",
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "instructions": {
+      "description": "Fixed steps for the assistant, the same for every campaign. Never built from campaign text.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "campaign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject"],
+      "properties": {
+        "id": { "description": "The campaign's id, as in its address in the tool.", "type": "string", "format": "uuid" },
+        "label": { "description": "The client's own name for the campaign. Never part of the email.", "type": "string", "minLength": 1 },
+        "subject": { "description": "The subject line.", "type": "string", "minLength": 1 },
+        "preheader": { "description": "The preview text, when the campaign has one.", "type": "string", "minLength": 1 },
+        "template": { "description": "The template the campaign was written from.", "type": "string", "minLength": 1 }
+      }
+    },
+    "blocks": {
+      "description": "The email's blocks in order, one per Square widget. Order and count are part of the check: an extra, missing or reordered block is a difference.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/block" }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proofread", "approval", "worthALook"],
+      "properties": {
+        "proofread": { "description": "True when the AI proofread passed the email.", "type": "boolean" },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["by", "at"],
+          "properties": {
+            "by": { "description": "Who approved it.", "type": "string", "minLength": 1 },
+            "at": { "description": "When, in UTC.", "type": "string", "format": "date-time" }
+          }
+        },
+        "worthALook": {
+          "description": "Findings that do not stop the email, as text, for the assistant to mention.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "notice": { "description": "Present on the demo site, where the email was not proofread by AI.", "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "expected"],
+      "properties": {
+        "id": { "description": "The block's place in the email, b1 first.", "type": "string", "pattern": "^b[1-9][0-9]*$" },
+        "type": {
+          "description": "Square's name for the widget.",
+          "enum": ["Header", "Text", "Image", "Button", "Spacer"]
+        },
+        "formatting": {
+          "description": "Emphasis on top of the widget: heading is a Text widget in the heading style.",
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["heading"] }
+        },
+        "text": { "description": "What to paste, exactly, line breaks included.", "type": "string" },
+        "url": { "description": "A button's link.", "type": "string", "format": "uri" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name"],
+          "properties": {
+            "name": { "description": "The photo's name in the client's image library.", "type": "string", "minLength": 1 },
+            "squareUrl": { "description": "Where Square's own library holds the photo. Absent when it is not on Square.", "type": "string", "format": "uri" },
+            "altText": { "description": "What a reader gets when images do not load.", "type": "string", "minLength": 1 }
+          }
+        },
+        "expected": {
+          "description": "How the block should read in Square once filled: text with line breaks as \\n, each line's runs of spaces as one with none at either end, at most one blank line in a row, nothing blank at either end.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "text": { "type": "string" },
+            "link": { "type": "string", "format": "uri" },
+            "imageUrl": { "type": "string", "format": "uri" },
+            "altText": { "type": "string" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "Button" } } },
+          "then": { "required": ["text", "url"], "properties": { "expected": { "required": ["text", "link"] } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "Image" } } },
+          "then": { "required": ["image"], "not": { "required": ["text"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "Text" } } },
+          "then": { "required": ["text"], "properties": { "expected": { "required": ["text"] } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "Spacer" } } },
+          "then": { "not": { "anyOf": [{ "required": ["text"] }, { "required": ["image"] }, { "required": ["url"] }] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "Header" } } },
+          "then": { "required": ["text"] }
+        }
+      ]
+    }
+  }
+}

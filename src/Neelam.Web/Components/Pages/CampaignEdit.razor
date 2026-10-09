@@ -7,7 +7,8 @@
    and exporting take the Review feature on top of Campaigns. Export needs the AI proofread, as
    EditorExport.Blocks requires, so it stays locked, except on the demo (SiteMode, which is
    Prototype access): there an approved campaign the rules pass exports through
-   CampaignGate.DemoReview, every block marked as not proofread. The offer and photo fields are
+   CampaignGate.DemoReview, every block marked as not proofread, and the same report gives the
+   assistant's JSON (AssistantExport) beside the copy blocks. The offer and photo fields are
    child components, which tell the page of each change so the checks follow what is typed. The
    label at the top is the client's own name for the campaign, saved with the draft and never part
    of the email, its checks or its export. *@
@@ -46,7 +47,12 @@ else if (_session is not null)
     var status = editor.Status(_policy, _business);
     var approval = _session.CurrentApproval;
     var cannotApprove = _session.CannotApprove(_policy, _business);
-    var export = DemoExport(status, approval);
+    // One gate for both forms of the export: the copy blocks and the assistant's JSON come from
+    // the same report, so neither exists without the other.
+    var exportReport = ExportReport(status, approval);
+    var export = exportReport is null ? null : EditorExport.Blocks(exportReport);
+    var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, approval,
+        new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
 
     <h1>@Title</h1>
     <p><a href="campaigns">Back to campaigns</a>@(editor.TemplateName is { } template ? $" · From the template {template}" : "")</p>
@@ -281,6 +287,17 @@ else if (_session is not null)
                     <h2>Copy into Square</h2>
                     <p><span class="not-proofread">Not proofread by AI yet</span></p>
                     <p class="field-help">Approved, and the rules find nothing to stop it. The AI proofread isn't switched on yet, so read each block as you paste it. Paste them into Square's editor in this order.</p>
+                    @if (assistant?.Json is { } json)
+                    {
+                        <div class="copy-actions">
+                            <a class="button" href="@DataUrl(json)" download="@assistant.FileName">Download for an assistant (JSON)</a>
+                        </div>
+                        <p class="field-help">The same blocks, for an assistant to fill in Square's editor and check against. It stops at Square's preview; a person sends.</p>
+                    }
+                    else if (assistant?.Refusal is { } refusal)
+                    {
+                        <p class="field-help" role="alert">No download for an assistant: @refusal</p>
+                    }
                     <ol class="export-blocks">
                         @for (var i = 0; i < export.Count; i++)
                         {
@@ -484,23 +501,20 @@ else if (_session is not null)
     // The demo's export, and only the demo's: an approved campaign, unchanged since, that the rules
     // pass, reviewed without the proofread and marked so. Null everywhere else, Enforced included,
     // where export waits for the proofread.
-    private IReadOnlyList<EditorBlock>? DemoExport(DraftStatus status, Approval? approval)
+    private ReviewReport? ExportReport(DraftStatus status, Approval? approval)
     {
         if (!Site.IsDemo || !_canReview || approval is null || status.Review is null) return null;
         var report = CampaignGate.DemoReview(status.Review.Campaign, approval, _policy, _business);
-        return report.CanExport ? EditorExport.Blocks(report) : null;
+        return report.CanExport ? report : null;
     }
 
-    private static string KindName(BlockKind kind) => kind switch
-    {
-        BlockKind.Header => "Header",
-        BlockKind.Heading => "Text, heading style",
-        BlockKind.Text => "Text",
-        BlockKind.Image => "Image",
-        BlockKind.Button => "Button",
-        BlockKind.Spacer => "Spacer",
-        _ => kind.ToString(),
-    };
+    // The JSON as a link to download, with no endpoint: an endpoint would be a second way out.
+    private static string DataUrl(string json) =>
+        "data:application/json;charset=utf-8;base64," + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(json));
+
+    // Square's name for each kind, from the same table the assistant export writes its types from.
+    private static string KindName(BlockKind kind) =>
+        SquareWidgets.ByKind.TryGetValue(kind, out var widget) ? widget.DisplayName : kind.ToString();
 
     // The grace period in words, such as "24 hours".
     private static string Period(TimeSpan period) =>
