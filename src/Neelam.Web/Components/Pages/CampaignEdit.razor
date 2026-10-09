@@ -13,6 +13,10 @@
    label at the top is the client's own name for the campaign, saved with the draft and never part
    of the email, its checks or its export. *@
 @attribute [Authorize(Policy = Features.Campaigns)]
+@* Streamed, so the page says it is opening the campaign as soon as it is clicked: without it, the
+   list stays on screen under the campaign's address until every read is done, which reads as the
+   click landing back on the list. *@
+@attribute [StreamRendering]
 @rendermode InteractiveServer
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
@@ -30,8 +34,8 @@
 }
 else if (_missing is not null)
 {
-    <h1>@_missing</h1>
-    <p>There is nothing saved here. It may have been deleted. <a href="campaigns">Back to campaigns</a></p>
+    <h1>@(Id is null ? "This template couldn't be opened" : "This campaign couldn't be opened")</h1>
+    <p>@_missing: there is nothing saved here. It may have been deleted. <a href="campaigns">Back to campaigns</a></p>
 }
 else if (_undone is not null)
 {
@@ -367,6 +371,13 @@ else if (_session is not null)
             }
         </aside>
     </div>
+}
+else
+{
+    @* Until the reads are done: first as the page streams in, then again as it turns interactive.
+       Never blank, and never the list it was opened from. *@
+    <h1>@(Id is null ? "Starting a campaign" : "Opening the campaign")</h1>
+    <p class="muted" role="status">One moment.</p>
 }
 
 @code {

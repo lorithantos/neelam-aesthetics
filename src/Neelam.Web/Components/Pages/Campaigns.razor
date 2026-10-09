@@ -39,20 +39,22 @@ else if (_campaigns is not null && _templates is not null)
     {
         <p>No campaigns yet.</p>
     }
+    @* The campaign's name is its link, as well as Open: clicking the campaign opens it. *@
     @foreach (var (campaign, label) in _campaigns)
     {
+        var href = $"campaigns/{campaign.Id}";
         <section class="card">
             @if (!string.IsNullOrWhiteSpace(label))
             {
-                <h3>@label</h3>
+                <h3><a href="@href">@label</a></h3>
                 <p class="campaign-subject">@campaign.Title</p>
             }
             else
             {
-                <h3>@campaign.Title</h3>
+                <h3><a href="@href">@campaign.Title</a></h3>
             }
             <p class="muted">Last saved @campaign.SavedAt.ToString("d MMM yyyy, HH:mm") UTC</p>
-            <a class="button" href="campaigns/@campaign.Id">Open</a>
+            <a class="button" href="@href">Open</a>
         </section>
     }
 }

@@ -104,7 +104,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var (_, page) = await Get($"/campaigns/{SalonTwoCampaign}", [Features.Campaigns]);
 
-        Assert.Contains("Campaign not found", page);
+        Assert.Contains("<h1>This campaign couldn't be opened</h1>", page);
         Assert.DoesNotContain("Salon two’s own campaign", page);
     }
 
@@ -127,6 +127,12 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("‹Headline: not filled in yet›", page);
     }
 
+    // What only the list carries.
+    private const string TheList = "<h2>Your campaigns</h2>";
+
+    // A campaign's name in the list, as the link to it.
+    private static string ListHeading(Guid id, string name) => $"<h3><a href=\"campaigns/{id}\">{name}</a></h3>";
+
     private static string MustFix(string message) => $"<strong>Must fix</strong>\\s*<span>{Regex.Escape(message)}</span>";
 
     // Priya's campaign as it went out: no terms link, which blocks, and the checks still run over the rest.
@@ -142,15 +148,55 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Matches($"<p class=\"placeholder\">\\s*{Regex.Escape("‹Offer › Terms link: not filled in yet›")}\\s*</p>", page);
     }
 
+    // Said on the page itself, under the address that was opened: never the list in its place.
     [Theory]
-    [InlineData("/campaigns/new/dddddddd-0000-0000-0000-000000000001", "Template not found")]
-    [InlineData("/campaigns/dddddddd-0000-0000-0000-000000000001", "Campaign not found")]
-    public async Task What_is_not_there_says_so(string path, string heading)
+    [InlineData("/campaigns/new/dddddddd-0000-0000-0000-000000000001", "This template couldn't be opened", "Template not found")]
+    [InlineData("/campaigns/dddddddd-0000-0000-0000-000000000001", "This campaign couldn't be opened", "Campaign not found")]
+    public async Task What_is_not_there_says_so(string path, string heading, string reason)
     {
         var (status, page) = await Get(path, [Features.Campaigns]);
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Contains(heading, page);
+        Assert.Contains($"<h1>{heading}</h1>", page);
+        Assert.Contains($"{reason}: there is nothing saved here.", page);
+        Assert.Contains("<a href=\"campaigns\">Back to campaigns</a>", page);
+        Assert.DoesNotContain(TheList, page);
+    }
+
+    // The owner's report: clicking a campaign seemed to land on the list. Each campaign in the list
+    // links, by its name and by Open, to its own address, and that address is its editor.
+    [Fact]
+    public async Task Each_campaign_in_the_list_links_to_its_own_editor()
+    {
+        var (_, list) = await Get("/campaigns", [Features.Campaigns]);
+        var store = app.Stores.Campaigns(SalonOne.Name, Actor.Demo);
+        var campaigns = await DraftSession.ListAsync(store);
+        Assert.NotEmpty(campaigns);
+
+        foreach (var campaign in campaigns)
+        {
+            Assert.Matches($"<h3><a href=\"campaigns/{campaign.Id}\">[^<]+</a></h3>", list);
+            Assert.Contains($"<a class=\"button\" href=\"campaigns/{campaign.Id}\">Open</a>", list);
+
+            var (status, editor) = await Get($"/campaigns/{campaign.Id}", [Features.Campaigns]);
+            Assert.Equal(HttpStatusCode.OK, status);
+            var title = CampaignEditor.Open(await store.LoadDraftAsync(campaign)).Title;
+            Assert.Contains($"<h1>{title}</h1>", editor);
+            Assert.Contains("Save campaign", editor);
+            Assert.DoesNotContain(TheList, editor);
+        }
+    }
+
+    // Streamed: the page says it is opening the campaign before the campaign's reads are done, so a
+    // click never leaves the list on screen under the campaign's address.
+    [Fact]
+    public async Task The_editor_says_it_is_opening_the_campaign_before_it_has_read_it()
+    {
+        var (_, editor) = await Get($"/campaigns/{Finished}", [Features.Campaigns]);
+
+        var opening = editor.IndexOf("<h1>Opening the campaign</h1>", StringComparison.Ordinal);
+        Assert.True(opening >= 0, "The page does not say it is opening the campaign.");
+        Assert.True(opening < editor.IndexOf("<h1>WE’RE TURNING ONE!</h1>", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -221,6 +267,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("<h1>Undone, all of it</h1>", gone);
         Assert.Contains("Its last save was undone", gone);
         Assert.Contains(">Restore</button>", gone);
+        Assert.DoesNotContain(TheList, gone);
 
         var (_, editor) = await Get($"/campaigns/{partly}", [Features.Campaigns]);
         Assert.Contains("Save campaign", editor);
@@ -234,10 +281,10 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (_, page) = await Get("/campaigns", [Features.Campaigns]);
 
         Assert.Matches(
-            $"<h3>{Regex.Escape(FinishedLabel)}</h3>\\s*<p class=\"campaign-subject\">{Regex.Escape("WE’RE TURNING ONE!")}</p>",
+            $"{Regex.Escape(ListHeading(Finished, FinishedLabel))}\\s*<p class=\"campaign-subject\">{Regex.Escape("WE’RE TURNING ONE!")}</p>",
             page);
         // A campaign with no label is headed by its subject, as before.
-        Assert.Contains("<h3>Second send, replayed</h3>", page);
+        Assert.Contains(ListHeading(Replayed, "Second send, replayed"), page);
 
         // The editor offers the label at the top, filled in.
         var (_, editor) = await Get($"/campaigns/{Finished}", [Features.Campaigns]);
@@ -262,7 +309,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         var (_, list) = await Get("/campaigns", [Features.Campaigns]);
 
-        Assert.Contains("<h3>Label of the kept save</h3>", list);
+        Assert.Contains(ListHeading(id, "Label of the kept save"), list);
         Assert.DoesNotContain("Label of the undone save", list);
     }
 
@@ -279,13 +326,13 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         var (_, page) = await Get("/campaigns", [Features.Campaigns]);
 
-        Assert.Contains($"<h3>{FinishedLabel}</h3>", page);
+        Assert.Contains(ListHeading(Finished, FinishedLabel), page);
         Assert.NotEmpty(one.Reads);
         Assert.Empty(two.Reads);
         Assert.DoesNotContain(SalonTwoLabel, page);
 
         var (_, other) = await Get("/campaigns", [Features.Campaigns], groups: [SalonTwo.GroupId]);
-        Assert.Contains($"<h3>{SalonTwoLabel}</h3>", other);
+        Assert.Contains(ListHeading(SalonTwoCampaign, SalonTwoLabel), other);
         Assert.DoesNotContain(FinishedLabel, other);
     }
 
