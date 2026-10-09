@@ -289,6 +289,12 @@ deployment used in development.
   Table Data Contributor* on the whole account. The template honours it only when
   `environmentName` is `Test`, and `main.bicepparam` never sets it, so production grants no
   person data access.
+- **A staging site on the test deployment** (`stagingClients` in `infra/test.bicepparam`): a
+  second web app on the same plan, with its own identity and its own storage account, where each
+  build is tried before the client's site gets it. Its identity holds roles on its own account
+  only. The site and its account are each one definition (`infra/site.bicep`,
+  `infra/storage.bicep`) used for both, so staging cannot differ in a security setting.
+  Production has none.
 - `InfrastructureTests` pins these settings so a later edit cannot quietly undo them.
 
 ```
@@ -419,8 +425,9 @@ ladders" on her Known items page; "Use the standard ladders" deletes hers.
   policies, and the pages (templates, campaigns, images, known items, How it works; Clients under
   `/admin`). Its own files are served by `MapStaticAssets` at fingerprinted addresses, and every
   page's footer shows the deploy's build stamp (the App Service setting `LATEST_BUILD_INFO`).
-- `infra/main.bicep` — App Service, storage account, container, Application Insights and role
-  assignments.
+- `infra/main.bicep` — the plan, Application Insights and the key-auth policies, with the site
+  (`site.bicep`) and its storage account, containers, tables and role assignments
+  (`storage.bicep`); on the test deployment, the staging site and its own account as well.
 - `tests/Neelam.Campaigns.Tests` — both real sends and a corrected version, one test per rule,
   drafts and saves (against an in-memory blob store), the credential guard, the infrastructure
   settings, and parsing of Claude's answer. No test calls the network.

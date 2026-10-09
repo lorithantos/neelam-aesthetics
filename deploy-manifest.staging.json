@@ -1,0 +1,22 @@
+{
+  "name": "Neelam campaigns (staging site, test deployment)",
+  "identity": {
+    "source": "git",
+    "sink": { "type": "azureAppSetting", "setting": "LATEST_BUILD_INFO" }
+  },
+  "stages": {
+    "build": { "run": "dotnet build Neelam.sln --configuration Release" },
+    "package": { "run": "dotnet publish src\\Neelam.Web\\Neelam.Web.csproj -c Release -o {packageDir}", "zip": true },
+    "push": { "type": "azureWebAppZip", "app": "neelamtest-staging-6excvnu62r4z6", "resourceGroup": "neelam-test-rg" }
+  },
+  "verify": {
+    "url": "https://neelamtest-staging-6excvnu62r4z6.azurewebsites.net/healthz",
+    "warmingStatuses": [503],
+    "attempts": 24,
+    "delaySeconds": 10,
+    "initialDelaySeconds": 15
+  },
+  "promote": {
+    "hint": "Check this build on staging. Then, at a quiet time and after a heads-up to the client, deploy the same commit to the client's site: & \"$env:JanetBase\\scripts\\Invoke-BuildDeploy.ps1\" -ManifestPath deploy-manifest.test.json"
+  }
+}

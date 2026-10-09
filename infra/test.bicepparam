@@ -14,3 +14,10 @@ param clients = [
   'test-salon-one'
   'test-salon-two'
 ]
+
+// The staging site: a second web app on the same plan, with its own identity and its own storage
+// account holding these clients, where each build is tried before the client's site gets it.
+// main.bicepparam never sets it, and the template ignores it outside Test.
+param stagingClients = [
+  'staging-salon'
+]

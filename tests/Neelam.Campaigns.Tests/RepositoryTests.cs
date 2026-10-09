@@ -53,6 +53,8 @@ public class RepositoryTests
         var files = CommittableFiles();
 
         Assert.Contains("infra/main.bicep", files);
+        Assert.Contains("infra/site.bicep", files);
+        Assert.Contains("infra/storage.bicep", files);
         Assert.Contains("src/Neelam.Web/appsettings.json", files);
         Assert.Contains("src/Neelam.Web/Properties/launchSettings.json", files);
     }

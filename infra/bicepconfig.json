@@ -1,0 +1,11 @@
+{
+  "analyzers": {
+    "core": {
+      "rules": {
+        "what-if-short-circuiting": {
+          "level": "warning"
+        }
+      }
+    }
+  }
+}

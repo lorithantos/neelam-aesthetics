@@ -1,25 +1,107 @@
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace Neelam.Campaigns.Tests;
 
 /// <summary>
-/// Pins the security and retention settings in the Bicep template, so a later edit cannot
-/// quietly turn keys back on or start keeping deleted saves.
+/// Pins the security and retention settings in the Bicep templates, so a later edit cannot
+/// quietly turn keys back on or start keeping deleted saves. A site and its storage account are
+/// each one definition (site.bicep, storage.bicep), used by main.bicep for the client's site and,
+/// on the test deployment, for the staging site; the settings are pinned there once, and how
+/// main.bicep wires each instance is pinned here too.
 /// </summary>
 public class InfrastructureTests
 {
     internal static readonly string Root = FindRoot();
-    private static readonly string Bicep = File.ReadAllText(Path.Combine(Root, "infra", "main.bicep"));
+    private static readonly string Bicep = Infra("main.bicep");
+    private static readonly string Site = Infra("site.bicep");
+    private static readonly string Storage = Infra("storage.bicep");
+    private static readonly string[] Templates = [Bicep, Site, Storage];
 
     [Theory]
-    [InlineData("allowSharedKeyAccess: false")]
-    [InlineData("allowBlobPublicAccess: false")]
-    [InlineData("isVersioningEnabled: false")]
-    [InlineData("type: 'SystemAssigned'")]
-    [InlineData("disableLocalAuth: true")]   // Log Analytics: Entra ingestion only
-    [InlineData("DisableLocalAuth: true")]   // Application Insights: Entra ingestion only
-    [InlineData("3913510d-42f4-4e42-8a64-420c390055eb")]   // Monitoring Metrics Publisher for the site
-    public void Template_sets(string setting) => Assert.Contains(setting, Bicep);
+    [InlineData("storage.bicep", "allowSharedKeyAccess: false")]
+    [InlineData("storage.bicep", "allowBlobPublicAccess: false")]
+    [InlineData("storage.bicep", "isVersioningEnabled: false")]
+    [InlineData("site.bicep", "type: 'SystemAssigned'")]
+    [InlineData("main.bicep", "disableLocalAuth: true")]   // Log Analytics: Entra ingestion only
+    [InlineData("main.bicep", "DisableLocalAuth: true")]   // Application Insights: Entra ingestion only
+    [InlineData("site.bicep", "3913510d-42f4-4e42-8a64-420c390055eb")]   // Monitoring Metrics Publisher for the site
+    public void Template_sets(string file, string setting) => Assert.Contains(setting, Infra(file));
+
+    // Every site and every storage account is an instance of the one definition, so the staging site
+    // and its account carry exactly the settings pinned on site.bicep and storage.bicep: main.bicep
+    // declares neither a site nor an account of its own, and grants no role itself.
+    [Fact]
+    public void Every_site_and_account_comes_from_the_one_definition()
+    {
+        Assert.Equal(["site", "stagingSite"], ModulesOf("site.bicep"));
+        Assert.Equal(["stagingStorage", "storage"], ModulesOf("storage.bicep"));
+        Assert.Equal(4, Regex.Matches(Bicep, @"^module ", RegexOptions.Multiline).Count);
+        Assert.DoesNotContain("'Microsoft.Storage/", Bicep);
+        Assert.DoesNotContain("'Microsoft.Web/sites@", Bicep);
+        Assert.DoesNotContain("roleAssignments", Bicep);
+        Assert.Single(Regex.Matches(Site, @"^resource \w+ 'Microsoft\.Web/sites@", RegexOptions.Multiline));
+        Assert.Single(Regex.Matches(Storage, @"^resource \w+ 'Microsoft\.Storage/storageAccounts@", RegexOptions.Multiline));
+    }
+
+    // The client's site and account keep the names, and so the resource ids, they had before they
+    // became modules: the move must change nothing that is deployed.
+    [Fact]
+    public void The_client_site_and_account_keep_their_names()
+    {
+        Assert.Matches(new Regex(@"var storageName = take\(toLower\('\$\{prefix\}\$\{suffix\}'\), 24\)\s"), Bicep);
+        Assert.Matches(new Regex(@"var siteName = '\$\{prefix\}-\$\{suffix\}'\s"), Bicep);
+        Assert.Matches(new Regex(@"var stagingStorageName = take\(toLower\('\$\{prefix\}stg\$\{suffix\}'\), 24\)\s"), Bicep);
+        Assert.Matches(new Regex(@"var stagingSiteName = '\$\{prefix\}-staging-\$\{suffix\}'\s"), Bicep);
+    }
+
+    // Each site uses its own account, and each account gives its data roles to its own site alone:
+    // the staging identity holds nothing on the client's account, and the client's site nothing on
+    // staging's. Both sites share the plan and Application Insights; both accounts get every table.
+    [Fact]
+    public void Each_site_has_its_own_account_and_identity()
+    {
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["name"] = "siteName", ["location"] = "location", ["planId"] = "plan.id",
+            ["environmentName"] = "environmentName", ["prototypeClient"] = "prototypeClient",
+            ["storageName"] = "storageName", ["insightsName"] = "insights.name",
+        }, ModuleParams("site"));
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["name"] = "storageName", ["location"] = "location", ["clients"] = "clients",
+            ["tableNames"] = "tableNames", ["appId"] = "resourceId('Microsoft.Web/sites', siteName)",
+            ["appPrincipalId"] = "site.outputs.principalId", ["developerPrincipalId"] = "developerOnAccounts",
+        }, ModuleParams("storage"));
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["name"] = "stagingSiteName", ["location"] = "location", ["planId"] = "plan.id",
+            ["environmentName"] = "environmentName", ["prototypeClient"] = "stagingPrototypeClient",
+            ["storageName"] = "stagingStorageName", ["insightsName"] = "insights.name",
+        }, ModuleParams("stagingSite"));
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["name"] = "stagingStorageName", ["location"] = "location", ["clients"] = "stagingClients",
+            ["tableNames"] = "tableNames", ["appId"] = "resourceId('Microsoft.Web/sites', stagingSiteName)",
+            ["appPrincipalId"] = "stagingSite!.outputs.principalId", ["developerPrincipalId"] = "developerOnAccounts",
+        }, ModuleParams("stagingStorage"));
+    }
+
+    // The staging site exists on the test deployment alone: only test.bicepparam names its clients,
+    // and the template ignores them outside Test. Production gets nothing new.
+    [Fact]
+    public void Only_the_test_deployment_has_a_staging_site()
+    {
+        Assert.Matches(new Regex(@"param stagingClients string\[\] = \[\]\s"), Bicep);
+        Assert.Matches(new Regex(@"var staging = environmentName == 'Test' && !empty\(stagingClients\)\s"), Bicep);
+        Assert.Single(Regex.Matches(Bicep, @"staging = "));
+        Assert.Matches(new Regex(@"module stagingSite 'site\.bicep' = if \(staging\) \{"), Bicep);
+        Assert.Matches(new Regex(@"module stagingStorage 'storage\.bicep' = if \(staging\) \{"), Bicep);
+        Assert.Matches(new Regex(@"output stagingSiteName string = staging \? stagingSiteName : ''\s"), Bicep);
+
+        Assert.DoesNotContain("staging", File.ReadAllText(Path.Combine(Root, "infra", "main.bicepparam")), StringComparison.OrdinalIgnoreCase);
+        Assert.Matches(new Regex(@"param stagingClients = \["), File.ReadAllText(Path.Combine(Root, "infra", "test.bicepparam")));
+    }
 
     // One deployment serves every client: a container per name in the clients list, laid out the
     // same way, plus the shared settings container. Which client a request reaches is decided in
@@ -28,57 +110,68 @@ public class InfrastructureTests
     public void Each_listed_client_gets_its_own_container()
     {
         Assert.Matches(new Regex(@"param clients string\[\]"), Bicep);
-        Assert.Matches(new Regex(@"for client in clients: \{\s*parent: blobService\s*name: client\s"), Bicep);
-        Assert.Matches(new Regex(@"parent: blobService\s*name: 'settings'\s"), Bicep);
-        Assert.DoesNotContain("Storage__Client", Bicep);
-        Assert.DoesNotContain("clientName", Bicep);
+        Assert.Matches(new Regex(@"param clients string\[\]"), Storage);
+        Assert.Matches(new Regex(@"for client in clients: \{\s*parent: blobService\s*name: client\s"), Storage);
+        Assert.Matches(new Regex(@"parent: blobService\s*name: 'settings'\s"), Storage);
+        Assert.All(Templates, t => Assert.DoesNotContain("Storage__Client", t));
+        Assert.All(Templates, t => Assert.DoesNotContain("clientName", t));
     }
 
-    // The app's data access is scoped to each container and table, never the account: a container
-    // left out of the clients list is out of the app's reach. The only other principal is the
-    // developer, pinned below.
+    // The site's data access is scoped to each container and table, never the account: a container
+    // left out of the clients list is out of the site's reach. The only other principal is the
+    // developer, pinned below; the site's own identity otherwise holds only its telemetry role.
     [Fact]
     public void The_app_holds_data_access_only_where_listed()
     {
         Assert.Equal(
-            Regex.Matches(Bicep, @"principalId: ").Count,
-            Regex.Matches(Bicep, @"principalId: (?:site\.identity\.principalId|developerPrincipalId)\s").Count);
+            Regex.Matches(Storage, @"principalId: ").Count,
+            Regex.Matches(Storage, @"principalId: (?:appPrincipalId|developerPrincipalId)\s").Count);
 
-        string[] dataScopes = Regex.Matches(Bicep,
-                @"scope: (\S+)\s*properties: \{\s*roleDefinitionId: (?:blobDataContributor|tableDataContributor)\s*principalId: site\.identity\.principalId\s")
+        string[] dataScopes = Regex.Matches(Storage,
+                @"scope: (\S+)\s*properties: \{\s*roleDefinitionId: (?:blobDataContributor|tableDataContributor)\s*principalId: appPrincipalId\s")
             .Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(["clientContainers[i]", "settingsContainer", "tables[i]"], dataScopes);
+
+        string[] siteRoles = Regex.Matches(Site,
+                @"scope: (\S+)\s*properties: \{\s*roleDefinitionId: (\w+)\s*principalId: site\.identity\.principalId\s")
+            .Select(m => $"{m.Groups[1].Value} {m.Groups[2].Value}").ToArray();
+        Assert.Equal(["insights metricsPublisher"], siteRoles);
+        Assert.Single(Regex.Matches(Site, @"principalId: "));
     }
 
     // The metadata tables, each with the site's table role scoped to it (tables[i], above). The
     // activity table was added on 2026-10-09 for the activity trail, and knownItems the same day for
     // each client's known items: changing this list is a live infrastructure deploy, so it is pinned
-    // here and changed deliberately.
+    // here and changed deliberately. Every account gets the one list (Each_site_has_its_own_account).
     [Fact]
     public void The_metadata_tables_are_exactly_these()
     {
         var list = Regex.Match(Bicep, @"var tableNames = \[(.*?)\]", RegexOptions.Singleline).Groups[1].Value;
         string[] tables = Regex.Matches(list, @"'([^']*)'").Select(m => m.Groups[1].Value).ToArray();
         Assert.Equal(["clients", "supportGrants", "approvals", "activity", "knownItems"], tables);
-        Assert.Matches(new Regex(@"for name in tableNames: \{\s*parent: tableService\s*name: name\s"), Bicep);
-        Assert.Matches(new Regex(@"for \(name, i\) in tableNames: \{\s*name: guid\(tables\[i\]\.id, site\.id, tableDataContributor\)\s*scope: tables\[i\]\s"), Bicep);
+        Assert.Matches(new Regex(@"for name in tableNames: \{\s*parent: tableService\s*name: name\s"), Storage);
+        Assert.Matches(new Regex(@"for \(name, i\) in tableNames: \{\s*name: guid\(tables\[i\]\.id, appId, tableDataContributor\)\s*scope: tables\[i\]\s"), Storage);
     }
 
     // No person holds data access in production. On the test deployment, whose clients are made
-    // up, the developer holds blob and table data access to the whole account; the template grants
-    // it only when the environment is Test, and only the test parameter file names a developer.
+    // up, the developer holds blob and table data access to the whole of each account; the template
+    // grants it only when the environment is Test, and only the test parameter file names a developer.
     [Fact]
     public void Only_the_test_deployment_grants_the_developer_data_access()
     {
         Assert.Matches(new Regex(@"param developerPrincipalId string = ''\s"), Bicep);
         Assert.Matches(new Regex(@"var developerAccess = environmentName == 'Test' && !empty\(developerPrincipalId\)\s"), Bicep);
         Assert.Single(Regex.Matches(Bicep, @"developerAccess = "));
+        Assert.Matches(new Regex(@"var developerOnAccounts = developerAccess \? developerPrincipalId : ''\s"), Bicep);
+        Assert.Equal(2, Regex.Matches(Bicep, @"developerPrincipalId: ").Count);
+        Assert.Equal(2, Regex.Matches(Bicep, @"developerPrincipalId: developerOnAccounts\s").Count);
 
-        string[] developerRoles = Regex.Matches(Bicep,
-                @"= if \(developerAccess\) \{\s*name: [^\n]+\s*scope: storage\s*properties: \{\s*roleDefinitionId: (\w+)\s*principalId: developerPrincipalId\s*principalType: 'User'\s")
+        Assert.Matches(new Regex(@"param developerPrincipalId string = ''\s"), Storage);
+        string[] developerRoles = Regex.Matches(Storage,
+                @"= if \(!empty\(developerPrincipalId\)\) \{\s*name: [^\n]+\s*scope: storage\s*properties: \{\s*roleDefinitionId: (\w+)\s*principalId: developerPrincipalId\s*principalType: 'User'\s")
             .Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
         Assert.Equal(["blobDataContributor", "tableDataContributor"], developerRoles);
-        Assert.Equal(developerRoles.Length, Regex.Matches(Bicep, @"principalId: developerPrincipalId\s").Count);
+        Assert.Equal(developerRoles.Length, Regex.Matches(Storage, @"principalId: developerPrincipalId\s").Count);
 
         Assert.DoesNotContain("developerPrincipalId", File.ReadAllText(Path.Combine(Root, "infra", "main.bicepparam")));
         Assert.Matches(new Regex(@"param developerPrincipalId = '[0-9a-f-]{36}'"),
@@ -91,32 +184,40 @@ public class InfrastructureTests
     public void Only_the_test_deployment_leaves_production()
     {
         Assert.Matches(new Regex(@"param environmentName string = 'Production'"), Bicep);
-        Assert.Matches(new Regex(@"name: 'ASPNETCORE_ENVIRONMENT'\s*value: environmentName\s*\}"), Bicep);
+        Assert.Matches(new Regex(@"name: 'ASPNETCORE_ENVIRONMENT'\s*value: environmentName\s*\}"), Site);
         Assert.DoesNotContain("environmentName", File.ReadAllText(Path.Combine(Root, "infra", "main.bicepparam")));
         Assert.Contains("param environmentName = 'Test'", File.ReadAllText(Path.Combine(Root, "infra", "test.bicepparam")));
     }
 
     // The prototype's fixed caller exists only where prototype access may run: the setting naming
     // its client is written on the test deployment alone, and the deployment reports the same value.
+    // The staging site works as its own first client, and exists only on the test deployment.
     [Fact]
     public void Only_the_test_deployment_names_a_prototype_client()
     {
         Assert.Matches(new Regex(@"var prototypeClient = environmentName == 'Test' \? clients\[0\] : ''"), Bicep);
-        Assert.Matches(new Regex(@"empty\(prototypeClient\) \? \[\] : \[\s*\{\s*name: 'Prototype__Client'\s*value: prototypeClient\s*\}\s*\]"), Bicep);
-        Assert.Single(Regex.Matches(Bicep, "name: 'Prototype__Client'"));
-        Assert.Single(Regex.Matches(Bicep, @"prototypeClient = "));
+        Assert.Matches(new Regex(@"var stagingPrototypeClient = stagingClients\[\?0\] \?\? ''\s"), Bicep);
+        Assert.Single(Regex.Matches(Bicep, @"\bprototypeClient = "));
+        Assert.Single(Regex.Matches(Bicep, @"\bstagingPrototypeClient = "));
         Assert.Matches(new Regex(@"output prototypeClient string = prototypeClient\s"), Bicep);
+
+        Assert.Matches(new Regex(@"param prototypeClient string = ''\s"), Site);
+        Assert.Matches(new Regex(@"empty\(prototypeClient\) \? \[\] : \[\s*\{\s*name: 'Prototype__Client'\s*value: prototypeClient\s*\}\s*\]"), Site);
+        Assert.Single(Regex.Matches(Site, "name: 'Prototype__Client'"));
+        Assert.DoesNotContain("name: 'Prototype__Client'", Bicep);
+        Assert.DoesNotContain("name: 'Prototype__Client'", Storage);
     }
 
     // Every client a deployment lists must be a name the app will accept: a container name's shape,
     // and never a shared container such as settings.
     [Theory]
-    [InlineData("main.bicepparam", "neelam-aesthetics")]
-    [InlineData("test.bicepparam", "test-salon-one")]
-    public void Parameter_files_list_valid_clients(string file, string expected)
+    [InlineData("main.bicepparam", "clients", "neelam-aesthetics")]
+    [InlineData("test.bicepparam", "clients", "test-salon-one")]
+    [InlineData("test.bicepparam", "stagingClients", "staging-salon")]
+    public void Parameter_files_list_valid_clients(string file, string param, string expected)
     {
         var text = File.ReadAllText(Path.Combine(Root, "infra", file));
-        var list = Regex.Match(text, @"param clients = \[(.*?)\]", RegexOptions.Singleline).Groups[1].Value;
+        var list = Regex.Match(text, $@"param {param} = \[(.*?)\]", RegexOptions.Singleline).Groups[1].Value;
         var clients = Regex.Matches(list, @"'([^']*)'").Select(m => m.Groups[1].Value).ToList();
 
         Assert.Contains(expected, clients);
@@ -127,7 +228,15 @@ public class InfrastructureTests
     [Fact]
     public void Monitoring_connection_string_comes_from_the_resource() =>
         Assert.Matches(new Regex(
-            @"name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'\s*value: insights\.properties\.ConnectionString\s*\}"), Bicep);
+            @"name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'\s*value: insights\.properties\.ConnectionString\s*\}"), Site);
+
+    // The site's storage addresses follow from its own account's name, never another's.
+    [Fact]
+    public void Each_site_addresses_its_own_account()
+    {
+        Assert.Matches(new Regex(@"name: 'Storage__BlobServiceUri'\s*value: 'https://\$\{storageName\}\.blob\.\$\{environment\(\)\.suffixes\.storage\}/'\s*\}"), Site);
+        Assert.Matches(new Regex(@"name: 'Storage__TableServiceUri'\s*value: 'https://\$\{storageName\}\.table\.\$\{environment\(\)\.suffixes\.storage\}/'\s*\}"), Site);
+    }
 
     [Theory]
     [InlineData("deleteRetentionPolicy")]
@@ -135,7 +244,7 @@ public class InfrastructureTests
     [InlineData("changeFeed")]
     [InlineData("restorePolicy")]
     public void Nothing_keeps_a_deleted_save(string feature) =>
-        Assert.Matches(new Regex($@"\b{feature}: \{{\s*enabled: false\s*\}}"), Bicep);
+        Assert.Matches(new Regex($@"\b{feature}: \{{\s*enabled: false\s*\}}"), Storage);
 
     [Theory]
     [InlineData("listKeys(")]
@@ -143,7 +252,7 @@ public class InfrastructureTests
     [InlineData("AccountKey")]
     [InlineData("@secure()")]
     [InlineData("diagnosticSettings")]   // storage logs would keep the names of deleted saves
-    public void Template_never_uses(string text) => Assert.DoesNotContain(text, Bicep);
+    public void Template_never_uses(string text) => Assert.All(Templates, t => Assert.DoesNotContain(text, t));
 
     [Theory]
     [InlineData("8c6a50c6-9ffd-4ae7-986f-5fa6111f9a54")] // storage accounts: no shared key access
@@ -153,14 +262,41 @@ public class InfrastructureTests
     {
         Assert.Contains(builtInPolicyId, Bicep);
         Assert.Contains("effect: { value: 'Deny' }", Bicep);
-        Assert.DoesNotContain("DoNotEnforce", Bicep);
+        Assert.All(Templates, t => Assert.DoesNotContain("DoNotEnforce", t));
     }
 
     [Fact]
     public void Basic_publishing_credentials_are_off()
     {
-        Assert.Equal(2, Regex.Matches(Bicep, @"basicPublishingCredentialsPolicies").Count);
-        Assert.DoesNotContain("allow: true", Bicep);
+        Assert.Equal(2, Regex.Matches(Site, @"basicPublishingCredentialsPolicies").Count);
+        Assert.Equal(2, Regex.Matches(Site, @"properties: \{\s*allow: false\s*\}").Count);
+        Assert.All(Templates, t => Assert.DoesNotContain("allow: true", t));
+    }
+
+    // The staging deploy is the client site's deploy pointed at the staging site: the same build,
+    // package and stamp, pushed to the app Bicep names '${prefix}-staging-${suffix}' beside
+    // '${prefix}-${suffix}', and verified on that app's own /healthz.
+    [Fact]
+    public void The_staging_deploy_mirrors_the_client_site_deploy()
+    {
+        var test = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "deploy-manifest.test.json")))!.AsObject();
+        var staging = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "deploy-manifest.staging.json")))!.AsObject();
+
+        var site = (string)test["stages"]!["push"]!["app"]!;
+        var stagingSite = (string)staging["stages"]!["push"]!["app"]!;
+        var dash = site.IndexOf('-');
+        Assert.Equal($"{site[..dash]}-staging{site[dash..]}", stagingSite);
+        Assert.Equal(test["stages"]!["push"]!["resourceGroup"]!.ToJsonString(), staging["stages"]!["push"]!["resourceGroup"]!.ToJsonString());
+        Assert.Equal($"https://{stagingSite}.azurewebsites.net/healthz", (string)staging["verify"]!["url"]!);
+        Assert.Equal($"https://{site}.azurewebsites.net/healthz", (string)test["verify"]!["url"]!);
+
+        Assert.Equal(test["identity"]!.ToJsonString(), staging["identity"]!.ToJsonString());
+        foreach (var stage in new[] { "build", "package" })
+            Assert.Equal(test["stages"]![stage]!.ToJsonString(), staging["stages"]![stage]!.ToJsonString());
+        Assert.Equal(
+            test["verify"]!.AsObject().Where(p => p.Key != "url").Select(p => $"{p.Key}={p.Value!.ToJsonString()}"),
+            staging["verify"]!.AsObject().Where(p => p.Key != "url").Select(p => $"{p.Key}={p.Value!.ToJsonString()}"));
+        Assert.Contains("deploy-manifest.test.json", (string)staging["promote"]!["hint"]!);
     }
 
     [Theory]
@@ -168,6 +304,25 @@ public class InfrastructureTests
     [InlineData("appsettings.Development.json")]
     public void App_settings_carry_no_connection_strings(string file) =>
         Assert.DoesNotContain("ConnectionStrings", File.ReadAllText(Path.Combine(Root, "src", "Neelam.Web", file)));
+
+    private static string Infra(string file) => File.ReadAllText(Path.Combine(Root, "infra", file));
+
+    private static string[] ModulesOf(string file) =>
+        Regex.Matches(Bicep, $@"^module (\w+) '{Regex.Escape(file)}'", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value).Order(StringComparer.Ordinal).ToArray();
+
+    // A module's params block as written, name to expression, so a param added, dropped or rewired
+    // fails the pin.
+    private static Dictionary<string, string> ModuleParams(string module)
+    {
+        var block = Regex.Match(Bicep.ReplaceLineEndings("\n"),
+            $@"^module {module} '[^']+' = (?:if \(\w+\) )?\{{\n  name: '{module}'\n  params: \{{\n(.*?)\n  \}}\n\}}",
+            RegexOptions.Multiline | RegexOptions.Singleline);
+        Assert.True(block.Success, $"module {module} not found in the shape this test reads");
+        return block.Groups[1].Value.Split('\n')
+            .Select(line => line.Trim().Split(": ", 2))
+            .ToDictionary(kv => kv[0], kv => kv[1]);
+    }
 
     private static string FindRoot()
     {
