@@ -97,6 +97,8 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// On the demo the operator's pages answer 404, as if they did not exist (owner, 2026-10-09).
+app.UseOperatorPagesHiddenInDemo();
 app.UseAuthorization();
 app.UseAntiforgery();
 

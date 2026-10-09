@@ -52,12 +52,11 @@ public class SiteShellTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal(HttpStatusCode.OK, (await app.CreateClient().GetAsync("/_framework/blazor.web.js")).StatusCode);
     }
 
-    // The deploy writes its stamp to the App Service setting LATEST_BUILD_INFO; every page, client and
-    // admin, shows it quietly at the foot.
+    // The deploy writes its stamp to the App Service setting LATEST_BUILD_INFO; every page shows it
+    // quietly at the foot. (The admin layout's, in Enforced below: the demo has no admin pages.)
     [Theory]
     [InlineData("/")]
     [InlineData("/campaigns")]
-    [InlineData("/admin/clients")]
     public async Task Every_page_shows_the_deploy_s_build_stamp_in_its_footer(string path)
     {
         using var stamped = app.WithWebHostBuilder(builder => builder.UseSetting(BuildStamp.Setting, Stamp));
@@ -94,5 +93,20 @@ public class EnforcedHomeTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         Assert.Contains("Sign-in is not set up yet, so this app does not show or change any campaigns.", page);
         Assert.DoesNotContain("Write a campaign from one of your templates", page);
+    }
+
+    [Fact]
+    public async Task The_admin_layout_shows_the_build_stamp_too()
+    {
+        const string stamp = "Build 73 (local) | Commit ae0d72c1a2b3 | Branch main | 2026-10-09T18:00:00Z";
+        using var stamped = app.WithWebHostBuilder(builder => builder.UseSetting(BuildStamp.Setting, stamp));
+        var client = stamped.CreateClient(new() { AllowAutoRedirect = false });
+        client.SignedIn([Neelam.Web.Security.Features.Operator], []);
+
+        var response = await client.GetAsync("/admin/clients");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains($"<footer class=\"site-footer\"><span class=\"build-stamp\">{stamp}</span></footer>",
+            WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync()));
     }
 }
