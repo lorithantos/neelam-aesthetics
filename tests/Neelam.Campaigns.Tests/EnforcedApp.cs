@@ -14,9 +14,41 @@ namespace Neelam.Campaigns.Tests;
 /// The app as it will be at rollout: hosted in-process with the ENFORCING policies, whatever mode
 /// Program runs in today, so every page's attribute is proven before the switch rather than on the
 /// day of it. Requests sign in through <see cref="TestSignIn"/>, and storage is in memory, so no
-/// test reaches the network.
+/// test reaches the network. Enforced is what production runs, so this is also never the demo.
 /// </summary>
-public sealed class EnforcedApp : WebApplicationFactory<Program>
+public sealed class EnforcedApp : InMemoryApp
+{
+    protected override void ConfigureAccess(IServiceCollection services)
+    {
+        services.AddFeatureAccess(
+            AccessMode.Enforced, new NamedEnvironment(Environments.Development), CallerSourceTests.Settings());
+        services.AddTestSignIn();
+    }
+}
+
+/// <summary>
+/// The app as the test site runs it today: Prototype access, as Program registers it, which is the
+/// demo. Everyone gets through, as the prototype's fixed caller, a member of
+/// <see cref="Client"/>. Storage is in memory, as for <see cref="EnforcedApp"/>.
+/// </summary>
+public sealed class DemoApp : InMemoryApp
+{
+    internal static readonly ClientName Client = new("test-salon-one");
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting(PrototypeCallerSource.ClientSetting, Client.ToString());
+        base.ConfigureWebHost(builder);
+    }
+
+    // Program's own registration stands: Prototype, the demo.
+    protected override void ConfigureAccess(IServiceCollection services)
+    {
+    }
+}
+
+/// <summary>The app hosted in-process over in-memory storage and a manual clock; the access mode is the subclass's.</summary>
+public abstract class InMemoryApp : WebApplicationFactory<Program>
 {
     internal InMemoryContainers Containers { get; } = new();
     internal InMemoryClientDirectory Clients { get; } = new();
@@ -26,6 +58,8 @@ public sealed class EnforcedApp : WebApplicationFactory<Program>
     /// <summary>The app's own stores, over <see cref="Containers"/>.</summary>
     internal ClientStores Stores => Services.GetRequiredService<ClientStores>();
 
+    protected abstract void ConfigureAccess(IServiceCollection services);
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Development");
@@ -33,9 +67,7 @@ public sealed class EnforcedApp : WebApplicationFactory<Program>
         builder.UseSetting("Storage:TableServiceUri", "https://test.table.core.windows.net/");
         builder.ConfigureTestServices(services =>
         {
-            services.AddFeatureAccess(
-                AccessMode.Enforced, new NamedEnvironment(Environments.Development), CallerSourceTests.Settings());
-            services.AddTestSignIn();
+            ConfigureAccess(services);
 
             services.RemoveAll<TimeProvider>().AddSingleton<TimeProvider>(Clock);
             // In memory, with the grace period the app is configured with, as Program wires it.

@@ -1,5 +1,12 @@
 ﻿@inherits LayoutComponentBase
-@* What a client's people see. No admin links: the operator's pages use AdminLayout, under /admin. *@
+@* What a client's people see. No admin links: the operator's pages use AdminLayout, under /admin.
+   On the demo (Prototype access, the test site only) every page says what is different. *@
+@inject SiteMode Site
+
+@if (Site.IsDemo)
+{
+    <p class="demo-banner" role="note">This is a demo. What you save here is kept on a test system, not your own account, and the AI proofread isn't switched on yet.</p>
+}
 
 <header class="site-header">
     <div class="site-header-inner">

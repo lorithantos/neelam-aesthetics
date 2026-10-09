@@ -57,6 +57,21 @@ public static class CampaignGate
         return new ReviewReport(campaign, findings, Proofread: true);
     }
 
+    /// <summary>
+    /// The demo site's review, for a campaign a person has approved: the rule checks alone, with the
+    /// approval standing in for the AI proofread while it is not switched on. The report says it was
+    /// not proofread (<see cref="ReviewReport.Proofread"/> is false) and carries the approval; it
+    /// allows export only when the rules find nothing blocking. The web app calls this only in
+    /// Prototype access mode, which runs only on the test site; Enforced, as in production, never
+    /// does, so there export still needs <see cref="ReviewAsync"/> and the proofread.
+    /// </summary>
+    public static ReviewReport DemoReview(
+        Campaign campaign, Approval approval, CampaignPolicy? policy = null, BusinessContext? business = null)
+    {
+        ArgumentNullException.ThrowIfNull(approval);
+        return CampaignReview.Check(campaign, policy, business) with { DemoApproval = approval };
+    }
+
     private static Finding ApplyDismissals(Finding f, IReadOnlyCollection<Dismissal>? dismissals)
     {
         if (!f.IsDismissable || dismissals is null) return f;

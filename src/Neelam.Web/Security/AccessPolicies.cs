@@ -82,6 +82,10 @@ public static class AccessPolicies
         else
             services.AddScoped<ICallerSource, SignInCallerSource>();
 
+        // The demo is Prototype, and nothing else: replaced with the mode, like the caller.
+        services.RemoveAll<SiteMode>();
+        services.AddSingleton(new SiteMode(IsDemo: mode == AccessMode.Prototype));
+
         services.AddAuthorization(options =>
         {
             foreach (var feature in Features.All)

@@ -5,6 +5,7 @@
    layout carries no admin links. Open means protected only by obscurity: accepted by the owner on
    2026-10-09 for now, since the email already went to Neelam's customers. *@
 @attribute [AllowAnonymous]
+@inject SiteMode Site
 
 <PageTitle>How it works</PageTitle>
 
@@ -88,9 +89,10 @@
     <h2 id="step-approve">4. Approve</h2>
     <p>
         A person signs off on the checked campaign before it can leave. Nothing is exported while
-        anything is still blocking it.
+        anything is still blocking it. The approval is of that exact version: change it, or save it
+        again, and it needs approving again. It can also be withdrawn.
     </p>
-    <p class="muted">Being built.</p>
+    <p class="muted">Try it: in <a href="campaigns">Campaigns</a>, finish and save a campaign, then approve it with your name.</p>
 </section>
 
 <section class="card" aria-labelledby="step-send">
@@ -118,7 +120,14 @@
                 : "").
         </p>
     }
-    <p class="muted">Being built.</p>
+    @if (Site.IsDemo)
+    {
+        <p class="muted">Try it: once a campaign is approved, its blocks appear on its page in <a href="campaigns">Campaigns</a>, each with a copy button. Here the AI proofread isn't switched on yet, so each block is marked "Not proofread by AI yet".</p>
+    }
+    else
+    {
+        <p class="muted">Approved campaigns are in <a href="campaigns">Campaigns</a>. Their blocks come with copy buttons once the AI proofread is switched on.</p>
+    }
 </section>
 
 @code {

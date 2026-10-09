@@ -24,6 +24,21 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   blocker. Sending without it takes a named dismissal.
 - An AI finding whose quoted excerpt isn't actually in the email is downgraded to a warning
   rather than trusted.
+- **A person approves** a saved campaign with nothing left to fix: no missing part and no "Must
+  fix" finding. The approval (a name and the UTC time) is kept in that save blob's own metadata,
+  so it belongs to that exact version and is deleted with it. Any edit or later save is not
+  approved; undoing a save drops its approval; an approval can be withdrawn. Approving takes the
+  `Campaigns.Review` feature. Until sign-in exists the approver types their name.
+
+**The demo exception (owner, 2026-10-09).** The test site is a full demo for a client to walk
+every step on, and it runs Prototype access, which is refused in Production. There, and only
+there, an **approved** campaign whose rules pass exports without the AI proofread, which is not
+switched on yet: `CampaignGate.DemoReview` returns a report with `Proofread` false and the
+approval in `DemoApproval`, and every exported block says "Not proofread by AI yet". Nothing fakes
+a proofread result. Enforced access, which production runs, never takes this path, so there
+export still needs `CampaignGate.ReviewAsync` and the proofread; tests pin both sides
+(`EnforcedIsNotTheDemoTests`, `The_rules_alone_never_unlock_export`). Real security arrives with
+the real approval and sign-in.
 
 ## Templates and drafts
 
@@ -96,7 +111,7 @@ the client's own container (see [Clients and access](#clients-and-access)):
 - **Every save is a new blob.** Nothing is overwritten; two saves in the same instant get
   different names.
 - **Saves have no index.** Lists are read from the blob names, and the title is in the blob's own
-  metadata. The tables hold clients, members and approvals, never a list of saves. Deleting a
+  metadata. The tables hold clients and support grants, never a list of saves. Deleting a
   blob therefore leaves no record of it: delete the newest save and the previous one becomes the
   latest; delete them all and the campaign is gone.
 - **Undo marks a save; a sweep deletes it a day later.** Undo on a draft or template does not
@@ -126,7 +141,7 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants, approvals and dismissals | The app. The operator manages clients |
+| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, and the phone numbers it may publish), support grants and dismissals. Approvals are not here: each lives in its save's own metadata | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json` | That client's members and the operator; the standard baseline is read for every client |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline if it saved one | The client's members. The operator only under a support grant |
 

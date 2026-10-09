@@ -8,8 +8,13 @@ public enum DocumentKind { Draft, Template }
 /// <param name="Id">The campaign or template this save belongs to.</param>
 /// <param name="Title">Shown in lists; stored in the blob's own metadata.</param>
 /// <param name="UndoneAt">When the save was undone, or null for a save in use. Stored in the blob's own metadata.</param>
+/// <param name="Approval">
+/// Who approved this exact save, and when; null when nobody has. Stored in the blob's own metadata,
+/// so it goes wherever the save goes, and is deleted with it.
+/// </param>
 public sealed record SaveRef(
-    DocumentKind Kind, Guid Id, DateTimeOffset SavedAt, string Title, string BlobName, DateTimeOffset? UndoneAt = null);
+    DocumentKind Kind, Guid Id, DateTimeOffset SavedAt, string Title, string BlobName, DateTimeOffset? UndoneAt = null,
+    Approval? Approval = null);
 
 /// <summary>
 /// Saves drafts and templates as date/time-stamped blobs:
@@ -31,6 +36,8 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
 {
     private const string TitleKey = "title";
     private const string UndoneKey = "undone";
+    private const string ApprovedByKey = "approvedby";
+    private const string ApprovedAtKey = "approvedat";
 
     public Task<SaveRef> SaveDraftAsync(Guid id, string title, CampaignDraft draft, CancellationToken ct = default) =>
         SaveAsync(DocumentKind.Draft, id, title, CampaignJson.SerializeDraft(draft), ct);
@@ -68,11 +75,54 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
     {
         var blob = await FindAsync(save, ct) ?? throw new InvalidOperationException("That save is already gone.");
         var at = clock.GetUtcNow();
-        var metadata = new Dictionary<string, string>(blob.Metadata) { [UndoneKey] = at.ToString("o", CultureInfo.InvariantCulture) };
+        // An undone save drops its approval with it: restored, it comes back unapproved.
+        var metadata = blob.Metadata.Where(m => !IsApprovalKey(m.Key)).ToDictionary(m => m.Key, m => m.Value);
+        metadata[UndoneKey] = at.ToString("o", CultureInfo.InvariantCulture);
         if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct))
             throw new InvalidOperationException("That save is already gone.");
-        return save with { UndoneAt = at };
+        return save with { UndoneAt = at, Approval = null };
     }
+
+    /// <summary>
+    /// Records that <paramref name="approvedBy"/> approved this exact draft save, now, in the save's
+    /// own metadata: no table or list of approvals, so deleting the save deletes its approval too.
+    /// Whether the campaign may be approved is the caller's to decide (<see cref="DraftSession"/>).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The save is gone or undone.</exception>
+    public async Task<SaveRef> ApproveAsync(SaveRef save, string approvedBy, CancellationToken ct = default)
+    {
+        Expect(save, DocumentKind.Draft);
+        if (string.IsNullOrWhiteSpace(approvedBy))
+            throw new ArgumentException("An approval needs the approver's name.", nameof(approvedBy));
+        var blob = await FindAsync(save, ct);
+        if (blob is null || !TryParse(save.Kind, blob, out var current) || current.UndoneAt is not null)
+            throw new InvalidOperationException("That save is gone, so it cannot be approved.");
+
+        var approval = new Approval(approvedBy.Trim(), clock.GetUtcNow());
+        var metadata = new Dictionary<string, string>(blob.Metadata)
+        {
+            [ApprovedByKey] = Uri.EscapeDataString(approval.By),
+            [ApprovedAtKey] = approval.At.ToString("o", CultureInfo.InvariantCulture),
+        };
+        if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct))
+            throw new InvalidOperationException("That save is gone, so it cannot be approved.");
+        return current with { Approval = approval };
+    }
+
+    /// <summary>Takes an approval back: the save stays, unapproved.</summary>
+    /// <exception cref="InvalidOperationException">The save is gone.</exception>
+    public async Task<SaveRef> WithdrawApprovalAsync(SaveRef save, CancellationToken ct = default)
+    {
+        var blob = await FindAsync(save, ct);
+        if (blob is null || !TryParse(save.Kind, blob, out var current))
+            throw new InvalidOperationException("That save is already gone.");
+        var metadata = blob.Metadata.Where(m => !IsApprovalKey(m.Key)).ToDictionary(m => m.Key, m => m.Value);
+        if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct))
+            throw new InvalidOperationException("That save is already gone.");
+        return current with { Approval = null };
+    }
+
+    private static bool IsApprovalKey(string key) => key is ApprovedByKey or ApprovedAtKey;
 
     /// <summary>When an undone save can no longer be restored, and the sweep may delete it.</summary>
     public DateTimeOffset? RestorableUntil(SaveRef save) => save.UndoneAt + undoGracePeriod;
@@ -192,7 +242,13 @@ public sealed class CampaignStore(IBlobBackend blobs, TimeProvider clock, TimeSp
                                  && DateTimeOffset.TryParse(u, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var when)
             ? when
             : null;
-        save = new SaveRef(kind, id, at, title, blob.Name, undone);
+        // Half an approval, or one that cannot be read, is no approval: it fails closed.
+        var approval = blob.Metadata.TryGetValue(ApprovedByKey, out var by) && by.Length > 0
+                       && blob.Metadata.TryGetValue(ApprovedAtKey, out var a)
+                       && DateTimeOffset.TryParse(a, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var approvedAt)
+            ? new Approval(Uri.UnescapeDataString(by), approvedAt)
+            : null;
+        save = new SaveRef(kind, id, at, title, blob.Name, undone, approval);
         return true;
     }
 

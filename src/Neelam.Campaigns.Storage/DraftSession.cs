@@ -12,13 +12,19 @@ public sealed class DraftSession
 {
     private readonly CampaignStore _store;
 
-    private DraftSession(CampaignStore store, Guid? id, CampaignEditor editor, SaveRef? latest, SaveRef? restorable = null)
+    // The draft as last saved or opened, to tell an edit since then; null before the first save.
+    private string? _saved;
+
+    private DraftSession(
+        CampaignStore store, Guid? id, CampaignEditor editor, SaveRef? latest, SaveRef? restorable = null, SaveRef? superseded = null)
     {
         _store = store;
         Id = id;
         Editor = editor;
         Latest = latest;
         Restorable = restorable;
+        SupersededApproval = superseded;
+        _saved = latest is null ? null : CampaignJson.SerializeDraft(editor.Draft);
     }
 
     /// <summary>The campaign's id; null until a new campaign is first saved.</summary>
@@ -34,6 +40,57 @@ public sealed class DraftSession
 
     /// <summary>Until when <see cref="Restorable"/> can be restored.</summary>
     public DateTimeOffset? RestorableUntil => Restorable is null ? null : _store.RestorableUntil(Restorable);
+
+    /// <summary>True when the form holds anything not in <see cref="Latest"/>, or nothing is saved yet.</summary>
+    public bool HasUnsavedChanges =>
+        _saved is null || Editor.Errors().Count > 0 || CampaignJson.SerializeDraft(Editor.Draft) != _saved;
+
+    /// <summary>
+    /// The approval in force: <see cref="Latest"/>'s, while the form still holds exactly what was
+    /// approved. Null once anything is edited or saved since, and when nobody approved it.
+    /// </summary>
+    public Approval? CurrentApproval => HasUnsavedChanges ? null : Latest?.Approval;
+
+    /// <summary>
+    /// An earlier version's approval that a later save has left behind, so the page can say the
+    /// campaign was approved and is no longer; null when <see cref="Latest"/> is approved itself or
+    /// no earlier version was.
+    /// </summary>
+    public SaveRef? SupersededApproval { get; private set; }
+
+    /// <summary>
+    /// Why the campaign cannot be approved as it stands, or null when it can: saved, unchanged since,
+    /// built with no part missing, and nothing the rules must stop.
+    /// </summary>
+    public string? CannotApprove(CampaignPolicy? policy = null, BusinessContext? business = null)
+    {
+        if (Latest is null || HasUnsavedChanges) return "Save the campaign first: an approval is of a saved version.";
+        var status = Editor.Status(policy, business);
+        if (status.Review is null || status.Review.Blockers.Any())
+            return "Fix everything marked Must fix first.";
+        return null;
+    }
+
+    /// <summary>
+    /// Approves the saved version as it stands, in the approver's name, now. Recorded with the save
+    /// itself, so a later edit or save is not approved, and undoing the save drops it.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">It cannot be approved; <see cref="CannotApprove"/> says why.</exception>
+    public async Task<Approval> ApproveAsync(
+        string approvedBy, CampaignPolicy? policy = null, BusinessContext? business = null, CancellationToken ct = default)
+    {
+        if (CannotApprove(policy, business) is { } why) throw new InvalidOperationException(why);
+        Latest = await _store.ApproveAsync(Latest!, approvedBy, ct);
+        SupersededApproval = null;
+        return Latest.Approval!;
+    }
+
+    /// <summary>Withdraws the approval of the saved version; the campaign stays as it is.</summary>
+    public async Task WithdrawApprovalAsync(CancellationToken ct = default)
+    {
+        if (Latest?.Approval is null) throw new InvalidOperationException("There is no approval to withdraw.");
+        Latest = await _store.WithdrawApprovalAsync(Latest, ct);
+    }
 
     /// <summary>The newest version of each of the client's campaigns, newest first.</summary>
     public static Task<IReadOnlyList<SaveRef>> ListAsync(CampaignStore store, CancellationToken ct = default) =>
@@ -54,12 +111,19 @@ public sealed class DraftSession
     /// </summary>
     public static async Task<DraftSession?> OpenAsync(CampaignStore store, Guid id, CancellationToken ct = default)
     {
-        var latest = (await store.HistoryAsync(DocumentKind.Draft, id, ct)).FirstOrDefault();
+        var history = await store.HistoryAsync(DocumentKind.Draft, id, ct);
+        var latest = history.FirstOrDefault();
         return latest is null
             ? null
             : new DraftSession(store, id, CampaignEditor.Open(await store.LoadDraftAsync(latest, ct)), latest,
-                await store.RestorableAsync(DocumentKind.Draft, id, ct));
+                await store.RestorableAsync(DocumentKind.Draft, id, ct), Superseded(history));
     }
+
+    // The newest earlier version with an approval, when the newest itself has none.
+    private static SaveRef? Superseded(IReadOnlyList<SaveRef> history) =>
+        history.Count == 0 || history[0].Approval is not null
+            ? null
+            : history.Skip(1).FirstOrDefault(s => s.Approval is not null);
 
     /// <summary>The undone version of a campaign Restore would bring back, or null.</summary>
     public static Task<SaveRef?> RestorableAsync(CampaignStore store, Guid id, CancellationToken ct = default) =>
@@ -79,9 +143,13 @@ public sealed class DraftSession
     public async Task<SaveRef> SaveAsync(CancellationToken ct = default)
     {
         Id ??= Guid.NewGuid();
+        var before = Latest;
         Latest = await _store.SaveDraftAsync(Id.Value, Editor.Title, Editor.Draft, ct);
+        _saved = CampaignJson.SerializeDraft(Editor.Draft);
         // Saved over: an undone version below the new one is no longer offered back.
         Restorable = null;
+        // A new version is not approved, whatever the one before it was.
+        if (before?.Approval is not null) SupersededApproval = before;
         return Latest;
     }
 
@@ -118,10 +186,17 @@ public sealed class DraftSession
     // Reads the campaign back from storage after an undo or a restore.
     private async Task<bool> ReopenAsync(CancellationToken ct)
     {
-        Latest = (await _store.HistoryAsync(DocumentKind.Draft, Id!.Value, ct)).FirstOrDefault();
+        var history = await _store.HistoryAsync(DocumentKind.Draft, Id!.Value, ct);
+        Latest = history.FirstOrDefault();
+        SupersededApproval = Superseded(history);
         Restorable = await _store.RestorableAsync(DocumentKind.Draft, Id.Value, ct);
-        if (Latest is null) return false;
+        if (Latest is null)
+        {
+            _saved = null;
+            return false;
+        }
         Editor = CampaignEditor.Open(await _store.LoadDraftAsync(Latest, ct));
+        _saved = CampaignJson.SerializeDraft(Editor.Draft);
         return true;
     }
 }

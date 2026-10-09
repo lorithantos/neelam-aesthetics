@@ -32,8 +32,17 @@ public sealed record ReviewReport(Campaign Campaign, IReadOnlyList<Finding> Find
     public IEnumerable<Finding> Warnings => Findings.Where(f => f.Severity == Severity.Warning);
 
     /// <summary>
-    /// Export needs both halves: the rule checks and the AI proofread, with nothing blocking.
-    /// A rules-only report never allows export.
+    /// The demo site's exception, and only that: the approval that stands in for the AI proofread
+    /// while it is not switched on. Set by <see cref="CampaignGate.DemoReview"/> alone (it cannot be
+    /// set outside this library), and never together with <see cref="Proofread"/>, so a report it
+    /// unlocks still says plainly that nobody proofread the email. Null on every other report.
     /// </summary>
-    public bool CanExport => Proofread && !Blockers.Any();
+    public Approval? DemoApproval { get; internal init; }
+
+    /// <summary>
+    /// Export needs both halves: the rule checks and the AI proofread, with nothing blocking.
+    /// A rules-only report never allows export, except the demo's: approved by a person, with
+    /// nothing blocking, and marked as not proofread.
+    /// </summary>
+    public bool CanExport => (Proofread || DemoApproval is not null) && !Blockers.Any();
 }

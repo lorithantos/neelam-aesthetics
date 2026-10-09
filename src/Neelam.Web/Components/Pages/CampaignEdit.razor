@@ -2,14 +2,20 @@
 @page "/campaigns/{Id:guid}"
 @* Writing a campaign: the access check decides whose, on top of the policy. The page only binds to
    CampaignEditor (through DraftSession); the checks shown are the rules alone, run over what is
-   filled in even while parts are missing, and export stays locked until the AI proofread is
-   switched on, as EditorExport.Blocks requires. The offer and photo fields are child components,
-   which tell the page of each change so the checks follow what is typed. *@
+   filled in even while parts are missing. A saved campaign with nothing left to fix can be
+   approved, by name; the approval is of that save, so any edit or later save undoes it. Approving
+   and exporting take the Review feature on top of Campaigns. Export needs the AI proofread, as
+   EditorExport.Blocks requires, so it stays locked, except on the demo (SiteMode, which is
+   Prototype access): there an approved campaign the rules pass exports through
+   CampaignGate.DemoReview, every block marked as not proofread. The offer and photo fields are
+   child components, which tell the page of each change so the checks follow what is typed. *@
 @attribute [Authorize(Policy = Features.Campaigns)]
 @rendermode InteractiveServer
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
+@inject SiteMode Site
+@inject IAuthorizationService Authorization
 
 <PageTitle>@Title</PageTitle>
 
@@ -36,6 +42,9 @@ else if (_session is not null)
     var editor = _session.Editor;
     var errors = editor.Errors();
     var status = editor.Status(_policy, _business);
+    var approval = _session.CurrentApproval;
+    var cannotApprove = _session.CannotApprove(_policy, _business);
+    var export = DemoExport(status, approval);
 
     <h1>@Title</h1>
     <p><a href="campaigns">Back to campaigns</a>@(editor.TemplateName is { } template ? $" · From the template {template}" : "")</p>
@@ -221,9 +230,114 @@ else if (_session is not null)
             </section>
 
             <section class="card">
-                <h2>Export</h2>
-                <p class="muted">Export comes once the AI proofread is switched on. A campaign leaves only after both the rules and the proofread have passed it.</p>
+                <h2>Approve</h2>
+                @if (!_canReview)
+                {
+                    <p class="muted">Approving and exporting take the review permission, which you do not have.</p>
+                }
+                else if (approval is not null)
+                {
+                    <p class="approved" role="status">Approved by @approval.By, @approval.At.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    <p class="field-help">The approval is of this saved version. Any change, or a new save, needs approving again.</p>
+                    <button class="button" @onclick="WithdrawAsync">Withdraw approval</button>
+                }
+                else
+                {
+                    @if (_session.Latest?.Approval is { } lapsed)
+                    {
+                        <p role="status">Approved by @lapsed.By, but changed since, so it is no longer approved.</p>
+                    }
+                    else if (_session.SupersededApproval?.Approval is { } earlier)
+                    {
+                        <p role="status">An earlier version was approved by @earlier.By. It has been saved since, so this version is not approved.</p>
+                    }
+                    @if (cannotApprove is not null)
+                    {
+                        <p class="field-help">@cannotApprove</p>
+                    }
+                    else
+                    {
+                        <p class="field-help">Nothing is left to fix. A person approves the campaign before it can be copied into Square.</p>
+                        <div class="field">
+                            <label for="approver">Your name</label>
+                            <input id="approver" @bind="_approver" @bind:event="oninput" />
+                        </div>
+                        <button class="button primary" disabled="@string.IsNullOrWhiteSpace(_approver)" @onclick="ApproveAsync">Approve</button>
+                    }
+                }
             </section>
+
+            @if (export is not null)
+            {
+                <section class="card">
+                    <h2>Copy into Square</h2>
+                    <p><span class="not-proofread">Not proofread by AI yet</span></p>
+                    <p class="field-help">Approved, and the rules find nothing to stop it. The AI proofread isn't switched on yet, so read each block as you paste it. Paste them into Square's editor in this order.</p>
+                    <ol class="export-blocks">
+                        @for (var i = 0; i < export.Count; i++)
+                        {
+                            var block = export[i];
+                            var id = $"export-{i}";
+                            <li class="export-block">
+                                <div class="block-card-head">
+                                    <strong>@(i + 1). @KindName(block.Kind)</strong>
+                                    <span class="not-proofread">Not proofread by AI yet</span>
+                                </div>
+                                @switch (block.Kind)
+                                {
+                                    case BlockKind.Spacer:
+                                        <p class="field-help">A spacer: nothing to copy.</p>
+                                        break;
+                                    case BlockKind.Image:
+                                        <p>Photo: @block.Image?.Name</p>
+                                        @if (block.Text.Length > 0)
+                                        {
+                                            <pre id="@id">@block.Text</pre>
+                                            <button type="button" class="button" data-copy="@id">Copy description</button>
+                                        }
+                                        break;
+                                    case BlockKind.Button:
+                                        <pre id="@id">@block.Text</pre>
+                                        @if (block.Url is not null)
+                                        {
+                                            <pre id="@($"{id}-link")">@block.Url</pre>
+                                        }
+                                        <div class="copy-actions">
+                                            <button type="button" class="button" data-copy="@id">Copy button text</button>
+                                            @if (block.Url is not null)
+                                            {
+                                                <button type="button" class="button" data-copy="@($"{id}-link")">Copy link</button>
+                                            }
+                                        </div>
+                                        break;
+                                    default:
+                                        <pre id="@id">@block.Text</pre>
+                                        @if (block.Kind == BlockKind.Header && block.Image is not null)
+                                        {
+                                            <p class="field-help">Over the photo @block.Image.Name.</p>
+                                        }
+                                        <button type="button" class="button" data-copy="@id">Copy</button>
+                                        break;
+                                }
+                            </li>
+                        }
+                    </ol>
+                </section>
+            }
+            else
+            {
+                <section class="card">
+                    <h2>Export</h2>
+                    @if (Site.IsDemo)
+                    {
+                        <p class="muted">On this demo, export comes once the campaign is approved with nothing left to fix. The AI proofread isn't switched on yet, so its blocks will be marked as not proofread.</p>
+                    }
+                    else
+                    {
+                        <p class="muted">Export comes once the AI proofread is switched on. A campaign leaves only after both the rules and the proofread have passed it.</p>
+                    }
+                </section>
+            }
         </aside>
     </div>
 }
@@ -249,6 +363,13 @@ else if (_session is not null)
     private string? _message;
     private bool _confirmingUndo;
 
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthenticationState { get; set; }
+
+    // Approving and exporting are the Review feature, on top of the page's Campaigns.
+    private bool _canReview;
+    private string _approver = "";
+
     private string Title => _session is null ? "Campaign" : _session.Editor.Title;
 
     protected override async Task OnInitializedAsync()
@@ -259,6 +380,8 @@ else if (_session is not null)
             _denied = reason;
             return;
         }
+        if (AuthenticationState is not null)
+            _canReview = (await Authorization.AuthorizeAsync((await AuthenticationState).User, Features.Review)).Succeeded;
 
         var store = _store = Stores.Campaigns(client);
         if (Id is { } id)
@@ -280,8 +403,9 @@ else if (_session is not null)
     private async Task SaveAsync()
     {
         var isNew = _session!.Id is null;
+        var wasApproved = _session.Latest?.Approval is not null;
         var saved = await _session.SaveAsync();
-        _message = $"Saved at {saved.SavedAt:HH:mm:ss} UTC.";
+        _message = $"Saved at {saved.SavedAt:HH:mm:ss} UTC." + (wasApproved ? " This version is not approved yet." : "");
         _confirmingUndo = false;
         // The address now names the campaign, so a reload opens what was saved.
         if (isNew) Navigation.NavigateTo($"campaigns/{saved.Id}", replace: true);
@@ -318,6 +442,56 @@ else if (_session is not null)
         if (_session is null) _missing = "Campaign not found";
         else _message = "The undone save is back and open.";
     }
+
+    private async Task ApproveAsync()
+    {
+        if (!_canReview) return;
+        try
+        {
+            var approval = await _session!.ApproveAsync(_approver, _policy, _business);
+            _message = $"Approved by {approval.By}.";
+            _approver = "";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            _message = ex.Message;
+        }
+    }
+
+    private async Task WithdrawAsync()
+    {
+        if (!_canReview) return;
+        try
+        {
+            await _session!.WithdrawApprovalAsync();
+            _message = "The approval is withdrawn.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            _message = ex.Message;
+        }
+    }
+
+    // The demo's export, and only the demo's: an approved campaign, unchanged since, that the rules
+    // pass, reviewed without the proofread and marked so. Null everywhere else, Enforced included,
+    // where export waits for the proofread.
+    private IReadOnlyList<EditorBlock>? DemoExport(DraftStatus status, Approval? approval)
+    {
+        if (!Site.IsDemo || !_canReview || approval is null || status.Review is null) return null;
+        var report = CampaignGate.DemoReview(status.Review.Campaign, approval, _policy, _business);
+        return report.CanExport ? EditorExport.Blocks(report) : null;
+    }
+
+    private static string KindName(BlockKind kind) => kind switch
+    {
+        BlockKind.Header => "Header",
+        BlockKind.Heading => "Text, heading style",
+        BlockKind.Text => "Text",
+        BlockKind.Image => "Image",
+        BlockKind.Button => "Button",
+        BlockKind.Spacer => "Spacer",
+        _ => kind.ToString(),
+    };
 
     // The grace period in words, such as "24 hours".
     private static string Period(TimeSpan period) =>

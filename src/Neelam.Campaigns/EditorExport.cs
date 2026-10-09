@@ -150,7 +150,7 @@ public static class EditorExport
 }
 
 public sealed class CampaignBlockedException(ReviewReport report)
-    : InvalidOperationException(report.Proofread
+    : InvalidOperationException(report.Proofread || report.DemoApproval is not null
         ? $"Campaign has {report.Blockers.Count()} blocking problem(s): " +
           string.Join("; ", report.Blockers.Select(b => b.Message))
         : "Campaign has not been through the full review (rules and AI proofread).")
