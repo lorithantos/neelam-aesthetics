@@ -1,0 +1,152 @@
+@* A tiered offer being written: its name and summary, then each tier with its typed benefits.
+   Copying a tier is OfferDraft.CopyTier's: no name or price, and every copied benefit marked as not
+   yet checked until it is changed or confirmed. *@
+<div class="field">
+    <label for="offer-name-@Index">Offer name</label>
+    <input id="offer-name-@Index" @bind="Offer.Name.Text" @bind:event="oninput" />
+    <span class="field-help">Shown as the offer's heading.</span>
+</div>
+<div class="field">
+    <label for="offer-summary-@Index">Summary</label>
+    <textarea id="offer-summary-@Index" @bind="Offer.Summary.Text" @bind:event="oninput"></textarea>
+    <span class="field-help">One or two sentences on what the offer is.</span>
+</div>
+<div class="field">
+    <label for="offer-note-@Index">Note above the tiers (optional)</label>
+    <input id="offer-note-@Index" @bind="Offer.TiersNote.Text" @bind:event="oninput" />
+    <span class="field-help">Said once, above every tier, never repeated per tier.</span>
+</div>
+<div class="field">
+    <label for="offer-terms-@Index">Terms link@(Offer.IsRecurring ? "" : " (optional)")</label>
+    <input id="offer-terms-@Index" type="url" @bind="Offer.TermsLink.Text" @bind:event="oninput" />
+    <span class="field-help">@(Offer.TermsLink.Error ?? "Where cancellation, rollover and refund terms live.")</span>
+</div>
+
+<h4>Tiers</h4>
+@if (Offer.Tiers.Count == 0)
+{
+    <p class="muted">No tiers yet.</p>
+}
+@for (var t = 0; t < Offer.Tiers.Count; t++)
+{
+    var tierNumber = t + 1;
+    var tier = Offer.Tiers[t];
+    var id = $"{Index}-t{t}";
+    <section class="card tier" aria-label="Tier @tierNumber">
+        <div class="block-card-head">
+            <h4>Tier @tierNumber</h4>
+            <div class="block-actions">
+                <button class="button" disabled="@(!Offer.CanCopy(tier))" title="@(Offer.CanCopy(tier) ? null : "Fill in or remove its empty benefits first")" @onclick="() => Offer.CopyTier(tier)">Copy tier</button>
+                <button class="button danger" aria-label="Remove tier @tierNumber" @onclick="() => Offer.RemoveTier(tier)">Remove tier</button>
+            </div>
+        </div>
+        <div class="field">
+            <label for="tier-name-@id">Name</label>
+            <input id="tier-name-@id" @bind="tier.Name.Text" @bind:event="oninput" />
+        </div>
+        <div class="field">
+            <label for="tier-price-@id">Price@(Offer.IsRecurring ? " per month" : ""), in dollars</label>
+            <input id="tier-price-@id" inputmode="decimal" @bind="tier.Price.Text" @bind:event="oninput" />
+            @if (tier.Price.Error is { } priceError)
+            {
+                <span class="field-help" role="alert">@priceError</span>
+            }
+        </div>
+
+        @for (var b = 0; b < tier.Benefits.Count; b++)
+        {
+            var benefitNumber = b + 1;
+            var benefit = tier.Benefits[b];
+            var bid = $"{id}-b{b}";
+            <div class="benefit @(benefit.IsUnreviewed ? "unreviewed" : null)" aria-label="Tier @tierNumber, benefit @benefitNumber">
+                @if (benefit.IsUnreviewed)
+                {
+                    <p>
+                        <strong>Copied from @benefit.CopiedFrom, not yet checked.</strong>
+                        Change it below, or confirm it is right for this tier.
+                        <button class="button" @onclick="benefit.Confirm">Confirm</button>
+                    </p>
+                }
+                <div class="field">
+                    <label for="benefit-kind-@bid">Benefit @benefitNumber</label>
+                    <select id="benefit-kind-@bid" @bind="benefit.Kind">
+                        <option value="">Choose what kind of benefit</option>
+                        @foreach (var kind in BenefitKind.All)
+                        {
+                            <option value="@kind.Key">@kind.Name</option>
+                        }
+                    </select>
+                </div>
+                @switch (benefit.Kind)
+                {
+                    case "birthday-credit":
+                        <div class="field">
+                            <label for="benefit-amount-@bid">Credit, in dollars</label>
+                            <input id="benefit-amount-@bid" inputmode="decimal" @bind="benefit.Amount" @bind:event="oninput" />
+                        </div>
+                        break;
+                    case "percent-off":
+                        <div class="field">
+                            <label for="benefit-percent-@bid">Percent off</label>
+                            <input id="benefit-percent-@bid" inputmode="numeric" @bind="benefit.Percent" @bind:event="oninput" />
+                        </div>
+                        <div class="field">
+                            <label for="benefit-applies-@bid">Off what</label>
+                            <input id="benefit-applies-@bid" @bind="benefit.AppliesTo" @bind:event="oninput" />
+                            <span class="field-help">Such as "any qualifying treatments".</span>
+                        </div>
+                        break;
+                    case "free-item":
+                        <div class="field">
+                            <label for="benefit-quantity-@bid">How many</label>
+                            <input id="benefit-quantity-@bid" inputmode="numeric" @bind="benefit.Quantity" @bind:event="oninput" />
+                        </div>
+                        @ItemFields(benefit, bid)
+                        break;
+                    case "discounted-item":
+                        <div class="field">
+                            <label for="benefit-percent-@bid">Percent off</label>
+                            <input id="benefit-percent-@bid" inputmode="numeric" @bind="benefit.Percent" @bind:event="oninput" />
+                        </div>
+                        @ItemFields(benefit, bid)
+                        <div class="field">
+                            <label for="benefit-condition-@bid">Which ones (optional)</label>
+                            <input id="benefit-condition-@bid" @bind="benefit.Condition" @bind:event="oninput" />
+                            <span class="field-help">Such as "any additional".</span>
+                        </div>
+                        break;
+                }
+                @if (benefit.Error is { } benefitError)
+                {
+                    <p class="field-help" role="alert">@benefitError</p>
+                }
+                else if (benefit.Sentence is { } sentence)
+                {
+                    <p class="field-help">Reads: @sentence</p>
+                }
+                <button class="button danger" aria-label="Remove benefit @benefitNumber of tier @tierNumber" @onclick="() => tier.RemoveBenefit(benefit)">Remove benefit</button>
+            </div>
+        }
+        <p><button class="button" @onclick="() => tier.AddBenefit()">Add a benefit</button></p>
+    </section>
+}
+<p><button class="button" @onclick="() => Offer.AddTier()">Add a tier</button></p>
+
+@code {
+    [Parameter, EditorRequired] public OfferEditor Offer { get; set; } = null!;
+    [Parameter, EditorRequired] public int Index { get; set; }
+
+    // The item and how often: shared by "something free" and "percent off an item".
+    private RenderFragment ItemFields(BenefitEditor benefit, string id) => @<text>
+        <div class="field">
+            <label for="benefit-item-@id">Item</label>
+            <input id="benefit-item-@id" @bind="benefit.ItemName" @bind:event="oninput" />
+            <span class="field-help">Such as "wellness injection".</span>
+        </div>
+        <div class="field">
+            <label for="benefit-per-@id">How often</label>
+            <input id="benefit-per-@id" @bind="benefit.Per" @bind:event="oninput" />
+            <span class="field-help">Such as "per visit".</span>
+        </div>
+    </text>;
+}

@@ -1,0 +1,275 @@
+using System.Reflection;
+using System.Text.Json.Serialization;
+
+namespace Neelam.Campaigns.Tests;
+
+/// <summary>The campaign page's model: every field writes through to the draft, which has the last word.</summary>
+public class CampaignEditorTests
+{
+    private static CampaignEditor Start() => CampaignEditor.Start(DraftFixtures.Membership);
+
+    private static T Block<T>(CampaignEditor editor, string label) where T : BlockEditor =>
+        (T)editor.Blocks.Single(b => b.Label == label);
+
+    private static OfferEditor OfferOf(CampaignEditor editor) => Block<OfferBlockEditor>(editor, "Offer").Offer;
+
+    private static BenefitEditor AddBenefit(TierEditor tier, string kind, Action<BenefitEditor> fill)
+    {
+        var benefit = tier.AddBenefit();
+        benefit.Kind = kind;
+        fill(benefit);
+        return benefit;
+    }
+
+    // ---- Starting and typing
+
+    [Fact]
+    public void A_new_campaign_shows_the_template_s_fixed_parts_and_leaves_the_rest_empty()
+    {
+        var editor = Start();
+
+        Assert.Equal(["Header", "Greeting", "Closing", "Sign-off", "Disclaimer"],
+            editor.Blocks.Where(b => b.IsFixed).Select(b => b.Label));
+        Assert.Contains(Block<BlockEditor>(editor, "Sign-off").FixedPreview, p => p.Text.Contains("With gratitude,"));
+        Assert.Empty(Block<BlockEditor>(editor, "Headline").FixedPreview);
+        Assert.Equal("", editor.Subject.Text);
+        Assert.Equal("", Block<TextBlockEditor>(editor, "Headline").Field.Text);
+        Assert.Empty(OfferOf(editor).Tiers);
+        Assert.Equal("Untitled campaign from Membership announcement", editor.Title);
+    }
+
+    [Fact]
+    public void Typing_fills_the_draft_as_entered_and_clearing_empties_it()
+    {
+        var editor = Start();
+
+        editor.Subject.Text = "  WE’RE TURNING ONE!  ";
+        Assert.Equal(Origin.Entered, editor.Draft.Subject.Origin);
+        Assert.Equal("WE’RE TURNING ONE!", editor.Draft.Subject.Value);
+        Assert.Equal("WE’RE TURNING ONE!", editor.Title);
+        Assert.DoesNotContain(editor.Status().Missing, m => m.Location == "Subject");
+
+        editor.Subject.Text = "   ";
+        Assert.False(editor.Draft.Subject.HasValue);
+        Assert.Contains(editor.Status().Missing, m => m.Location == "Subject" && m.Rule == "draft-missing");
+    }
+
+    [Fact]
+    public void Paragraphs_are_the_chunks_between_blank_lines()
+    {
+        var editor = Start();
+
+        Block<ParagraphsBlockEditor>(editor, "Opening").Text = "One.\r\n\r\nTwo,\nstill two.\n  \nThree.";
+
+        Assert.Equal(["One.", "Two,\nstill two.", "Three."], editor.Draft.Paragraphs("Opening").Value);
+    }
+
+    [Fact]
+    public void A_button_needs_its_text_and_a_web_address_and_says_so_until_it_has_both()
+    {
+        var editor = Start();
+        var button = Block<ButtonBlockEditor>(editor, "Call to action");
+        var slot = editor.Draft.Button("Call to action");
+
+        button.ButtonLabel = "Join the Beauty Bank";
+        Assert.False(slot.HasValue);
+        Assert.Equal("Call to action: Fill in the button's link.", Assert.Single(editor.Errors()));
+
+        button.ButtonUrl = "example.com/join";
+        Assert.Contains("is not a web address", button.Error);
+        Assert.False(slot.HasValue);
+
+        button.ButtonUrl = "https://example.com/join";
+        Assert.Null(button.Error);
+        Assert.Empty(editor.Errors());
+        Assert.Equal(new CallToAction("Join the Beauty Bank", new Uri("https://example.com/join")), slot.Value);
+
+        // Nothing typed is not an error, only missing.
+        button.ButtonLabel = "";
+        button.ButtonUrl = "";
+        Assert.Null(button.Error);
+        Assert.False(slot.HasValue);
+    }
+
+    // An optional photo left empty leaves the block out of the email, and the draft still builds.
+    [Fact]
+    public void An_optional_photo_left_empty_is_left_out()
+    {
+        var editor = CampaignEditor.Open(DraftFixtures.Finished());
+
+        Block<ImageBlockEditor>(editor, "Photo").PhotoName = "  ";
+
+        Assert.False(editor.Draft.Image("Photo").HasValue);
+        var status = editor.Status();
+        Assert.Empty(status.Missing);
+        Assert.DoesNotContain(status.Preview!, b => b.Kind == BlockKind.Image);
+    }
+
+    // ---- Tiers and typed benefits
+
+    [Fact]
+    public void A_price_must_be_an_amount_in_dollars()
+    {
+        var editor = Start();
+        var tier = OfferOf(editor).AddTier();
+        var price = editor.Draft.Offer("Offer").Tiers[0].MonthlyPrice;
+
+        tier.Price.Text = "$149";
+        Assert.Equal(149m, price.Value);
+        tier.Price.Text = "149.50";
+        Assert.Equal(149.50m, price.Value);
+
+        tier.Price.Text = "-5";
+        Assert.False(price.HasValue);
+        Assert.Equal("Offer › Tier 1 › Price: \"-5\" is not an amount in dollars, such as 149 or 149.50.", Assert.Single(editor.Errors()));
+    }
+
+    public static TheoryData<string, Action<BenefitEditor>, Benefit> EveryKind => new()
+    {
+        { "birthday-credit", b => b.Amount = "25", new BirthdayCredit(25m) },
+        { "percent-off", b => { b.Percent = "10%"; b.AppliesTo = "any qualifying treatments"; }, new PercentOff(10, "any qualifying treatments") },
+        { "free-item", b => { b.Quantity = "1"; b.ItemName = "wellness injection"; b.Per = "per visit"; }, new FreeItem(1, "wellness injection", "per visit") },
+        {
+            "discounted-item", b => { b.Percent = "50"; b.ItemName = "wellness injection"; b.Per = "per visit"; b.Condition = "any additional"; },
+            new DiscountedItem(50, "wellness injection", "per visit", "any additional")
+        },
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryKind))]
+    public void Each_kind_of_benefit_has_its_own_fields_and_reopens_with_them(string kind, Action<BenefitEditor> fill, Benefit expected)
+    {
+        var editor = Start();
+        var benefit = AddBenefit(OfferOf(editor).AddTier(), kind, fill);
+
+        Assert.Null(benefit.Error);
+        Assert.Equal(expected, editor.Draft.Offer("Offer").Tiers[0].Benefits[0].Value);
+        Assert.Equal(expected.Describe(), benefit.Sentence);
+
+        var reopened = OfferOf(CampaignEditor.Open(CampaignJson.DeserializeDraft(CampaignJson.SerializeDraft(editor.Draft))))
+            .Tiers[0].Benefits[0];
+        Assert.Equal(kind, reopened.Kind);
+        Assert.Equal(expected.Describe(), reopened.Sentence);
+        Assert.Equal(Origin.Entered, reopened.Origin);
+    }
+
+    [Fact]
+    public void A_benefit_with_only_some_fields_is_empty_and_says_what_is_left()
+    {
+        var editor = Start();
+        var tier = OfferOf(editor).AddTier();
+        var benefit = tier.AddBenefit();
+
+        benefit.Kind = "free-item";
+        Assert.Null(benefit.Error); // chosen, nothing typed: missing, not wrong
+
+        benefit.Quantity = "one";
+        benefit.ItemName = "wellness injection";
+        Assert.Equal("\"one\" is not a whole number. Fill in how often, such as \"per visit\".", benefit.Error);
+        Assert.False(editor.Draft.Offer("Offer").Tiers[0].Benefits[0].HasValue);
+        Assert.Contains("Offer › Tier 1 › Benefit 1: \"one\" is not a whole number.", Assert.Single(editor.Errors()));
+    }
+
+    // The form offers exactly the benefit types the model declares, so a new one cannot be missed.
+    [Fact]
+    public void The_benefit_kinds_offered_are_exactly_the_model_s() =>
+        Assert.Equal(
+            typeof(Benefit).GetCustomAttributes<JsonDerivedTypeAttribute>()
+                .Select(a => ((string)a.TypeDiscriminator!, a.DerivedType)).OrderBy(k => k.Item1, StringComparer.Ordinal),
+            BenefitKind.All.Select(k => (k.Key, k.Type)).OrderBy(k => k.Key, StringComparer.Ordinal));
+
+    [Fact]
+    public void A_copied_tier_has_no_name_or_price_and_each_benefit_waits_until_changed_or_confirmed()
+    {
+        var editor = Start();
+        var offer = OfferOf(editor);
+        var gold = offer.AddTier();
+        gold.Name.Text = "Gold Member";
+        gold.Price.Text = "149";
+        AddBenefit(gold, "birthday-credit", b => b.Amount = "25");
+        AddBenefit(gold, "percent-off", b => { b.Percent = "5"; b.AppliesTo = "any qualifying treatments"; });
+
+        var copy = offer.CopyTier(gold);
+
+        Assert.Equal(["", ""], new[] { copy.Name.Text, copy.Price.Text });
+        Assert.All(copy.Benefits, b => Assert.True(b.IsUnreviewed));
+        Assert.Equal("Tier 1", copy.Benefits[0].CopiedFrom);
+        Assert.Equal("25", copy.Benefits[0].Amount);
+        Assert.Contains(editor.Status().Missing, m => m.Rule == "draft-unreviewed-copy" && m.Location == "Offer › Tier 2 › Benefit 1");
+
+        copy.Benefits[0].Confirm();
+        copy.Benefits[1].Percent = "10";
+
+        Assert.All(copy.Benefits, b => Assert.False(b.IsUnreviewed));
+        Assert.DoesNotContain(editor.Status().Missing, m => m.Rule == "draft-unreviewed-copy");
+        Assert.Equal([new BirthdayCredit(25m), new PercentOff(10, "any qualifying treatments")],
+            editor.Draft.Offer("Offer").Tiers[1].Benefits.Select(b => b.Value));
+    }
+
+    // The draft copies every benefit's value, so an empty one has to go before a tier can be copied.
+    [Fact]
+    public void A_tier_with_an_empty_benefit_is_copied_only_once_it_is_filled_or_removed()
+    {
+        var offer = OfferOf(Start());
+        var gold = offer.AddTier();
+        AddBenefit(gold, "birthday-credit", b => b.Amount = "25");
+        var empty = gold.AddBenefit();
+
+        Assert.False(offer.CanCopy(gold));
+        Assert.Throws<InvalidOperationException>(() => offer.CopyTier(gold));
+
+        gold.RemoveBenefit(empty);
+        Assert.True(offer.CanCopy(gold));
+        Assert.Single(offer.CopyTier(gold).Benefits);
+    }
+
+    [Fact]
+    public void Removing_tiers_and_benefits_keeps_the_form_and_the_draft_in_step()
+    {
+        var editor = Start();
+        var offer = OfferOf(editor);
+        var first = offer.AddTier();
+        var second = offer.AddTier();
+        first.Name.Text = "First";
+        second.Name.Text = "Second";
+
+        offer.RemoveTier(first);
+        var one = AddBenefit(second, "birthday-credit", b => b.Amount = "1");
+        AddBenefit(second, "birthday-credit", b => b.Amount = "2");
+        second.RemoveBenefit(one);
+
+        var tiers = editor.Draft.Offer("Offer").Tiers;
+        Assert.Equal([second], offer.Tiers);
+        Assert.Equal(["Second"], tiers.Select(t => t.Name.Value));
+        Assert.Equal([new BirthdayCredit(2m)], tiers[0].Benefits.Select(b => b.Value));
+        Assert.Equal(["2"], second.Benefits.Select(b => b.Amount));
+    }
+
+    // ---- Where it stands
+
+    [Fact]
+    public void Status_is_what_is_missing_until_the_draft_builds_then_the_rule_findings_and_the_preview()
+    {
+        var unfinished = CampaignEditor.Open(DraftFixtures.SecondSendReplayed()).Status();
+        Assert.Contains(unfinished.Missing, m => m.Rule == "draft-unreviewed-copy");
+        Assert.Contains(unfinished.Missing, m => m.Rule == "draft-missing" && m.Location == "Offer › Tier 2 › Name");
+        Assert.Null(unfinished.Review);
+        Assert.Null(unfinished.Preview);
+
+        var finished = CampaignEditor.Open(DraftFixtures.Finished()).Status();
+        Assert.Empty(finished.Missing);
+        Assert.Equal(CampaignReview.Check(DraftFixtures.Finished().Build().Campaign!).Findings, finished.Review!.Findings);
+        Assert.Contains(finished.Preview!, b => b.Kind == BlockKind.Button && b.Text == "Join the Beauty Bank");
+    }
+
+    // The owner's rule: export needs the AI proofread too, so the page's review can never export.
+    [Fact]
+    public void The_rules_alone_never_unlock_export()
+    {
+        var review = CampaignEditor.Open(DraftFixtures.Finished()).Status().Review!;
+
+        Assert.False(review.Proofread);
+        Assert.False(review.CanExport);
+        Assert.Throws<CampaignBlockedException>(() => EditorExport.Blocks(review));
+    }
+}

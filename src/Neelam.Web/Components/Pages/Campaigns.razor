@@ -1,0 +1,71 @@
+@page "/campaigns"
+@* A client's campaigns are its own data: the access check decides whose, on top of the policy. *@
+@attribute [Authorize(Policy = Features.Campaigns)]
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+
+<PageTitle>Campaigns</PageTitle>
+
+<h1>Campaigns</h1>
+
+@if (_denied is not null)
+{
+    <p>You cannot see campaigns here: @_denied.</p>
+}
+else if (_campaigns is not null && _templates is not null)
+{
+    <p class="muted">@_client's campaigns. Each save is kept as its own version until it is undone.</p>
+
+    <section class="card" aria-labelledby="new-campaign">
+        <h2 id="new-campaign">New campaign</h2>
+        @if (_templates.Count == 0)
+        {
+            <p>There are no templates to start a campaign from yet. <a href="templates/new">Make a template first</a>.</p>
+        }
+        else
+        {
+            <p>Start from one of your templates. Its fixed parts come filled in; everything else starts empty.</p>
+            <div class="block-actions">
+                @foreach (var template in _templates)
+                {
+                    <a class="button" href="campaigns/new/@template.Id">@template.Title</a>
+                }
+            </div>
+        }
+    </section>
+
+    <h2>Your campaigns</h2>
+    @if (_campaigns.Count == 0)
+    {
+        <p>No campaigns yet.</p>
+    }
+    @foreach (var campaign in _campaigns)
+    {
+        <section class="card">
+            <h3>@campaign.Title</h3>
+            <p class="muted">Last saved @campaign.SavedAt.ToString("d MMM yyyy, HH:mm") UTC</p>
+            <a class="button" href="campaigns/@campaign.Id">Open</a>
+        </section>
+    }
+}
+
+@code {
+    private string? _denied;
+    private ClientName? _client;
+    private IReadOnlyList<SaveRef>? _campaigns;
+    private IReadOnlyList<SaveRef>? _templates;
+
+    protected override async Task OnInitializedAsync()
+    {
+        (_client, var reason) = await Workspace.ClientDataAsync();
+        if (_client is null)
+        {
+            _denied = reason;
+            return;
+        }
+        var store = Stores.Campaigns(_client);
+        _campaigns = await DraftSession.ListAsync(store);
+        _templates = (await store.LatestAsync(DocumentKind.Template))
+            .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+}

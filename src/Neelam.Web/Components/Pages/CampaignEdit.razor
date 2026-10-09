@@ -1,0 +1,278 @@
+@page "/campaigns/new/{TemplateId:guid}"
+@page "/campaigns/{Id:guid}"
+@* Writing a campaign: the access check decides whose, on top of the policy. The page only binds to
+   CampaignEditor (through DraftSession); the checks shown are the rules alone, and export stays
+   locked until the AI proofread is switched on, as EditorExport.Blocks requires. *@
+@attribute [Authorize(Policy = Features.Campaigns)]
+@rendermode InteractiveServer
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+@inject NavigationManager Navigation
+
+<PageTitle>@Title</PageTitle>
+
+@if (_denied is not null)
+{
+    <h1>Campaigns</h1>
+    <p>You cannot write campaigns here: @_denied.</p>
+}
+else if (_missing is not null)
+{
+    <h1>@_missing</h1>
+    <p>There is nothing saved here. It may have been deleted. <a href="campaigns">Back to campaigns</a></p>
+}
+else if (_session is not null)
+{
+    var editor = _session.Editor;
+    var errors = editor.Errors();
+    var status = editor.Status(_policy);
+
+    <h1>@Title</h1>
+    <p><a href="campaigns">Back to campaigns</a>@(editor.TemplateName is { } template ? $" · From the template {template}" : "")</p>
+
+    <div class="workspace">
+        <div class="workspace-main">
+            <div class="field">
+                <label for="subject">Subject line</label>
+                <input id="subject" @bind="editor.Subject.Text" @bind:event="oninput" />
+                <span class="field-help">What the reader sees in their inbox.</span>
+            </div>
+
+            <h2>The email, top to bottom</h2>
+            @for (var i = 0; i < editor.Blocks.Count; i++)
+            {
+                var index = i;
+                var block = editor.Blocks[index];
+                if (block is not SpacerBlockEditor)
+                {
+                    <section class="card block-card" aria-label="@block.Label">
+                        <div class="block-card-head">
+                            <h3>@block.Label</h3>
+                            <span class="muted">@BlockGuide.For(block.Type).Name@(block.IsFixed ? " · the same in every campaign" : block.Required ? "" : " · optional")</span>
+                        </div>
+
+                        @if (block.IsFixed)
+                        {
+                            <p class="field-help">Written once, in the template. It goes out like this:</p>
+                            <EmailPreview Blocks="block.FixedPreview" />
+                        }
+                        else
+                        {
+                            @switch (block)
+                            {
+                                case TextBlockEditor text when block.Type == BlockType.FinePrint:
+                                    <div class="field">
+                                        <label for="text-@index">Fine print</label>
+                                        <textarea id="text-@index" @bind="text.Field.Text" @bind:event="oninput"></textarea>
+                                    </div>
+                                    break;
+                                case TextBlockEditor text:
+                                    <div class="field">
+                                        <label for="text-@index">@BlockGuide.For(block.Type).Name</label>
+                                        <input id="text-@index" @bind="text.Field.Text" @bind:event="oninput" />
+                                    </div>
+                                    break;
+                                case ParagraphsBlockEditor paragraphs:
+                                    <div class="field">
+                                        <label for="paragraphs-@index">Paragraphs</label>
+                                        <textarea id="paragraphs-@index" @bind="paragraphs.Text" @bind:event="oninput"></textarea>
+                                        <span class="field-help">Leave a blank line between paragraphs.</span>
+                                    </div>
+                                    break;
+                                case ButtonBlockEditor button:
+                                    <div class="field">
+                                        <label for="button-label-@index">Button text</label>
+                                        <input id="button-label-@index" @bind="button.ButtonLabel" @bind:event="oninput" />
+                                    </div>
+                                    <div class="field">
+                                        <label for="button-url-@index">Link</label>
+                                        <input id="button-url-@index" type="url" @bind="button.ButtonUrl" @bind:event="oninput" />
+                                        <span class="field-help">The full address, starting https://.</span>
+                                    </div>
+                                    break;
+                                case SignOffBlockEditor signOff:
+                                    <div class="field">
+                                        <label for="valediction-@index">Valediction</label>
+                                        <input id="valediction-@index" @bind="signOff.Valediction" @bind:event="oninput" />
+                                        <span class="field-help">Such as "With love,".</span>
+                                    </div>
+                                    <div class="field">
+                                        <label for="from-@index">From</label>
+                                        <input id="from-@index" @bind="signOff.From" @bind:event="oninput" />
+                                    </div>
+                                    <div class="field">
+                                        <label for="tagline-@index">Tagline (optional)</label>
+                                        <input id="tagline-@index" @bind="signOff.Tagline" @bind:event="oninput" />
+                                    </div>
+                                    break;
+                                case HeaderBlockEditor header:
+                                    <div class="field">
+                                        <label for="text-@index">Business name</label>
+                                        <input id="text-@index" @bind="header.Text" @bind:event="oninput" />
+                                    </div>
+                                    <PhotoFields Block="header" Index="index" Photos="_photos" Optional="true" />
+                                    break;
+                                case ImageBlockEditor image:
+                                    <PhotoFields Block="image" Index="index" Photos="_photos" Optional="!block.Required" />
+                                    @if (!block.Required)
+                                    {
+                                        <span class="field-help">Leave the photo empty to send the email without it.</span>
+                                    }
+                                    break;
+                                case OfferBlockEditor offerBlock:
+                                    <OfferFields Offer="offerBlock.Offer" Index="index" />
+                                    break;
+                            }
+                            @if (block.Error is { } error)
+                            {
+                                <p class="field-help" role="alert">@error</p>
+                            }
+                        }
+                    </section>
+                }
+            }
+        </div>
+
+        <aside class="workspace-side">
+            <section class="card">
+                <h2>Save</h2>
+                <p class="field-help">A campaign can be saved unfinished. Each save is a new version.</p>
+                <Problems Messages="errors" />
+                <button class="button primary" disabled="@(errors.Count > 0)" @onclick="SaveAsync">Save campaign</button>
+                @if (_message is not null)
+                {
+                    <p role="status">@_message</p>
+                }
+                @if (_session.Latest is { } latest)
+                {
+                    <p class="muted">Last saved @latest.SavedAt.ToString("d MMM yyyy, HH:mm") UTC.</p>
+                    @if (_confirmingUndo)
+                    {
+                        <p>Delete the last saved version for good? The version before it comes back, and any changes not saved are lost.</p>
+                        <button class="button danger" @onclick="UndoAsync">Delete it</button>
+                        <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
+                    }
+                    else
+                    {
+                        <button class="button" @onclick="() => _confirmingUndo = true">Undo last save</button>
+                    }
+                }
+            </section>
+
+            @if (status.Missing.Count > 0)
+            {
+                <section class="card">
+                    <h2>Still to do</h2>
+                    <p class="field-help">The checks run once nothing is missing and every copied line has been looked at.</p>
+                    <ul class="advice">
+                        @foreach (var item in status.Missing)
+                        {
+                            <li>@item.Message</li>
+                        }
+                    </ul>
+                </section>
+            }
+            else if (status.Review is { } review)
+            {
+                <section class="card">
+                    <h2>What the checks say</h2>
+                    @if (review.Findings.Count == 0)
+                    {
+                        <p>The rules find nothing to fix.</p>
+                    }
+                    <ul class="findings">
+                        @foreach (var finding in review.Findings.OrderByDescending(f => f.Severity))
+                        {
+                            <li class="finding @(finding.Severity == Severity.Blocker ? "blocker" : "warning")">
+                                <strong>@(finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
+                                <span class="muted">@finding.Location</span>
+                                <span>@finding.Message</span>
+                            </li>
+                        }
+                    </ul>
+                    <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
+                </section>
+            }
+
+            <section class="card">
+                <h2>Preview</h2>
+                @if (status.Preview is { } preview)
+                {
+                    <p class="field-help">The email's blocks as Square will show them.</p>
+                    <EmailPreview Blocks="preview" />
+                }
+                else
+                {
+                    <p class="muted">The preview appears once nothing is missing.</p>
+                }
+            </section>
+
+            <section class="card">
+                <h2>Export</h2>
+                <p class="muted">Export comes once the AI proofread is switched on. A campaign leaves only after both the rules and the proofread have passed it.</p>
+            </section>
+        </aside>
+    </div>
+}
+
+@code {
+    /// <summary>The template a new campaign starts from, for /campaigns/new/{templateId}.</summary>
+    [Parameter]
+    public Guid? TemplateId { get; set; }
+
+    [Parameter]
+    public Guid? Id { get; set; }
+
+    private string? _denied;
+    private string? _missing;
+    private DraftSession? _session;
+    private CampaignPolicy _policy = CampaignPolicy.Default;
+    private IReadOnlyList<string> _photos = [];
+    private string? _message;
+    private bool _confirmingUndo;
+
+    private string Title => _session is null ? "Campaign" : _session.Editor.Title;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (client, reason) = await Workspace.ClientDataAsync();
+        if (client is null)
+        {
+            _denied = reason;
+            return;
+        }
+
+        var store = Stores.Campaigns(client);
+        if (Id is { } id)
+        {
+            _session = await DraftSession.OpenAsync(store, id);
+            if (_session is null) _missing = "Campaign not found";
+        }
+        else if (TemplateId is { } templateId)
+        {
+            _session = await DraftSession.StartAsync(store, templateId);
+            if (_session is null) _missing = "Template not found";
+        }
+        _policy = await Stores.PolicyInForceAsync(client);
+        _photos = (await Stores.Images(client).ListAsync()).Select(i => i.Name).ToList();
+    }
+
+    private async Task SaveAsync()
+    {
+        var isNew = _session!.Id is null;
+        var saved = await _session.SaveAsync();
+        _message = $"Saved at {saved.SavedAt:HH:mm:ss} UTC.";
+        _confirmingUndo = false;
+        // The address now names the campaign, so a reload opens what was saved.
+        if (isNew) Navigation.NavigateTo($"campaigns/{saved.Id}", replace: true);
+    }
+
+    private async Task UndoAsync()
+    {
+        _confirmingUndo = false;
+        if (await _session!.UndoLastSaveAsync())
+            _message = "The last save was deleted; the version before it is open.";
+        else
+            Navigation.NavigateTo("campaigns");
+    }
+}

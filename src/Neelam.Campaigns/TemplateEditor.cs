@@ -124,7 +124,7 @@ public sealed class TemplateEditor
 /// One block as the editor holds it: plain fields a form binds to. Which fields matter depends on
 /// <see cref="Type"/>; the others are ignored.
 /// </summary>
-public sealed partial class EditableBlock
+public sealed partial class EditableBlock : IPhotoChoice
 {
     private bool _isFixed;
 

@@ -416,6 +416,29 @@ label.check {
     font-size: 0.875rem;
 }
 
+/* Campaign editor: an offer's tiers and their benefits. A copied benefit
+   nobody has checked yet is marked like advice until it is changed or
+   confirmed. */
+
+.card.tier {
+    background: var(--bg);
+}
+
+.benefit {
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.benefit.unreviewed {
+    color: var(--advice-text);
+    background: var(--advice-bg);
+    border: 1px solid var(--advice-border);
+    border-left: 4px solid var(--advice-text);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+}
+
 /* The email preview: Square's blocks, top to bottom. */
 
 .preview {
