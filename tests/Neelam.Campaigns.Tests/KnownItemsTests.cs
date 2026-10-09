@@ -317,6 +317,35 @@ public class KnownItemsTests
         Assert.Equal("'Platinum Member' is $299 in your known items; here it is $249.", finding.Message);
     }
 
+    // The real first send's "Option 1 Platinum Member" is her known "Platinum Member" with a number
+    // added (owner, 2026-10-09), so its price is held to hers and its name draws no note.
+    [Fact]
+    public void A_numbered_known_tier_name_is_held_to_its_known_price()
+    {
+        var findings = NearMisses(WithTier(new Tier("Option 1 Platinum Member", 149m, [new BirthdayCredit(75m)])), Knowing(Platinum));
+
+        var finding = Assert.Single(findings);
+        Assert.Equal("Offer › Tier 1 price", finding.Location);
+        Assert.Equal("'Platinum Member' is $299 in your known items; here it is $149.", finding.Message);
+        Assert.Same(Platinum, new KnownItems([Platinum]).TierFor("Option 2 Platinum Member"));
+        Assert.False(OfferOf(CampaignEditor.Start(DraftFixtures.Membership)).AddKnownTier(Platinum with { Name = "Option 1 Platinum Member" })
+            .SaveOffered(new KnownItems([Platinum])));
+    }
+
+    // A known name with a number in it is matched whole: her "Glow 100" is not "Glow 50" at another
+    // price, since the number is the difference.
+    [Fact]
+    public void Glow_50_is_not_her_glow_100_at_another_price()
+    {
+        var glow100 = new KnownTier(KnownItem.NewId(), "Glow 100", 100m, [new BirthdayCredit(75m)]);
+
+        var findings = NearMisses(WithTier(new Tier("Glow 50", 50m, [new BirthdayCredit(75m)])), Knowing(glow100));
+
+        Assert.DoesNotContain(findings, f => f.Location.EndsWith("price"));
+        Assert.Equal("'Glow 50' isn't one of your known tiers.", Assert.Single(findings).Message);
+        Assert.Null(new KnownItems([glow100]).TierFor("Glow 50"));
+    }
+
     // The walkthrough's two notes that read alike, "Offer › Tier 2 Did you mean ...", one for the
     // tier's name and one for its second benefit: each now names its field, and the benefit its number.
     [Fact]

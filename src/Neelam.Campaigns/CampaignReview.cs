@@ -106,10 +106,11 @@ public static class CampaignReview
         {
             var tier = block.Offer.Tiers[i];
             var where = $"{block.Label} › Tier {i + 1}";
-            if (AgainstKnown($"{where} name", tier.Name, tierNames, "tiers") is { } nameFinding)
+            // "Option 1 Platinum Member" is her "Platinum Member" (KnownItems.TierFor), so its price is held to hers.
+            var knownTier = known.TierFor(tier.Name);
+            if (knownTier is null && AgainstKnown($"{where} name", tier.Name, tierNames, "tiers") is { } nameFinding)
                 yield return nameFinding;
-            else if (known.Tiers.FirstOrDefault(t => KnownItemMatch.IsKnown(tier.Name, [t.Name])) is { } knownTier
-                     && knownTier.Price != tier.MonthlyPrice)
+            else if (knownTier is not null && knownTier.Price != tier.MonthlyPrice)
                 yield return new(Severity.Warning, "known-item", $"{where} price",
                     $"'{knownTier.Name}' is {EditorExport.PriceText(knownTier.Price, block.Offer.IsRecurring)} in your known items; " +
                     $"here it is {EditorExport.PriceText(tier.MonthlyPrice, block.Offer.IsRecurring)}.",
@@ -203,15 +204,37 @@ public static class CampaignReview
 
     // Says nothing about which tier to rename: a copied tier keeps its name, and the one to change
     // may as well be the original.
-    private static IEnumerable<Finding> TierNamesUnique(string label, Offer offer) =>
-        offer.Tiers
-            .Select((t, i) => (Key: t.Name.Trim().ToLowerInvariant(), Index: i + 1))
-            .GroupBy(x => x.Key)
+    // The same name is a block. Names the same apart from their numbers (TierNames.Shape: "Option 1
+    // Platinum Member", "Option 2 Platinum Member") are a strongly worded look, never a block (owner,
+    // 2026-10-09): "Glow 50" and "Glow 100" are good names, and the proofread is the better judge.
+    private static IEnumerable<Finding> TierNamesUnique(string label, Offer offer)
+    {
+        var tiers = offer.Tiers.Select((t, i) => (t.Name, Index: i + 1)).ToList();
+        var same = tiers
+            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
             .Where(g => g.Count() > 1)
             .Select(g => new Finding(Severity.Blocker, "tier-names-unique", label,
                 $"Tiers {string.Join(" and ", g.Select(x => x.Index))} share the name " +
                 $"'{offer.Tiers[g.First().Index - 1].Name}'; customers cannot tell them apart. " +
                 (g.Count() == 2 ? "Rename either one." : "Rename all but one of them.")));
+        var numbered = tiers
+            .Where(x => TierNames.HasNumber(x.Name))
+            .GroupBy(x => TierNames.Shape(x.Name))
+            .Where(g => g.Select(x => x.Name.Trim().ToLowerInvariant()).Distinct().Count() > 1)
+            .Select(g => new Finding(Severity.Warning, "tier-names-numbered", label,
+                $"Tiers {Listed(g.Select(x => x.Index.ToString()))} are {(g.Count() == 2 ? "both" : "all")} " +
+                $"'{TierNames.Base(g.First().Name)}' apart from their numbers " +
+                $"({string.Join(", ", g.Select(x => $"'{x.Name.Trim()}'").Distinct())}). Readers will see the same name " +
+                $"{(g.Count() == 2 ? "twice" : $"{g.Count()} times")} — give each tier its own name unless the number really is " +
+                "the difference (as in 'Glow 50' / 'Glow 100')."));
+        return same.Concat(numbered);
+    }
+
+    private static string Listed(IEnumerable<string> items)
+    {
+        var list = items.ToList();
+        return list.Count < 2 ? string.Concat(list) : $"{string.Join(", ", list[..^1])} and {list[^1]}";
+    }
 
     /// <summary>Two tiers offering exactly the same benefits are one offer shown twice.</summary>
     private static IEnumerable<Finding> TierContentDistinct(string label, Offer offer)

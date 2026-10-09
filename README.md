@@ -302,7 +302,7 @@ both, and the tests pin which rules each trips.
 
 | Problem in the sent email | Rule | Severity |
 |---|---|---|
-| First send: both options the same $299 tier, contents and all, as "Option 1 Platinum Member" and "Option 2 Platinum Member" | Tier copy marks every benefit unreviewed; `tier-content-distinct`, `tier-prices-increase`. The names differ by "Option N", so `tier-names-unique` (whole names) does not fire: an open owner decision | Blocker |
+| First send: both options the same $299 tier, contents and all, as "Option 1 Platinum Member" and "Option 2 Platinum Member" | Tier copy marks every benefit unreviewed; `tier-content-distinct`, `tier-prices-increase`. The names differ only by their numbers, so `tier-names-numbered` gives a strongly worded note (owner, 2026-10-09: not a block, since "Glow 50" and "Glow 100" are good names) | Blocker; the names Worth a look |
 | Second send, 38 minutes later: option 1 fixed to the $149 tier, both still named "Platinum Member" | Tier copy doesn't copy the name; `tier-names-unique` | Blocker |
 | "50% Complimentary Wellness Injections" — free or half off? | Not expressible: benefits are typed (`FreeItem` / `DiscountedItem`) and worded by the model; `benefit-value` rejects 100%-off | Blocker |
 | A button ("Come visit", to the clinic's site), but nothing to join the offer with | The proofread: a button that does not match the offer. `cta-required` blocks an offer with no button at all; `cta-https` a button without https | Proofread; blockers |
@@ -353,7 +353,9 @@ warnings ("Worth a look"):
 - not one of them at all: "'Hydrafacial' isn't one of your known treatments." (or tiers, or
   benefit lines), with a one-click save beside the field;
 - a known tier's name at another price: "'Platinum Member' is $299/month in your known items;
-  here it is $249/month.";
+  here it is $249/month." A name with a number added, "Option 1 Platinum Member", is her
+  "Platinum Member" for this (`KnownItems.TierFor`); a known name with its own number, "Glow 100",
+  is matched whole, so "Glow 50" is not taken for it at another price;
 - one of her benefit lines with an amount outside its limits (owner, 2026-10-09: "Outside of
   limits should be warnings"): "'15% off any qualifying treatments' is outside your usual range
   for this line (5%–10%)." Within the limits, or with none set, nothing is said.

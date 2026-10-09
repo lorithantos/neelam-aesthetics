@@ -8,16 +8,86 @@ public class CampaignReviewTests
         r.Findings.Where(f => f.Severity == s).Select(f => f.Rule).Distinct().Order().ToArray();
 
     // The first send as it went out (checked against the sent email, 2026-10-09) named its options
-    // "Option 1 Platinum Member" and "Option 2 Platinum Member". It is still stopped for offering the
-    // same option twice, at the same price; but the names differ by "Option N", so tier-names-unique,
-    // which compares whole names, does not fire. Whether that rule should see past such a prefix is
-    // the owner's call (WIP, open decisions); until then this pins what the rules say.
+    // "Option 1 Platinum Member" and "Option 2 Platinum Member". It is stopped for offering the same
+    // option twice, at the same price. Its names are not the same, so tier-names-unique stays quiet;
+    // they are the same apart from their numbers, which the owner (2026-10-09) made "a strongly worded
+    // note", never a block: "Glow 50 and Glow 100 are perfectly good types of exceptions".
     [Fact]
     public void First_send_is_blocked_for_identical_offers()
     {
-        var blockers = Rules(CampaignReview.Check(SampleCampaigns.FirstSend()), Severity.Blocker);
+        var report = CampaignReview.Check(SampleCampaigns.FirstSend());
 
-        Assert.Equal(["medical-disclaimer", "terms-required", "tier-content-distinct", "tier-prices-increase"], blockers);
+        Assert.Equal(["medical-disclaimer", "terms-required", "tier-content-distinct", "tier-prices-increase"], Rules(report, Severity.Blocker));
+        var note = Assert.Single(report.Findings, f => f.Rule == "tier-names-numbered");
+        Assert.Equal(Severity.Warning, note.Severity);
+        Assert.Equal(
+            "Tiers 1 and 2 are both 'Platinum Member' apart from their numbers ('Option 1 Platinum Member', 'Option 2 Platinum Member'). " +
+            "Readers will see the same name twice — give each tier its own name unless the number really is the difference " +
+            "(as in 'Glow 50' / 'Glow 100').",
+            note.Message);
+    }
+
+    // The same name is still a Must fix, and only that: the numbered note is for names that differ.
+    [Fact]
+    public void Identical_names_are_still_a_must_fix_and_not_the_numbered_note()
+    {
+        var second = CampaignReview.Check(SampleCampaigns.SecondSend());
+        var numbered = CampaignReview.Check(TwoTiers(
+            new Tier("Option 1 Gold", 149m, [new BirthdayCredit(25m)]), new Tier("Option 1 Gold", 299m, [new BirthdayCredit(75m)])));
+
+        Assert.Equal(Severity.Blocker, Assert.Single(second.Findings, f => f.Rule == "tier-names-unique").Severity);
+        Assert.DoesNotContain(second.Findings, f => f.Rule == "tier-names-numbered");
+        Assert.Equal(Severity.Blocker, Assert.Single(numbered.Findings, f => f.Rule == "tier-names-unique").Severity);
+        Assert.DoesNotContain(numbered.Findings, f => f.Rule == "tier-names-numbered");
+    }
+
+    // The number can be the difference: the note still says so, strongly, and nothing blocks.
+    [Fact]
+    public void Glow_50_and_glow_100_get_the_note_but_nothing_blocks()
+    {
+        var report = CampaignReview.Check(TwoTiers(
+            new Tier("Glow 50", 50m, [new BirthdayCredit(25m)]), new Tier("Glow 100", 100m, [new BirthdayCredit(75m)])));
+
+        var note = Assert.Single(report.Findings, f => f.Rule == "tier-names-numbered");
+        Assert.Equal(Severity.Warning, note.Severity);
+        Assert.StartsWith("Tiers 1 and 2 are both 'Glow' apart from their numbers ('Glow 50', 'Glow 100'). Readers will see", note.Message);
+        Assert.DoesNotContain(report.Blockers, f => f.Rule.StartsWith("tier"));
+    }
+
+    [Fact]
+    public void Three_tiers_the_same_apart_from_their_numbers_are_one_note()
+    {
+        var offer = new Offer("Membership", "Join us.",
+        [
+            new Tier("Tier 1 Gold", 100m, [new BirthdayCredit(25m)]),
+            new Tier("Tier 2 Gold", 200m, [new BirthdayCredit(50m)]),
+            new Tier("Tier 3 Gold", 300m, [new BirthdayCredit(75m)]),
+        ], IsRecurring: false, TermsUrl: null, TiersNote: null);
+
+        var note = Assert.Single(CampaignReview.Check(new Campaign("Hello", [new OfferBlock("Offer", offer)])).Findings,
+            f => f.Rule == "tier-names-numbered");
+
+        Assert.StartsWith("Tiers 1, 2 and 3 are all 'Gold' apart from their numbers ('Tier 1 Gold', 'Tier 2 Gold', 'Tier 3 Gold'). " +
+                          "Readers will see the same name 3 times", note.Message);
+    }
+
+    [Theory]
+    [InlineData("Option 1 Platinum Member", "Platinum Member")]
+    [InlineData("Tier 2 Gold", "Gold")]
+    [InlineData("Platinum Member 2", "Platinum Member")]
+    [InlineData("Platinum Member (2)", "Platinum Member")]
+    [InlineData("Glow 50", "Glow")]
+    [InlineData("Platinum Member", "Platinum Member")]
+    [InlineData("100", "100")]
+    public void A_tier_name_without_its_numbers(string name, string expected) =>
+        Assert.Equal(expected, TierNames.Base(name));
+
+    [Fact]
+    public void Every_run_of_digits_is_the_same_token_and_nothing_else_is_ignored()
+    {
+        Assert.Equal(TierNames.Shape("Option 1 Platinum Member"), TierNames.Shape("option 22  PLATINUM member"));
+        Assert.Equal(TierNames.Shape("Glow 50"), TierNames.Shape("Glow 100"));
+        Assert.NotEqual(TierNames.Shape("Option 1 Platinum Member"), TierNames.Shape("Choice 1 Platinum Member"));
     }
 
     // It had a button ("Come visit", to the clinic's site), so cta-required rightly stays quiet; that

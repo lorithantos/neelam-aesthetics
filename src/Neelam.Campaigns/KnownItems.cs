@@ -226,6 +226,23 @@ public sealed class KnownItems
     public KnownTier? TierNamed(string text) => Named(Tiers, text);
 
     /// <summary>
+    /// The known tier a campaign's tier is, by its name: the same name as <see cref="KnownItemMatch"/>
+    /// compares them; else, for a known name with no number in it, the written name without its
+    /// number-bearing parts (<see cref="TierNames.Base"/>), so "Option 1 Platinum Member" is her
+    /// "Platinum Member" and its price is held to hers. A known name carrying a number is matched
+    /// whole only: "Glow 50" is not her "Glow 100", whose number is the difference.
+    /// </summary>
+    public KnownTier? TierFor(string name)
+    {
+        var clean = (name ?? "").Trim();
+        if (clean.Length == 0) return null;
+        return Tiers.FirstOrDefault(t => KnownItemMatch.IsKnown(clean, [t.Name]))
+               ?? (TierNames.HasNumber(clean)
+                   ? Tiers.FirstOrDefault(t => !TierNames.HasNumber(t.Name) && KnownItemMatch.IsKnown(TierNames.Base(clean), [t.Name]))
+                   : null);
+    }
+
+    /// <summary>
     /// The item of the same kind that says the same thing, other than <paramref name="item"/> itself:
     /// a list that says the same thing twice is no help. A treatment or tier says the same as another
     /// with the same text, ignoring case and surrounding space; a benefit line, as another of the same
@@ -311,7 +328,8 @@ public sealed class KnownItems
     {
         var clean = (text ?? "").Trim();
         var known = TextsOf(kind);
-        return clean.Length > 0 && !KnownItemMatch.IsKnown(clean, known) && KnownItemMatch.NearMiss(clean, known) is null;
+        return clean.Length > 0 && !KnownItemMatch.IsKnown(clean, known) && KnownItemMatch.NearMiss(clean, known) is null
+               && (kind != KnownItemKind.Tier || TierFor(clean) is null);
     }
 
     private IReadOnlyList<string> TextsOf(KnownItemKind kind) => kind switch
