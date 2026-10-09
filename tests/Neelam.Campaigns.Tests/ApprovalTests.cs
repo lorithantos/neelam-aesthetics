@@ -177,6 +177,89 @@ public class ApprovalTests
             Records.Approvals.Rows.Select(r => (r.Stamp, r.Withdrawn)).Order());
     }
 
+    // Saves as the page makes them: the newest save before, the save, and what the page then says.
+    private async Task<string> Save(DraftSession session)
+    {
+        _clock.Now += TimeSpan.FromMinutes(1);
+        var before = session.Latest;
+        return DraftSession.SavedMessage(before, await session.SaveAsync());
+    }
+
+    // The Approve panel shows "Approved" exactly while CurrentApproval stands; the save's message
+    // says the same, never "not approved" beside it, never "still approved" without it.
+    private static void AgreesWithThePanel(DraftSession session, string message)
+    {
+        var approved = session.CurrentApproval is not null;
+        Assert.Equal(approved, message.Contains("still approved", StringComparison.Ordinal));
+        if (approved) Assert.DoesNotContain("not approved", message);
+    }
+
+    [Fact]
+    public async Task The_save_message_agrees_with_the_approve_panel()
+    {
+        var session = await SavedFinished();
+
+        // Never approved: nothing said of approval.
+        session.Editor.Label = "Unapproved";
+        var plain = await Save(session);
+        Assert.Equal($"Saved at {_clock.Now:HH:mm:ss} UTC.", plain);
+        AgreesWithThePanel(session, plain);
+
+        // Approved, and saved with only her label changed: the approval goes with the save.
+        await session.ApproveAsync("Priya");
+        session.Editor.Label = "Beauty Bank -- first send";
+        var labelOnly = await Save(session);
+        Assert.EndsWith(" It is still approved by Priya.", labelOnly);
+        AgreesWithThePanel(session, labelOnly);
+
+        // A content edit voids it.
+        session.Editor.Subject.Text = "WE’RE TURNING TWO!";
+        var voided = await Save(session);
+        Assert.EndsWith(" This version is not approved yet.", voided);
+        Assert.Null(session.CurrentApproval);
+        AgreesWithThePanel(session, voided);
+
+        // Undone: the approved save is back, approved, and saving it as it stands keeps that.
+        Assert.True(await session.UndoLastSaveAsync());
+        Assert.NotNull(session.CurrentApproval);
+        var afterUndo = await Save(session);
+        Assert.EndsWith(" It is still approved by Priya.", afterUndo);
+        AgreesWithThePanel(session, afterUndo);
+
+        // Withdrawn: nothing approved to keep or lose.
+        await session.WithdrawApprovalAsync();
+        var withdrawn = await Save(session);
+        Assert.DoesNotContain("approved", withdrawn);
+        AgreesWithThePanel(session, withdrawn);
+    }
+
+    // The demo's export is of what was approved: an edit not saved takes it away, even though the
+    // save it was approved as is still approved, and undoing the edit brings it back.
+    [Fact]
+    public async Task The_demo_export_goes_with_an_unsaved_edit()
+    {
+        // The blocks the page offers to copy, or null when it offers none.
+        static IReadOnlyList<EditorBlock>? Offered(DraftSession s) =>
+            s.DemoExportReport() is { } report ? EditorExport.Blocks(report) : null;
+
+        var session = await SavedFinished();
+        Assert.Null(Offered(session));
+
+        var approval = await session.ApproveAsync("Priya");
+        Assert.NotEmpty(Offered(session)!);
+        Assert.Equal(approval, session.DemoExportReport()!.DemoApproval);
+
+        session.Editor.Subject.Text = "WE’RE TURNING TWO!";
+        Assert.NotNull(session.Latest!.Approval);
+        Assert.Null(Offered(session));
+
+        session.Editor.Subject.Text = "WE’RE TURNING ONE!";
+        Assert.NotEmpty(Offered(session)!);
+        // Her label is not the email: changing it leaves the export.
+        session.Editor.Label = "Beauty Bank -- first send";
+        Assert.NotEmpty(Offered(session)!);
+    }
+
     // Anything else changed still voids it, the label changed with it or not.
     [Fact]
     public async Task A_content_edit_with_a_label_edit_still_voids_the_approval()

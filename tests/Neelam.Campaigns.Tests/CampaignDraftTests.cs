@@ -66,6 +66,30 @@ public class CampaignDraftTests
     }
 
     /// <summary>
+    /// The replay is the real second send, short of the one copied benefit nobody looked at: set
+    /// as it went out, the draft builds to the sent offer's tiers, both "Platinum Member".
+    /// </summary>
+    [Fact]
+    public void Second_send_replayed_is_the_second_send_once_its_copied_benefit_is_set_as_sent()
+    {
+        var d = DraftFixtures.SecondSendReplayed();
+        d.Offer("Offer").Tiers[1].Benefits[2].Set(new FreeItem(1, "wellness injection", "per visit"));
+
+        var built = d.Build();
+
+        Assert.True(built.Succeeded);
+        var sent = SampleCampaigns.SecondSend().OfferOf().Tiers;
+        var tiers = built.Campaign!.OfferOf().Tiers;
+        Assert.Equal(
+            [("Platinum Member", 149m), ("Platinum Member", 299m)],
+            tiers.Select(t => (t.Name, t.MonthlyPrice)));
+        Assert.Equal(sent.Select(t => (t.Name, t.MonthlyPrice)), tiers.Select(t => (t.Name, t.MonthlyPrice)));
+        Assert.Equal(sent.Count, tiers.Count);
+        for (var i = 0; i < sent.Count; i++)
+            Assert.Equal(sent[i].Benefits, tiers[i].Benefits);
+    }
+
+    /// <summary>
     /// First send, replayed as deliberately as possible: someone confirms every copied benefit
     /// unchanged. The draft builds — confirming is a person's decision — but the rules still stop it.
     /// </summary>

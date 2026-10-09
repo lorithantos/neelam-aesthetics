@@ -103,6 +103,35 @@ public sealed class DraftSession
     }
 
     /// <summary>
+    /// The demo's export report for the campaign as it stands, or null when it has none: approved
+    /// and unchanged since (<see cref="CurrentApproval"/>, never <see cref="Latest"/>'s approval,
+    /// which an unsaved edit leaves in place), built with no part missing, and passed by the rules
+    /// through <see cref="CampaignGate.DemoReview"/>, so it can export. Whether the site is the demo
+    /// and the person may review is the page's to decide.
+    /// </summary>
+    public ReviewReport? DemoExportReport(CampaignPolicy? policy = null, BusinessContext? business = null)
+    {
+        if (CurrentApproval is not { } approval) return null;
+        var review = Editor.Status(policy, business).Review;
+        if (review is null) return null;
+        var report = CampaignGate.DemoReview(review.Campaign, approval, policy, business);
+        return report.CanExport ? report : null;
+    }
+
+    /// <summary>
+    /// What the page says of a save, in the Approve panel's terms. The approval is the one the save
+    /// carries (<paramref name="saved"/>'s, kept when only her label changed), so a save that kept it
+    /// says it is still approved; one that left an approval behind says it is not approved yet; any
+    /// other save says nothing of approval.
+    /// </summary>
+    /// <param name="before">The newest save before this one, or null when there was none.</param>
+    /// <param name="saved">The save just made, as <see cref="SaveAsync"/> returned it.</param>
+    public static string SavedMessage(SaveRef? before, SaveRef saved) =>
+        $"Saved at {saved.SavedAt:HH:mm:ss} UTC." + (saved.Approval is { } kept
+            ? $" It is still approved by {kept.By}."
+            : before?.Approval is not null ? " This version is not approved yet." : "");
+
+    /// <summary>
     /// Approves the saved version as it stands, in the approver's name, now. Recorded in the approvals
     /// table against that one save, so a later edit or save is not approved, and undoing the save
     /// withdraws it.

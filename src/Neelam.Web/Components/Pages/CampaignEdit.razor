@@ -49,7 +49,7 @@ else if (_session is not null)
     var cannotApprove = _session.CannotApprove(_policy, _business);
     // One gate for both forms of the export: the copy blocks and the assistant's JSON come from
     // the same report, so neither exists without the other.
-    var exportReport = ExportReport(status, approval);
+    var exportReport = ExportReport();
     var export = exportReport is null ? null : EditorExport.Blocks(exportReport);
     var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, approval,
         new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
@@ -429,9 +429,9 @@ else if (_session is not null)
     private async Task SaveAsync()
     {
         var isNew = _session!.Id is null;
-        var wasApproved = _session.Latest?.Approval is not null;
+        var before = _session.Latest;
         var saved = await _session.SaveAsync();
-        _message = $"Saved at {saved.SavedAt:HH:mm:ss} UTC." + (wasApproved ? " This version is not approved yet." : "");
+        _message = DraftSession.SavedMessage(before, saved);
         _confirmingUndo = false;
         // The address now names the campaign, so a reload opens what was saved.
         if (isNew) Navigation.NavigateTo($"campaigns/{saved.Id}", replace: true);
@@ -499,14 +499,10 @@ else if (_session is not null)
     }
 
     // The demo's export, and only the demo's: an approved campaign, unchanged since, that the rules
-    // pass, reviewed without the proofread and marked so. Null everywhere else, Enforced included,
-    // where export waits for the proofread.
-    private ReviewReport? ExportReport(DraftStatus status, Approval? approval)
-    {
-        if (!Site.IsDemo || !_canReview || approval is null || status.Review is null) return null;
-        var report = CampaignGate.DemoReview(status.Review.Campaign, approval, _policy, _business);
-        return report.CanExport ? report : null;
-    }
+    // pass, reviewed without the proofread and marked so (DraftSession.DemoExportReport). Null
+    // everywhere else, Enforced included, where export waits for the proofread.
+    private ReviewReport? ExportReport() =>
+        Site.IsDemo && _canReview ? _session!.DemoExportReport(_policy, _business) : null;
 
     // The JSON as a link to download, with no endpoint: an endpoint would be a second way out.
     private static string DataUrl(string json) =>
