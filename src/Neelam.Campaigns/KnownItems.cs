@@ -451,7 +451,8 @@ public static class KnownItemMatch
         a.Length == b.Length && a.Zip(b).All(p => SameWord(p.First, p.Second));
 
     // The same word, ignoring case, or one the other with a plural ending: "Facials", "Lashes".
-    private static bool SameWord(string a, string b)
+    // Tier-name ladders match their words the same way (TierLadders).
+    internal static bool SameWord(string a, string b)
     {
         if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
         var (shorter, longer) = a.Length <= b.Length ? (a, b) : (b, a);

@@ -83,7 +83,8 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("No tiers yet.", page);
         Assert.DoesNotContain("<span>Wellness injection</span>", page);
         Assert.DoesNotContain("birthday credit", page);
-        Assert.DoesNotContain("Diamond", page);
+        // Diamond is also a word on the standard tier-name ladders, shown below her items.
+        Assert.DoesNotContain("Diamond", page.Split("Tier name ladders")[0]);
         Assert.DoesNotContain("<option value=\"", page.Split("</select>")[^1]);
     }
 

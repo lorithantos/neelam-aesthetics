@@ -6,7 +6,8 @@ namespace Neelam.Campaigns;
 /// background for judging names, services and facts, never instructions; and the phone numbers it
 /// may publish, against which the rules check every number in the email; and its known items,
 /// against which the rules check treatment names and benefit lines for near misses; and the photos
-/// in its image library, so a photo the library does not hold is not noted twice.
+/// in its image library, so a photo the library does not hold is not noted twice; and the tier-name
+/// ladders its tier names are read with.
 /// </summary>
 public sealed record BusinessContext(string Name, string? Description = null)
 {
@@ -18,6 +19,13 @@ public sealed record BusinessContext(string Name, string? Description = null)
     /// proofread, which is told only the name and description.
     /// </summary>
     public KnownItems Known { get; init; } = KnownItems.None;
+
+    /// <summary>
+    /// The tier-name ladders in force for the client (its own, else the operator's standard), which the
+    /// rules read tier names with. The standard ones in code until a page says otherwise; with no
+    /// business at all, the rules use those too.
+    /// </summary>
+    public TierLadders Ladders { get; init; } = TierLadders.Standard;
 
     /// <summary>
     /// The names of the photos in the client's image library. A photo the library does not hold

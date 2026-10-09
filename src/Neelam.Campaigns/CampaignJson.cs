@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 namespace Neelam.Campaigns;
 
 /// <summary>
-/// Saves drafts, templates, template baselines and each client's catalog, check policy and look as JSON. A draft round-trips with every slot's origin, so a copied
+/// Saves drafts, templates, template baselines, tier-name ladders and each client's catalog, check policy and look as JSON. A draft round-trips with every slot's origin, so a copied
 /// benefit nobody has reviewed is still unreviewed after it is saved and opened again.
 /// </summary>
 public static class CampaignJson
@@ -157,6 +157,28 @@ public static class CampaignJson
         return new TemplateBaseline(doc.Parts ?? throw new InvalidDataException("A baseline document without its parts."));
     }
 
+    public static string SerializeLadders(TierLadders l) =>
+        JsonSerializer.Serialize(new LaddersDocument(SchemaVersion,
+            l.Ladders.Select(x => new LadderDocument(x.Name, x.Words, x.Ordered)).ToList()), Options);
+
+    /// <exception cref="InvalidDataException">The document is empty, of another schema, or not a valid set of ladders.</exception>
+    public static TierLadders DeserializeLadders(string json)
+    {
+        var doc = JsonSerializer.Deserialize<LaddersDocument>(json, Options)
+                  ?? throw new InvalidDataException("Empty ladders document.");
+        CheckVersion(doc.Schema);
+        if (doc.Ladders is null) throw new InvalidDataException("A ladders document without its ladders.");
+        try
+        {
+            return new TierLadders(doc.Ladders.Select(x => new TierLadder(
+                x.Name ?? "", x.Words ?? throw new InvalidDataException("A ladder without its words."), x.Ordered)));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidDataException(ex.Message, ex);
+        }
+    }
+
     private static void CheckVersion(int schema)
     {
         if (schema != SchemaVersion)
@@ -228,4 +250,9 @@ public static class CampaignJson
 
     // Parts are block types by name ("signOff"), so an empty list is an empty baseline, not a missing one.
     private sealed record BaselineDocument(int Schema, IReadOnlyList<BlockType>? Parts);
+
+    // Words lowest first when ordered; an empty list of ladders is a client with none, not a missing one.
+    private sealed record LaddersDocument(int Schema, IReadOnlyList<LadderDocument>? Ladders);
+
+    private sealed record LadderDocument(string? Name, IReadOnlyList<string>? Words, bool Ordered);
 }

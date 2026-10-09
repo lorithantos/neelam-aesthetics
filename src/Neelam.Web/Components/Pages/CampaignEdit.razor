@@ -458,10 +458,16 @@ else
     private KnownItems Known => _business?.Known ?? KnownItems.None;
 
     // What the checks are given: the registration and known items, with the names in her image
-    // library, so a photo the library does not hold keeps only the note its field gives it. Named by
-    // the client's name when it has no registration, as for known items (ClientWorkspace.BusinessAsync).
+    // library, so a photo the library does not hold keeps only the note its field gives it, and the
+    // tier-name ladders in force for her. Named by the client's name when it has no registration, as
+    // for known items (ClientWorkspace.BusinessAsync).
     private BusinessContext Business =>
-        (_business ?? new BusinessContext(_client!.ToString())) with { LibraryPhotos = _photos.Select(p => p.Name).ToList() };
+        (_business ?? new BusinessContext(_client!.ToString())) with
+        {
+            LibraryPhotos = _photos.Select(p => p.Name).ToList(),
+            Ladders = _ladders,
+        };
+    private TierLadders _ladders = TierLadders.Standard;
 
     // "Save as a known item" next to a tier or a benefit: kept exactly as written, then the pickers
     // and the checks read the list again. Neither may throw: on this interactive page an exception
@@ -525,6 +531,7 @@ else
             if (_session is null) _missing = "Template not found";
         }
         _policy = await Stores.PolicyInForceAsync(client);
+        _ladders = (await Stores.LaddersInForceAsync(client)).Ladders;
         try
         {
             _business = await Workspace.BusinessAsync(client);

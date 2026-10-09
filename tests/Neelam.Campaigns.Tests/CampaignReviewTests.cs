@@ -11,20 +11,22 @@ public class CampaignReviewTests
     // "Option 1 Platinum Member" and "Option 2 Platinum Member". It is stopped for offering the same
     // option twice, at the same price. Its names are not the same, so tier-names-unique stays quiet;
     // they are the same apart from their numbers, which the owner (2026-10-09) made "a strongly worded
-    // note", never a block: "Glow 50 and Glow 100 are perfectly good types of exceptions".
+    // note", never a block: "Glow 50 and Glow 100 are perfectly good types of exceptions". Both stand
+    // on the metals ladder's Platinum, so since the ladders (2026-10-09) the ladder's note says so in
+    // place of the numbers' one: one mistake, one note.
     [Fact]
     public void First_send_is_blocked_for_identical_offers()
     {
         var report = CampaignReview.Check(SampleCampaigns.FirstSend());
 
         Assert.Equal(["medical-disclaimer", "terms-required", "tier-content-distinct", "tier-prices-increase"], Rules(report, Severity.Blocker));
-        var note = Assert.Single(report.Findings, f => f.Rule == "tier-names-numbered");
+        var note = Assert.Single(report.Findings, f => f.Rule == "tier-rung-repeated");
         Assert.Equal(Severity.Warning, note.Severity);
         Assert.Equal(
-            "Tiers 1 and 2 are both 'Platinum Member' apart from their numbers ('Option 1 Platinum Member', 'Option 2 Platinum Member'). " +
-            "Readers will see the same name twice — give each tier its own name unless the number really is the difference " +
-            "(as in 'Glow 50' / 'Glow 100').",
+            "Tiers 1 and 2 are both 'Platinum'. Tier names like Bronze, Silver, Gold and Platinum tell readers which is which; " +
+            "give each tier its own.",
             note.Message);
+        Assert.DoesNotContain(report.Findings, f => f.Rule == "tier-names-numbered");
     }
 
     // The same name is still a Must fix, and only that: the numbered note is for names that differ.
@@ -59,15 +61,15 @@ public class CampaignReviewTests
     {
         var offer = new Offer("Membership", "Join us.",
         [
-            new Tier("Tier 1 Gold", 100m, [new BirthdayCredit(25m)]),
-            new Tier("Tier 2 Gold", 200m, [new BirthdayCredit(50m)]),
-            new Tier("Tier 3 Gold", 300m, [new BirthdayCredit(75m)]),
+            new Tier("Tier 1 Glow", 100m, [new BirthdayCredit(25m)]),
+            new Tier("Tier 2 Glow", 200m, [new BirthdayCredit(50m)]),
+            new Tier("Tier 3 Glow", 300m, [new BirthdayCredit(75m)]),
         ], IsRecurring: false, TermsUrl: null, TiersNote: null);
 
         var note = Assert.Single(CampaignReview.Check(new Campaign("Hello", [new OfferBlock("Offer", offer)])).Findings,
             f => f.Rule == "tier-names-numbered");
 
-        Assert.StartsWith("Tiers 1, 2 and 3 are all 'Gold' apart from their numbers ('Tier 1 Gold', 'Tier 2 Gold', 'Tier 3 Gold'). " +
+        Assert.StartsWith("Tiers 1, 2 and 3 are all 'Glow' apart from their numbers ('Tier 1 Glow', 'Tier 2 Glow', 'Tier 3 Glow'). " +
                           "Readers will see the same name 3 times", note.Message);
     }
 

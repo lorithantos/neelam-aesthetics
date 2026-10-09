@@ -19,6 +19,9 @@ public enum ActivityEntity
 
     /// <summary>One of the client's known items, by its own random id (never its text).</summary>
     KnownItem,
+
+    /// <summary>The client's own tier-name ladders.</summary>
+    Ladders,
 }
 
 /// <summary>What was done. Stored by name, so the numbers may change but the names may not.</summary>
@@ -57,6 +60,10 @@ public enum ActivityAction
     KnownItemAdded,
     KnownItemChanged,
     KnownItemRemoved,
+    LaddersSaved,
+
+    /// <summary>The client's own tier-name ladders deleted, so the standard ones apply again.</summary>
+    LaddersResetToStandard,
 }
 
 /// <summary>
@@ -67,7 +74,7 @@ public enum ActivityAction
 /// </summary>
 /// <param name="Client">Whose activity it is; also the table partition, so it sits under that client's access rules.</param>
 /// <param name="EntityId">
-/// The campaign's or template's id, <c>baseline</c>, an image entry's or a known item's own random id
+/// The campaign's or template's id, <c>baseline</c>, <c>ladders</c>, an image entry's or a known item's own random id
 /// (never its name or text), or the client's name for its registration.
 /// </param>
 /// <param name="SaveStamp">The save's date/time stamp where the action concerns one save; otherwise null.</param>

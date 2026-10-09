@@ -42,7 +42,7 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   shows it again, a label-only save keeps it. `ReviewReport.CanExport` needs it, so the copy blocks
   and the assistant's JSON both wait for it, on the demo and in Enforced alike.
 - **Every action is on the activity trail**: saves, approvals and withdrawals, an approval carried
-  to a label-only save, going on past the warnings at export, undo, restore, the sweep's deletions, baselines, image entries, known items
+  to a label-only save, going on past the warnings at export, undo, restore, the sweep's deletions, baselines, tier-name ladders, image entries, known items
   and client registrations, one row each in the
   client's partition of the activity table, with who and when. Never the content: things are named
   by id only, so a deleted save's contents stay unrecoverable while the fact of its deletion is kept.
@@ -196,8 +196,8 @@ for them. A client's people only sign in and work on their campaigns.
 | Where | Holds | Reached by |
 |---|---|---|
 | Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, the phone numbers it may publish, and the time zone its pages show times in, Pacific when none), support grants, dismissals, approvals (one row per approved save), the activity trail (one row per action, ids only, never content) and known items (one row per treatment, benefit line or tier she picks from), each client's in its own partition | The app. The operator manages clients |
-| `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json` | That client's members and the operator; the standard baseline is read for every client |
-| One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline if it saved one | The client's members. The operator only under a support grant |
+| `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json`, and standard tier-name ladders: `settings/_standard-ladders/{stamp}.json` | That client's members and the operator; the standard baseline and ladders are read for every client |
+| One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline and tier-name ladders if it saved them | The client's members. The operator only under a support grant |
 
 - **Who someone is, and what they may do, comes from Entra ID.** Each client has an Entra
   security group, and the sign-in token lists the groups a user is in, so membership is read
@@ -306,7 +306,7 @@ both, and the tests pin which rules each trips.
 
 | Problem in the sent email | Rule | Severity |
 |---|---|---|
-| First send: both options the same $299 tier, contents and all, as "Option 1 Platinum Member" and "Option 2 Platinum Member" | Tier copy marks every benefit unreviewed; `tier-content-distinct`, `tier-prices-increase`. The names differ only by their numbers, so `tier-names-numbered` gives a strongly worded note (owner, 2026-10-09: not a block, since "Glow 50" and "Glow 100" are good names) | Blocker; the names Worth a look |
+| First send: both options the same $299 tier, contents and all, as "Option 1 Platinum Member" and "Option 2 Platinum Member" | Tier copy marks every benefit unreviewed; `tier-content-distinct`, `tier-prices-increase`. The names differ only by their numbers (owner, 2026-10-09: not a block, since "Glow 50" and "Glow 100" are good names), and both stand on the metals ladder's Platinum, so `tier-rung-repeated` says so | Blocker; the names Worth a look |
 | Second send, 38 minutes later: option 1 fixed to the $149 tier, both still named "Platinum Member" | Tier copy doesn't copy the name; `tier-names-unique` | Blocker |
 | "50% Complimentary Wellness Injections" — free or half off? | Not expressible: benefits are typed (`FreeItem` / `DiscountedItem`) and worded by the model; `benefit-value` rejects 100%-off | Blocker |
 | A button ("Come visit", to the clinic's site), but nothing to join the offer with | The proofread: a button that does not match the offer. `cta-required` blocks an offer with no button at all; `cta-https` a button without https | Proofread; blockers |
@@ -365,6 +365,32 @@ warnings ("Worth a look"):
   for this line (5%–10%)." Within the limits, or with none set, nothing is said.
 
 With no known items of a kind, nothing is said about that kind.
+
+Tier names are also read on **ladders** (owner, 2026-10-09: "precious metals, gemstones, and
+colors are all things that imply they should be different"). A ladder is data: a name and words,
+either ordered lowest first, so each word is a weighted rung, or of equal weight. The standard
+ones are Metals (Bronze, Silver, Gold, Platinum, Diamond) and Gemstones (Pearl, Sapphire, Ruby,
+Emerald, Diamond), both ordered, and Colours (Rose, Blue, Green, Purple, Black, White, Red, Pink),
+of equal weight "unless ordered by the client". A word is matched whole inside the name, ignoring
+case and plural endings ("Platinum Member", "Option 1 Gold"); a name holding two words of one ladder
+stands on neither. An offer is read on the ladder whose words the most of its tiers' names hold,
+the first listed on a tie, so "Gold" and "Diamond" are metals and "Ruby" and "Diamond" gemstones.
+Two notes, both warnings:
+
+- `tier-rung-repeated`: two tiers on one rung, "Tiers 1 and 2 are both 'Platinum'. Tier names like
+  Bronze, Silver, Gold and Platinum tell readers which is which; give each tier its own." Identical
+  names are `tier-names-unique` alone, and names the same apart from their numbers on one rung get
+  this note instead of `tier-names-numbered`, so one mistake is one finding.
+- `tier-rung-order`, on an ordered ladder only: "'Gold' is $299/month but 'Platinum' is
+  $149/month; Platinum usually costs more than Gold. Swap the names or the prices." Rung order is
+  compared with price order, never with position, so it reads an offer listed highest price first
+  the same way.
+
+The standard ladders are the operator's (`settings/_standard-ladders/`, else
+`TierLadders.Standard` in code); a client may save her own set at `{client}/ladders/`, which
+replaces the standard for her: adding a ladder, reordering any ladder's words, standard ones
+included, marking one ordered or of equal weight, or removing one. She does it in "Tier name
+ladders" on her Known items page; "Use the standard ladders" deletes hers.
 
 ## Layout
 

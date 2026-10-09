@@ -124,6 +124,8 @@ else if (_session is not null)
         @TierFields(_session.NewTier, "new")
         <button class="button primary" @onclick="() => _session.AddTierAsync()">Add tier</button>
     </section>
+
+    <LaddersSection />
 }
 
 @code {

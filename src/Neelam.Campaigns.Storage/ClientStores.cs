@@ -10,10 +10,11 @@ namespace Neelam.Campaigns.Storage;
 /// </summary>
 /// <remarks>
 /// The client's container holds its drafts and templates, its catalog (<c>catalog/</c>) and its
-/// check policy (<c>policy/</c>) and its own template baseline (<c>baseline/</c>): all the client's
-/// own data. Its look lives apart, in the <c>settings</c> container at <c>settings/{client}/</c>, so
-/// working on a look never needs access to the client's data; the operator's standard baseline is
-/// there too, at <c>settings/_standard-baseline/</c>.
+/// check policy (<c>policy/</c>), its own template baseline (<c>baseline/</c>) and its own tier-name
+/// ladders (<c>ladders/</c>): all the client's own data. Its look lives apart, in the <c>settings</c>
+/// container at <c>settings/{client}/</c>, so working on a look never needs access to the client's
+/// data; the operator's standard baseline and ladders are there too, at
+/// <c>settings/_standard-baseline/</c> and <c>settings/_standard-ladders/</c>.
 /// </remarks>
 public sealed class ClientStores
 {
@@ -29,6 +30,11 @@ public sealed class ClientStores
     /// name can start with an underscore, so it never meets a client's look there.
     /// </summary>
     internal const string StandardBaselinePrefix = "_standard-baseline";
+
+    internal const string LaddersPrefix = "ladders";
+
+    /// <summary>Where the operator's standard tier-name ladders live in the <c>settings</c> container, beside the standard baseline.</summary>
+    internal const string StandardLaddersPrefix = "_standard-ladders";
 
     private readonly Func<string, IBlobBackend> _container;
     private readonly TimeProvider _clock;
@@ -136,6 +142,50 @@ public sealed class ClientStores
     /// <summary>A client has one baseline of its own, so its events name it by this rather than by an id.</summary>
     internal const string BaselineEntityId = "baseline";
 
+    /// <summary>The client's own tier-name ladders, which replace the standard ones for that client.</summary>
+    public DocumentStore<TierLadders> Ladders(ClientName client) => LaddersIn(_container(client.Value), _clock);
+
+    /// <summary>The operator's standard tier-name ladders, for every client without its own. Operator settings, not client data.</summary>
+    public DocumentStore<TierLadders> StandardLadders() => StandardLaddersIn(_container(SettingsContainer), _clock);
+
+    /// <summary>
+    /// The tier-name ladders the checks read this client's tier names with: its own once it has saved
+    /// a set (an empty one included), else the operator's standard, else the ones the tool starts with
+    /// (<see cref="TierLadders.Standard"/>), as for the template baseline.
+    /// </summary>
+    public Task<LaddersInForce> LaddersInForceAsync(ClientName client, CancellationToken ct = default) =>
+        LaddersInForceAsync(Ladders(client), StandardLadders(), ct);
+
+    internal static async Task<LaddersInForce> LaddersInForceAsync(
+        DocumentStore<TierLadders> own, DocumentStore<TierLadders> standard, CancellationToken ct) =>
+        await own.CurrentAsync(ct) is { } mine
+            ? new LaddersInForce(mine, IsOwn: true)
+            : new LaddersInForce(await standard.CurrentAsync(ct) ?? TierLadders.Standard, IsOwn: false);
+
+    /// <summary>Saves the client's own ladders, which replace the standard ones for it, on its activity trail.</summary>
+    public async Task<DocumentVersion> SaveLaddersAsync(
+        ClientName client, TierLadders ladders, Actor actor, CancellationToken ct = default)
+    {
+        var version = await Ladders(client).SaveAsync(ladders, ct);
+        await _activity.For(client, actor).RecordAsync(
+            ActivityEntity.Ladders, LaddersEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.LaddersSaved, ct);
+        return version;
+    }
+
+    /// <summary>
+    /// Deletes every version of the client's own ladders, so the standard ones apply again. Nothing of
+    /// their contents remains; the activity trail says they were reset, and when.
+    /// </summary>
+    public async Task UseStandardLaddersAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    {
+        await DeleteEveryVersionAsync(Ladders(client), ct);
+        await _activity.For(client, actor).RecordAsync(
+            ActivityEntity.Ladders, LaddersEntityId, null, ActivityAction.LaddersResetToStandard, ct);
+    }
+
+    /// <summary>A client has one set of ladders of its own, named by this in its events.</summary>
+    internal const string LaddersEntityId = "ladders";
+
     internal static async Task DeleteEveryVersionAsync<T>(DocumentStore<T> document, CancellationToken ct) where T : class
     {
         foreach (var version in await document.HistoryAsync(ct))
@@ -157,7 +207,16 @@ public sealed class ClientStores
 
     internal static DocumentStore<TemplateBaseline> StandardBaselineIn(IBlobBackend settingsContainer, TimeProvider clock) =>
         new(settingsContainer, StandardBaselinePrefix, clock, CampaignJson.SerializeBaseline, CampaignJson.DeserializeBaseline);
+
+    internal static DocumentStore<TierLadders> LaddersIn(IBlobBackend clientContainer, TimeProvider clock) =>
+        new(clientContainer, LaddersPrefix, clock, CampaignJson.SerializeLadders, CampaignJson.DeserializeLadders);
+
+    internal static DocumentStore<TierLadders> StandardLaddersIn(IBlobBackend settingsContainer, TimeProvider clock) =>
+        new(settingsContainer, StandardLaddersPrefix, clock, CampaignJson.SerializeLadders, CampaignJson.DeserializeLadders);
 }
 
 /// <summary>The template baseline in force for a client, and whether it is the client's own or the standard one.</summary>
 public sealed record BaselineInForce(TemplateBaseline Baseline, bool IsOwn);
+
+/// <summary>The tier-name ladders in force for a client, and whether they are the client's own or the standard ones.</summary>
+public sealed record LaddersInForce(TierLadders Ladders, bool IsOwn);

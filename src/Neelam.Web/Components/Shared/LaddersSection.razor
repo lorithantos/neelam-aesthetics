@@ -1,0 +1,146 @@
+@* Tier-name ladders (owner, 2026-10-09): the standard ones, or the client's own, which replace them.
+   They are the client's data like its templates, so the access check decides whose. Her changes are
+   a working copy until she saves them as her own. *@
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+
+@if (_client is not null && _inForce is not null && _working is not null)
+{
+    <h2 id="ladders-heading">Tier name ladders</h2>
+    <section class="card" aria-labelledby="ladders-heading">
+        <p class="muted">@(_inForce.IsOwn ? "Your own ladders." : "The standard ladders.")
+            Tier names that use these words tell readers which tier is which. The checks point out two tiers
+            on the same word, and, on an ordered ladder, a higher word that costs less. Neither stops an email.</p>
+        @if (_working.Ladders.Count == 0)
+        {
+            <p>No ladders: tier names are not read against any.</p>
+        }
+        @for (var l = 0; l < _working.Ladders.Count; l++)
+        {
+            var index = l;
+            var ladder = _working.Ladders[index];
+            <section class="card" aria-label="@ladder.Name">
+                <h3>@ladder.Name</h3>
+                <p class="muted">@(ladder.Ordered ? "Ordered, lowest first: a tier on a higher word should cost more." : "Equal weight: the words only tell tiers apart.")</p>
+                <ol class="ladder-words">
+                    @for (var w = 0; w < ladder.Words.Count; w++)
+                    {
+                        var word = w;
+                        <li>
+                            <span>@ladder.Words[word]</span>
+                            <span class="block-actions">
+                                <button class="button" aria-label="Move @ladder.Words[word] lower" disabled="@(word == 0)"
+                                        @onclick="() => Change(index, ladder.Move(word, -1))">Lower</button>
+                                <button class="button" aria-label="Move @ladder.Words[word] higher" disabled="@(word == ladder.Words.Count - 1)"
+                                        @onclick="() => Change(index, ladder.Move(word, 1))">Higher</button>
+                            </span>
+                        </li>
+                    }
+                </ol>
+                <p class="block-actions">
+                    <button class="button" @onclick="() => Change(index, ladder.WithOrdered(!ladder.Ordered))">
+                        @(ladder.Ordered ? "Make the words equal weight" : "Order the words, lowest first")
+                    </button>
+                    <button class="button danger" aria-label="Remove the @ladder.Name ladder" @onclick="() => Remove(index)">Remove ladder</button>
+                </p>
+            </section>
+        }
+
+        <details>
+            <summary>Add a ladder</summary>
+            <div class="field">
+                <label for="ladder-name">Name</label>
+                <input id="ladder-name" @bind="_newName" @bind:event="oninput" />
+            </div>
+            <div class="field">
+                <label for="ladder-words">Words, lowest first</label>
+                <input id="ladder-words" @bind="_newWords" @bind:event="oninput" />
+                <span class="field-help">Separated by commas, such as "Glow, Radiance, Luminous".</span>
+            </div>
+            <label class="check">
+                <input type="checkbox" checked="@_newOrdered" @onchange="e => _newOrdered = e.Value is true" />
+                Ordered: a tier on a later word should cost more
+            </label>
+            <p><button class="button" @onclick="Add">Add ladder</button></p>
+        </details>
+
+        <p>
+            <button class="button primary" @onclick="SaveOwnAsync">Save as your own</button>
+            @if (_inForce.IsOwn)
+            {
+                <button class="button" @onclick="UseStandardAsync">Use the standard ladders</button>
+            }
+        </p>
+        @if (_message is not null)
+        {
+            <p role="status">@_message</p>
+        }
+    </section>
+}
+
+@code {
+    private ClientName? _client;
+    private LaddersInForce? _inForce;
+    // Her changes, not saved until "Save as your own".
+    private TierLadders? _working;
+    private string _newName = "";
+    private string _newWords = "";
+    private bool _newOrdered;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        (_client, _) = await Workspace.ClientDataAsync();
+        if (_client is not null) await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _inForce = await Stores.LaddersInForceAsync(_client!);
+        _working = _inForce.Ladders;
+    }
+
+    private void Change(int index, TierLadder ladder)
+    {
+        _working = _working!.Replace(index, ladder);
+        _message = "Not saved yet: save them as your own to use them.";
+    }
+
+    private void Remove(int index)
+    {
+        _working = _working!.Without(index);
+        _message = "Not saved yet: save them as your own to use them.";
+    }
+
+    private void Add()
+    {
+        var (ladder, problem) = TierLadder.Parse(_newName, _newWords, _newOrdered);
+        if (ladder is null)
+        {
+            _message = problem;
+            return;
+        }
+        if (_working!.Ladders.Any(l => string.Equals(l.Name, ladder.Name, StringComparison.OrdinalIgnoreCase)))
+        {
+            _message = $"There is already a ladder named '{ladder.Name}'.";
+            return;
+        }
+        _working = _working.With(ladder);
+        (_newName, _newWords, _newOrdered) = ("", "", false);
+        _message = "Not saved yet: save them as your own to use them.";
+    }
+
+    private async Task SaveOwnAsync()
+    {
+        await Stores.SaveLaddersAsync(_client!, _working!, await Workspace.ActorAsync());
+        await LoadAsync();
+        _message = "Saved as your own ladders.";
+    }
+
+    private async Task UseStandardAsync()
+    {
+        await Stores.UseStandardLaddersAsync(_client!, await Workspace.ActorAsync());
+        await LoadAsync();
+        _message = "Your own ladders are deleted; the standard ones apply.";
+    }
+}

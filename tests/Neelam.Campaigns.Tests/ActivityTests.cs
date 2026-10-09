@@ -363,6 +363,8 @@ public class ActivityTests
         await store.KeepApprovalAsync(relabelled, await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished));
         await Stores.SaveBaselineAsync(Salon, TemplateBaseline.Standard, Asha);
         await Stores.UseStandardBaselineAsync(Salon, Asha);
+        await Stores.SaveLaddersAsync(Salon, TierLadders.Standard.With(OwnLadder), Asha);
+        await Stores.UseStandardLaddersAsync(Salon, Asha);
         var library = Stores.Images(Salon, Asha);
         await library.AddFromSquareAsync(Photo, PhotoAddress);
         await library.DeleteAsync(Photo);
@@ -377,8 +379,9 @@ public class ActivityTests
         var events = Records.Activity.Events;
         Assert.Equal(Enum.GetValues<ActivityAction>().Order(), events.Select(e => e.Action).Distinct().Order());
 
-        var content = ContentOf(draft, finished, DraftFixtures.Membership);
+        var content = ContentOf(draft, finished, DraftFixtures.Membership).Concat(OwnLadder.Words).Append(OwnLadder.Name).ToList();
         Assert.Contains(Label, content);
+        Assert.Contains("Radiance", content);
         Assert.Contains("Gold Member", content);
         Assert.Contains("149", content);
         foreach (var activity in events)
@@ -423,8 +426,11 @@ public class ActivityTests
     // A known item's name, added, changed and removed in the flow above.
     private const string KnownTreatment = "Hydrafacial deluxe";
 
-    // A campaign or template id, a photo entry's or known item's random id, the baseline, or a client's name.
-    private static readonly Regex EntityIdShape = new("^(?:[0-9a-f]{32}|baseline|test-salon-one)$");
+    // Her own tier-name ladder, saved and reset in the flow above: its name and words are hers.
+    private static readonly TierLadder OwnLadder = new("Glow levels", ["Glow", "Radiance", "Luminous"], ordered: true);
+
+    // A campaign or template id, a photo entry's or known item's random id, the baseline, her ladders, or a client's name.
+    private static readonly Regex EntityIdShape = new("^(?:[0-9a-f]{32}|baseline|ladders|test-salon-one)$");
 
     // Every text and number a person typed: each string and number in the drafts' and template's
     // JSON (a field's kind, such as a block type, is a name the code gives, not text), and the

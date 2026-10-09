@@ -24,10 +24,12 @@ public static class CampaignReview
         findings.AddRange(OfferHasAButton(campaign));
         foreach (var button in campaign.BlocksOf<ButtonBlock>())
             findings.AddRange(ButtonLinkIsHttps(button));
+        var ladders = business?.Ladders ?? TierLadders.Standard;
         foreach (var block in campaign.BlocksOf<OfferBlock>())
         {
             var (label, offer) = (block.Label, block.Offer);
-            findings.AddRange(TierNamesUnique(label, offer));
+            findings.AddRange(TierNamesUnique(label, offer, ladders));
+            findings.AddRange(TierRungsFollowPrices(label, offer, ladders));
             findings.AddRange(TierContentDistinct(label, offer));
             findings.AddRange(TierPricesIncrease(label, offer));
             findings.AddRange(BenefitValuesValid(label, offer));
@@ -207,27 +209,77 @@ public static class CampaignReview
     // The same name is a block. Names the same apart from their numbers (TierNames.Shape: "Option 1
     // Platinum Member", "Option 2 Platinum Member") are a strongly worded look, never a block (owner,
     // 2026-10-09): "Glow 50" and "Glow 100" are good names, and the proofread is the better judge.
-    private static IEnumerable<Finding> TierNamesUnique(string label, Offer offer)
+    // Names on the same rung of a tier-name ladder ("Platinum Member", "Platinum Plus") are a look too
+    // (tier-rung-repeated, owner 2026-10-09). One mistake draws one finding: identical names are the
+    // Must fix alone, and names the same apart from their numbers that stand on one rung ("Option 1
+    // Platinum Member", "Option 2 Platinum Member") get the ladder's note instead of the numbers' one,
+    // since the ladder says what to do about it.
+    private static IEnumerable<Finding> TierNamesUnique(string label, Offer offer, TierLadders ladders)
     {
         var tiers = offer.Tiers.Select((t, i) => (t.Name, Index: i + 1)).ToList();
+        static string Exact(string name) => name.Trim().ToLowerInvariant();
         var same = tiers
-            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .GroupBy(x => Exact(x.Name))
             .Where(g => g.Count() > 1)
             .Select(g => new Finding(Severity.Blocker, "tier-names-unique", label,
                 $"Tiers {string.Join(" and ", g.Select(x => x.Index))} share the name " +
                 $"'{offer.Tiers[g.First().Index - 1].Name}'; customers cannot tell them apart. " +
                 (g.Count() == 2 ? "Rename either one." : "Rename all but one of them.")));
+
+        var reading = ladders.Read(offer.Tiers.Select(t => t.Name).ToList());
+        int? RungOf((string Name, int Index) x) => reading?.Rungs[x.Index - 1];
+        var rungGroups = tiers
+            .Where(x => RungOf(x) is not null)
+            .GroupBy(x => RungOf(x)!.Value)
+            .Where(g => g.Select(x => Exact(x.Name)).Distinct().Count() > 1)
+            .ToList();
+        var onOneRung = rungGroups.SelectMany(g => g).Select(x => x.Index).ToHashSet();
+        var rungs = rungGroups.Select(g => new Finding(Severity.Warning, "tier-rung-repeated", label,
+            $"Tiers {Listed(g.Select(x => x.Index.ToString()))} are {(g.Count() == 2 ? "both" : "all")} " +
+            $"'{reading!.Ladder.Words[g.Key]}'. Tier names like {reading.Ladder.Examples} tell readers which is which; " +
+            "give each tier its own."));
+
         var numbered = tiers
             .Where(x => TierNames.HasNumber(x.Name))
             .GroupBy(x => TierNames.Shape(x.Name))
-            .Where(g => g.Select(x => x.Name.Trim().ToLowerInvariant()).Distinct().Count() > 1)
+            .Where(g => g.Select(x => Exact(x.Name)).Distinct().Count() > 1)
+            .Where(g => !g.All(x => onOneRung.Contains(x.Index) && RungOf(x) == RungOf(g.First())))
             .Select(g => new Finding(Severity.Warning, "tier-names-numbered", label,
                 $"Tiers {Listed(g.Select(x => x.Index.ToString()))} are {(g.Count() == 2 ? "both" : "all")} " +
                 $"'{TierNames.Base(g.First().Name)}' apart from their numbers " +
                 $"({string.Join(", ", g.Select(x => $"'{x.Name.Trim()}'").Distinct())}). Readers will see the same name " +
                 $"{(g.Count() == 2 ? "twice" : $"{g.Count()} times")} — give each tier its own name unless the number really is " +
                 "the difference (as in 'Glow 50' / 'Glow 100')."));
-        return same.Concat(numbered);
+        return same.Concat(rungs).Concat(numbered);
+    }
+
+    /// <summary>
+    /// On a weighted ladder, or one the client has ordered, a higher rung should cost more (owner,
+    /// 2026-10-09): "'Gold' is $299/month but 'Platinum' is $149/month". Rung order is compared with
+    /// price order, never with the tiers' places, so an offer listed highest price first is read the
+    /// same as one listed lowest first. Each pair of neighbouring rungs is compared; equal prices are
+    /// left to tier-prices-increase. Equal-weight ladders never get this. Worth a look, never a block.
+    /// </summary>
+    private static IEnumerable<Finding> TierRungsFollowPrices(string label, Offer offer, TierLadders ladders)
+    {
+        var reading = ladders.Read(offer.Tiers.Select(t => t.Name).ToList());
+        if (reading is null || !reading.Ladder.Ordered) yield break;
+        var byRung = offer.Tiers.Select((t, i) => (Tier: t, Rung: reading.Rungs[i]))
+            .Where(x => x.Rung is not null)
+            .GroupBy(x => x.Rung!.Value)
+            .OrderBy(g => g.Key)
+            .ToList();
+        for (var r = 1; r < byRung.Count; r++)
+        foreach (var lower in byRung[r - 1])
+        foreach (var higher in byRung[r])
+        {
+            if (lower.Tier.MonthlyPrice <= higher.Tier.MonthlyPrice) continue;
+            var (low, high) = (reading.Ladder.Words[byRung[r - 1].Key], reading.Ladder.Words[byRung[r].Key]);
+            yield return new(Severity.Warning, "tier-rung-order", label,
+                $"'{lower.Tier.Name.Trim()}' is {EditorExport.PriceText(lower.Tier.MonthlyPrice, offer.IsRecurring)} " +
+                $"but '{higher.Tier.Name.Trim()}' is {EditorExport.PriceText(higher.Tier.MonthlyPrice, offer.IsRecurring)}; " +
+                $"{high} usually costs more than {low}. Swap the names or the prices.");
+        }
     }
 
     private static string Listed(IEnumerable<string> items)

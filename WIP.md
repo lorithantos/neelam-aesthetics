@@ -98,6 +98,54 @@ The parts every template should have, as a list of block types held as data (`Te
 - **UI:** the Templates page has a short "Every template should have" section (an interactive component, `BaselineSection`): the parts, whether it is the standard or her own, and under "Change it" a checklist with "Save as your own", "Save it empty: no warnings", and "Use the standard baseline" when she has her own. The template editor lists missing parts in its Save card. The checklist names block types as the editor does (Heading, Button, Image), not "Headline", "Call to action", "Photo".
 - **Not built:** no admin page to edit the standard baseline (thread item in the `neelam-aesthetics` area). Until one exists, the standard is changed by saving a document to `settings/_standard-baseline/`. No test drives the section's buttons in a Blazor circuit; the store calls behind them are tested.
 
+## Tier-name ladders (owner, 2026-10-09; built the same day)
+
+**Decided by the owner:** "What we will probably want to do is find some common terms to help here -
+precious metals, gemstones, and colors are all things that imply they should be different..." and
+"Let's do the first two as weighted values and the colors as having equal weight unless ordered by
+the client." Then: "We should also allow them to re-order the weights."
+
+- **Ladders are data** (`TierLadder`, `TierLadders`): a name, words, and whether the words are
+  ordered (lowest first, each a weighted rung) or of equal weight. The standard, in code as
+  `TierLadders.Standard` until the operator saves one: **Metals** Bronze, Silver, Gold, Platinum,
+  Diamond (ordered); **Gemstones** Pearl, Sapphire, Ruby, Emerald, Diamond (ordered); **Colours** Rose,
+  Blue, Green, Purple, Black, White, Red, Pink (equal weight; a short everyday list, the agent's pick).
+- **Where they live**, as the template baseline does: hers at `{client}/ladders/{stamp}.json` in her
+  container, the operator's standard at `settings/_standard-ladders/{stamp}.json`.
+  `ClientStores.LaddersInForceAsync` gives hers, else the operator's saved standard, else the code's.
+  Her set **replaces** the standard whole (so a standard ladder she removes is gone for her, and one the
+  operator adds later does not reach her until she goes back to the standard). Activity:
+  `LaddersSaved`, `LaddersResetToStandard` on entity `Ladders`, id `ladders`, never the words.
+- **Matching:** a ladder word is matched whole inside the tier name, ignoring case and plural endings
+  as `KnownItemMatch` does ("Platinum Member", "Option 1 Gold", "Golds"), and may itself be several
+  words. A name holding words of two rungs of one ladder stands on neither.
+- **Which ladder (Diamond is in two):** an offer is read on the ladder whose words the most of its
+  tiers' names hold; on a tie, the ladder listed first. "Gold" + "Diamond" are metals, "Ruby" +
+  "Diamond" gemstones, "Diamond" alone metals. Fewer than two tiers on any ladder: no ladder notes.
+- **Checks, both Worth a look, never a block** ("handholding, not handcuffs"), at the offer block:
+  - `tier-rung-repeated`: "Tiers 1 and 2 are both 'Platinum'. Tier names like Bronze, Silver, Gold and
+    Platinum tell readers which is which; give each tier its own." (the first four words of the ladder
+    used). Any ladder, colours included.
+  - `tier-rung-order`, ordered ladders only (a colour ladder once she orders it): "'Gold' is $299/month
+    but 'Platinum' is $149/month; Platinum usually costs more than Gold. Swap the names or the prices."
+    Compares rung order with price order, never with position, so either listing direction reads the
+    same. Neighbouring rungs are compared; equal prices are left to `tier-prices-increase`.
+  - **One mistake, one finding:** identical names are `tier-names-unique` (Must fix) alone; names the
+    same apart from their numbers that stand on one rung get `tier-rung-repeated` instead of
+    `tier-names-numbered`. So the first-send sample ("Option 1/2 Platinum Member") now draws the ladder
+    note, not the numbers note; its four Must fixes are unchanged. The numbers note stays for names on no
+    ladder ("Glow 50" / "Glow 100").
+- **How the checks get them:** `BusinessContext.Ladders` (default the code's standard, also when no
+  business is given, as on How it works); the campaign page reads them with `LaddersInForceAsync`.
+- **Her page:** "Tier name ladders" on the Known items page (`LaddersSection`): each ladder with its
+  words, Lower / Higher per word, "Order the words, lowest first" / "Make the words equal weight",
+  "Remove ladder", "Add a ladder" (name, words separated by commas, ordered or not), "Save as your own",
+  and "Use the standard ladders" when she has her own. Changes are a working copy until saved. No test
+  drives its buttons in a Blazor circuit; the operations behind them (`Move`, `WithOrdered`, `Replace`,
+  `Without`, `With`, `Parse`) and the store are tested, and the page as first rendered.
+- **Not built:** no admin page for the operator's standard ladders (saved as a document, as for the
+  baseline); suggesting the next rung on Copy tier (queued idea, owner not yet asked).
+
 ## Registered phone numbers (owner, 2026-10-09)
 
 Neelam's latest email signs off "Snohomish, WA | 425-877-8646"; Square's record of the business has (425) 773-5261 (likely a move from a personal number to a company one). Decided: the numbers a client may publish are **registration data**, and a rule flags any other.
@@ -188,10 +236,11 @@ unrecoverable, while an event saying which save was deleted, and when, is wanted
   `ApprovalCarriedToLabelOnlySave` on the new save, by whoever saved it, ids only. Any other change voids it.
 - **Activity** (`activity` table, **new: needs a live infra deploy**): one row per event, partition =
   client, row = `{UTC stamp}-{guid}`; `Entity` (Campaign, Template, Baseline, ImageEntry,
-  ClientRegistration, KnownItem), `EntityId`, `SaveStamp` (left out when none), `Action`, `Actor`, `At`
+  ClientRegistration, KnownItem, Ladders), `EntityId`, `SaveStamp` (left out when none), `Action`, `Actor`, `At`
   (`TimeProvider`). Actions: Saved, Approved, ApprovalWithdrawn, ApprovalCarriedToLabelOnlySave,
   WarningsSeenAtExport, Undone, Restored, DeletedBySweep, BaselineSaved, BaselineResetToStandard, ImageEntryAdded,
-  ImageEntryRemoved, ClientRegistered, ClientChanged, KnownItemAdded, KnownItemChanged, KnownItemRemoved. **No content, ever**: ids only; an image entry is named by a random id kept in its
+  ImageEntryRemoved, ClientRegistered, ClientChanged, KnownItemAdded, KnownItemChanged, KnownItemRemoved,
+  LaddersSaved, LaddersResetToStandard. **No content, ever**: ids only; an image entry is named by a random id kept in its
   metadata (`entry`), never by its name. A test runs every action with real campaign text, a label, a
   registration and a photo, and fails if any of it appears in any row.
 - **Actor:** the sign-in's name (`name`, else `preferred_username`, else the object ID) in Enforced;
@@ -328,6 +377,8 @@ misses.
   - Activity events and logs are unchanged: ids only, never the line or its limits.
   - **Note:** `benefit-value` already makes a percentage over 99 a Must fix ("110% off is not a
     discount; use 1–99."), whatever the limits; the owner's "110% off" is a block there, not only here.
+    **Confirmed by the owner, 2026-10-09:** "If you want to put 110% in, you do that without our
+    blessing." So limits outside her usual range stay Worth a look, and impossible values stay Must fix.
 - **A tier carries its lines' text, not references to benefit items.** A tier goes out as a whole, so
   changing or removing a benefit item must not quietly change a tier; a tier saved from a campaign has
   lines that were never benefit items; and one row is the whole tier, with no reference to dangle.
@@ -417,7 +468,7 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
 10. **The same finding on both tiers** (raised 2026-10-09). Some checks report per field, so a line both tiers carry draws the same finding once for each tier (for example a known-item note on a copied tier), while others report once naming both (`tier-names-unique`). Options: (a) per tier, as now: each place to fix is listed; (b) one finding naming every tier it applies to; (c) (b) on the page, (a) in the assistant export, which places findings by block. **Recommendation: (b)**, matching `tier-names-unique`: one fix is usually one decision, and two identical lines read as noise.
 11. **Tier names that differ only by "Option N"** -- *decided 2026-10-09, built the same day.* The real first send named its options "Option 1 Platinum Member" and "Option 2 Platinum Member", so `tier-names-unique`, which compares whole names, did not fire. The owner: the format is "common, different number, common"; make it "a strongly worded note. Glow 50 and Glow 100 are perfectly good types of exceptions and the better hook will be the LLM pass on it." Built:
     - **Comparison** (`TierNames.Shape`): every run of digits is the same token, ignoring case and spacing, with no list of words such as "Option" or "Tier" (data over dogma). "Option 1 Platinum Member" = "Option 2 Platinum Member"; "Glow 50" = "Glow 100".
-    - **Identical names stay Must fix** (`tier-names-unique`, unchanged). **Names the same apart from their numbers** are a new rule, `tier-names-numbered`, Worth a look, never a block, one finding per group of tiers: "Tiers 1 and 2 are both 'Platinum Member' apart from their numbers ('Option 1 Platinum Member', 'Option 2 Platinum Member'). Readers will see the same name twice — give each tier its own name unless the number really is the difference (as in 'Glow 50' / 'Glow 100')." It is in the Offer block's guide (`BlockGuide`). The first-send sample now draws it beside its four blockers, which are unchanged.
+    - **Identical names stay Must fix** (`tier-names-unique`, unchanged). **Names the same apart from their numbers** are a new rule, `tier-names-numbered`, Worth a look, never a block, one finding per group of tiers: "Tiers 1 and 2 are both 'Platinum Member' apart from their numbers ('Option 1 Platinum Member', 'Option 2 Platinum Member'). Readers will see the same name twice — give each tier its own name unless the number really is the difference (as in 'Glow 50' / 'Glow 100')." It is in the Offer block's guide (`BlockGuide`). The first-send sample drew it beside its four blockers, which are unchanged; since the tier-name ladders (see "Tier-name ladders"), names like these that stand on one rung ("Platinum") get the ladder's note instead.
     - **Known-tier lookup** (`KnownItems.TierFor`): the same name as before (`KnownItemMatch`); else, only for a known name with no number in it, the written name without its number-bearing parts (`TierNames.Base`: a leading word and number when more words follow, "Option 1 ...", "Tier 2 ...", then any word that is only a number, "(2)", "#1"). So "Option 1 Platinum Member" at $149 is held to her "Platinum Member": "'Platinum Member' is $299/month in your known items; here it is $149/month.", and is not offered to save as a new tier. A known name carrying a number is matched whole only, so "Glow 50" is never taken for her "Glow 100" at another price (it gets the neutral "isn't one of your known tiers").
     - The AI proofread is the better judge of such cases once it runs: whether a number really is the difference is a reading of the email, not a rule.
 
