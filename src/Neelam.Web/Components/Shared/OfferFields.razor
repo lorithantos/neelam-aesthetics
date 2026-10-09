@@ -4,8 +4,9 @@
    changed or confirmed. Her known items (owner, 2026-10-09) are offered as she writes: a whole
    known tier, a known benefit into a tier, and her known tier names and treatments as suggestions
    while typing. What is picked is ordinary text she typed, never marked as not yet checked; a
-   picked tier that repeats another's name or price is flagged by the rules, as a copy is. A tier or
-   a benefit line can be saved as a known item exactly as written. *@
+   picked tier that repeats another's name or price is flagged by the rules, as a copy is. A tier, a
+   benefit line, or the treatment in a benefit's Item field can be saved as a known item exactly as
+   written. *@
 @implements IHandleEvent
 <div class="field">
     <label for="offer-name-@Index">Offer name</label>
@@ -91,6 +92,10 @@
                     @if (SaveKnown is not null)
                     {
                         <button class="button" disabled="@(benefit.Value is null)" title="@(benefit.Value is null ? "Fill it in first" : null)" @onclick="() => SaveBenefitAsync(benefit)">Save as a known item</button>
+                        @if (benefit.TreatmentToKnown() is { } treatment)
+                        {
+                            <button class="button" @onclick="() => SaveTreatmentAsync(treatment)">Save "@treatment.Name" as a known treatment</button>
+                        }
                     }
                     <button class="button danger" aria-label="Remove benefit @benefitNumber of tier @tierNumber" @onclick="() => tier.RemoveBenefit(benefit)">Remove benefit</button>
                 </div>
@@ -191,4 +196,6 @@
     {
         if (benefit.ToKnown() is { } known) _message = await SaveKnown!(known);
     }
+
+    private async Task SaveTreatmentAsync(KnownTreatment treatment) => _message = await SaveKnown!(treatment);
 }

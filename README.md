@@ -219,8 +219,8 @@ for them. A client's people only sign in and work on their campaigns.
   whole tiers she uses again and again, in the `knownItems` table, one partition per client,
   reached only for the client the access check gave. She keeps them on her Known items page,
   picks them into a campaign (a benefit into a tier, a whole tier into the offer, a treatment or
-  tier name suggested as she types), and saves a tier or a benefit line from a campaign as a
-  known item. Picked text is hers, as if typed. Benefits stay typed, so a known benefit is a
+  tier name suggested as she types), and saves a tier, a benefit line or a benefit's treatment
+  from a campaign as a known item. Picked text is hers, as if typed. Benefits stay typed, so a known benefit is a
   typed benefit and its text is the sentence it reads as; a known tier carries its own lines
   rather than pointing at benefit items, so changing a benefit item never changes a tier.
 - **So is how strict the checks are.** The restricted terms, medical terms and emoji limit that
@@ -304,11 +304,22 @@ business had (425) 773-5261. The numbers a client may publish are part of its re
 the clients table, and `phone-registered` warns about any other number anywhere in the email,
 fixed template text and `tel:` links included. With no numbers registered it says nothing.
 
-The same idea, from her own data: `known-item` warns when a benefit's treatment name or its
-sentence nearly matches one of her known items but differs, "Did you mean 'Wellness
-injection'? It's in your known items." Nearly means the same letters in another case, or, for
-text of at least 6 characters, at most 2 edits apart with the same numbers in it, so "15% off"
-is never taken for a typo of "10% off" (`KnownItemMatch`). With no known items it says nothing.
+The same idea, from her own data, for offer details only (owner, 2026-10-09: good faith for
+prose, strict on offer details). `known-item` holds each tier's name to her known tiers, each
+benefit's Item to her known treatments, and each benefit's sentence to her benefit lines. Prose
+(headline, opening, closing, any free text) is never held to the list: its spelling is the
+proofread's job. All three findings are warnings ("Worth a look"):
+
+- close to a known item but not the same: "Did you mean 'Wellness injection'? It's in your known
+  items." Close means within 1 edit for an item under 10 characters, 2 at 10 or more, with the
+  same numbers in it, so "15% off" is never taken for a typo of "10% off". Another case or a
+  plural ending ("Facials" for "Facial") is the same item and says nothing (`KnownItemMatch`);
+- not one of them at all: "'Hydrafacial' isn't one of your known treatments." (or tiers, or
+  benefit lines), with a one-click save beside the field;
+- a known tier's name at another price: "'Platinum Member' is $299/month in your known items;
+  here it is $249/month."
+
+With no known items of a kind, nothing is said about that kind.
 
 ## Layout
 

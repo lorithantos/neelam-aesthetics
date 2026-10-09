@@ -40,39 +40,65 @@ public static class CampaignReview
         findings.AddRange(EmojiSpacing(text));
         findings.AddRange(EmojiBudget(text, policy));
         findings.AddRange(RegisteredPhones(campaign, text, business));
-        findings.AddRange(KnownItemNearMisses(campaign, business));
+        findings.AddRange(KnownItemChecks(campaign, business));
 
         return new ReviewReport(campaign, findings, Proofread: false);
     }
 
     /// <summary>
-    /// A treatment name or benefit line that nearly matches one of the client's known items is a typo
-    /// or a stray capital more often than a new thing: "Wellness Injecton" when "Wellness injection"
-    /// is known. What counts as nearly is <see cref="KnownItemMatch"/>'s. A warning, never a block,
-    /// naming the known item; with no known items, nothing is said.
+    /// Offer details against the client's known items (owner, 2026-10-09: assume good faith for
+    /// prose, be strict on offer details). Only the offer's details are compared: each tier's name
+    /// with her known tiers, each benefit's Item with her known treatments, and each benefit's
+    /// sentence with her benefit lines (the lines of her known tiers included). Prose -- headline,
+    /// opening, closing, any free text -- is never compared: its spelling is the proofread's job.
+    /// <list type="bullet">
+    /// <item>Close to a known item but not the same (<see cref="KnownItemMatch"/>): "Did you mean ...?".</item>
+    /// <item>Not one of them at all: a neutral note, since saving it as a known item is one click.</item>
+    /// <item>A known tier's name at a different price.</item>
+    /// </list>
+    /// All are warnings, never a block. With no known items of a kind, nothing is said about that
+    /// kind. When a benefit's Item draws a note, its sentence is not noted too: the item is the cause.
     /// </summary>
-    private static IEnumerable<Finding> KnownItemNearMisses(Campaign c, BusinessContext? business)
+    private static IEnumerable<Finding> KnownItemChecks(Campaign c, BusinessContext? business)
     {
         var known = business?.Known ?? KnownItems.None;
         if (known.IsEmpty) yield break;
         var treatments = known.Treatments.Select(t => t.Name).ToList();
+        var tierNames = known.Tiers.Select(t => t.Name).ToList();
         var lines = known.BenefitLines;
 
         foreach (var block in c.BlocksOf<OfferBlock>())
         for (var i = 0; i < block.Offer.Tiers.Count; i++)
-        foreach (var benefit in block.Offer.Tiers[i].Benefits)
         {
+            var tier = block.Offer.Tiers[i];
             var where = $"{block.Label} › Tier {i + 1}";
-            if (benefit.Item is { } item && KnownItemMatch.NearMiss(item, treatments) is { } treatment)
-                yield return NearMiss(where, treatment, item);
-            var sentence = benefit.Describe();
-            if (KnownItemMatch.NearMiss(sentence, lines) is { } line)
-                yield return NearMiss(where, line, sentence);
+            if (AgainstKnown(where, tier.Name, tierNames, "tiers") is { } nameFinding)
+                yield return nameFinding;
+            else if (known.Tiers.FirstOrDefault(t => KnownItemMatch.IsKnown(tier.Name, [t.Name])) is { } knownTier
+                     && knownTier.Price != tier.MonthlyPrice)
+                yield return new(Severity.Warning, "known-item", where,
+                    $"'{knownTier.Name}' is {EditorExport.PriceText(knownTier.Price, block.Offer.IsRecurring)} in your known items; " +
+                    $"here it is {EditorExport.PriceText(tier.MonthlyPrice, block.Offer.IsRecurring)}.",
+                    Excerpt: tier.Name);
+
+            foreach (var benefit in tier.Benefits)
+            {
+                var itemFinding = benefit.Item is { } item ? AgainstKnown(where, item, treatments, "treatments") : null;
+                var finding = itemFinding ?? AgainstKnown(where, benefit.Describe(), lines, "benefit lines");
+                if (finding is not null) yield return finding;
+            }
         }
     }
 
-    private static Finding NearMiss(string where, string known, string written) =>
-        new(Severity.Warning, "known-item", where, $"Did you mean '{known}'? It's in your known items.", Excerpt: written);
+    private static Finding? AgainstKnown(string where, string written, IReadOnlyList<string> known, string kinds)
+    {
+        var w = (written ?? "").Trim();
+        if (known.Count == 0 || w.Length == 0 || KnownItemMatch.IsKnown(w, known)) return null;
+        var message = KnownItemMatch.NearMiss(w, known) is { } near
+            ? $"Did you mean '{near}'? It's in your known items."
+            : $"'{w}' isn't one of your known {kinds}.";
+        return new(Severity.Warning, "known-item", where, message, Excerpt: w);
+    }
 
     /// <summary>
     /// A phone number the business has not registered is stale or mistyped more often than not:

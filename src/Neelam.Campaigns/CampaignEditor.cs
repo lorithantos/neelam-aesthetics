@@ -563,6 +563,13 @@ public sealed class BenefitEditor
     /// <summary>This benefit as a known item, exactly as written; null until it is complete.</summary>
     public KnownBenefit? ToKnown() => Value is { } benefit ? new KnownBenefit(KnownItem.NewId(), benefit) : null;
 
+    /// <summary>
+    /// The treatment in its Item field as a known item, exactly as written; null for a kind with no
+    /// item, or until the benefit is complete.
+    /// </summary>
+    public KnownTreatment? TreatmentToKnown() =>
+        Value?.Item is { } item && item.Trim().Length > 0 ? new KnownTreatment(KnownItem.NewId(), item.Trim()) : null;
+
     /// <summary>The kind's <see cref="BenefitKind.Key"/>, or blank before one is chosen.</summary>
     public string Kind { get => _kind; set { _kind = value ?? ""; Apply(); } }
 

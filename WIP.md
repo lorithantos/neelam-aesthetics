@@ -271,21 +271,37 @@ misses.
   Picked text is ordinary text she entered (`Origin.Entered`), never "not yet checked". A picked tier
   that repeats another's name or price is let in and flagged by `tier-names-unique` /
   `tier-prices-increase`, as a copy is. **Save as a known item** next to each tier and each benefit line
-  saves it exactly as written (or says it is already known).
-- **Near misses** (`known-item`, "Worth a look", never a block): a benefit's item name against her known
-  treatments, and its sentence against her benefit lines and the lines of her known tiers, "Did you mean
-  'Wellness injection'? It's in your known items." Threshold (`KnownItemMatch`): an exact match says
-  nothing; the same letters in another case is a near miss; otherwise both at least 6 characters, at most
-  2 edits apart ignoring case, with the same digits ("15% off" is not a typo of "10% off"). The items
-  reach the rule as the phone numbers do: `BusinessContext.Known`, filled by
-  `ClientWorkspace.BusinessAsync`, so it runs on whole and partial drafts and in the gate. No items, no
-  finding. Never given to the proofread.
+  saves it exactly as written (or says it is already known); a benefit with an Item also offers
+  **Save "X" as a known treatment** (2026-10-09, with the rule below).
+- **Checks against known items: offer details only (owner's decision, 2026-10-09).** The first version
+  flagged prose-like misfires ("Social" as near "Facial", "Lasers" as near "Lashes", "Facials" as near
+  "Facial"). The owner's ruling: assume good faith for existing words and be strict only on offer
+  details; a split by field "feels more professional than a one size fits all approach". So
+  (`known-item`, all "Worth a look", never a block; `CampaignReview.KnownItemChecks`):
+  - **Prose** (headline, greeting, opening, closing, fine print, any free text): never compared. Spelling
+    in prose is the AI proofread's job; there is no dictionary.
+  - **Offer details**: each tier's name against her known tiers, each benefit's Item against her known
+    treatments, each benefit's sentence against her benefit lines and the lines of her known tiers.
+    Close but not the same: "Did you mean 'Wellness injection'? It's in your known items." Not known at
+    all: "'Hydrafacial' isn't one of your known treatments." (or "tiers", "benefit lines"), with the
+    one-click save beside the field. A known tier's name at another price: "'Platinum Member' is
+    $299/month in your known items; here it is $249/month." When a benefit's Item draws a note, its
+    sentence is not noted as well.
+  - **Threshold** (`KnownItemMatch`): the same words ignoring case, spacing and a plural ending on any
+    word ("Facials" = "Facial", "Lashes" = "Lash") is known and says nothing; otherwise a near miss is at
+    most 1 edit for a known item under `KnownItemMatch.LongItemLength` (10) characters, 2 at or above,
+    with the same digits ("15% off" is not a typo of "10% off").
+  - With no known items of a kind, nothing is said about that kind. Only offer details reach the
+    assistant export's `worthALook` from this rule (pinned by a test).
+  The items reach the rule as the phone numbers do: `BusinessContext.Known`, filled by
+  `ClientWorkspace.BusinessAsync`, so it runs on whole and partial drafts and in the gate. Never given to
+  the proofread.
 - **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
   `KnownItemRemoved`) by the item's id, never its text.
 - **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and
   buttons (no test drives a Blazor circuit or a `datalist`). Treatment names written in free text
-  (paragraphs) are not checked against the list, only the Item field. Picking happens in the campaign
-  editor only, not the template editor.
+  (paragraphs) are deliberately not checked against the list (owner, 2026-10-09, above). Picking
+  happens in the campaign editor only, not the template editor.
 
 ## Open decisions (the owner's to make)
 

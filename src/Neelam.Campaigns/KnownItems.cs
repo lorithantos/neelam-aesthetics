@@ -140,51 +140,83 @@ public static class KnownItemRules
 }
 
 /// <summary>
-/// Whether something written nearly matches a known item: the threshold, in one place.
+/// How an offer detail (a tier name, a benefit line, a treatment in the Item field) compares with
+/// the client's known items: the threshold, in one place. Prose is never compared (owner,
+/// 2026-10-09): spelling in prose is the proofread's job.
 /// <list type="bullet">
-/// <item>Exactly a known item (ignoring surrounding space): no match, it is right.</item>
-/// <item>The same letters in a different case, such as "wellness Injection" for "Wellness injection": a near miss.</item>
-/// <item>Otherwise, when both are at least <see cref="MinLength"/> characters, at most
-/// <see cref="MaxEdits"/> single-character edits apart ignoring case (insert, delete or change, as
-/// Levenshtein counts them), and carrying the same digits in the same order: a near miss. The digit
-/// condition keeps "15% off" from being taken for a typo of "10% off": a different number is a
-/// decision, not a slip.</item>
+/// <item><b>Known</b> (<see cref="IsKnown"/>): the same words as a known item, ignoring case,
+/// surrounding and repeated space, and a plural ending on any word ("Facials" for "Facial",
+/// "Lashes" for "Lash"). Nothing is said.</item>
+/// <item><b>Near miss</b> (<see cref="NearMiss"/>): otherwise, within the known item's
+/// <see cref="EditBudget"/> of single-character edits ignoring case (insert, delete or change, as
+/// Levenshtein counts them), and carrying the same digits in the same order. The digit condition
+/// keeps "15% off" from being taken for a typo of "10% off": a different number is a decision, not
+/// a slip.</item>
+/// <item>Anything else is not one of the known items at all.</item>
 /// </list>
-/// Shorter items are compared only by case, since two edits turn "Botox" into many real words.
 /// </summary>
 public static class KnownItemMatch
 {
-    public const int MinLength = 6;
-    public const int MaxEdits = 2;
+    /// <summary>A known item this many characters long or longer may be two edits off; a shorter one, one.</summary>
+    public const int LongItemLength = 10;
 
-    /// <returns>The known text <paramref name="written"/> most nearly matches, or null when it is exact or near none.</returns>
+    /// <summary>How many edits away a near miss of <paramref name="known"/> may be.</summary>
+    public static int EditBudget(string known) => known.Trim().Length >= LongItemLength ? 2 : 1;
+
+    /// <summary>Whether <paramref name="written"/> says the same as any of <paramref name="known"/>.</summary>
+    public static bool IsKnown(string written, IEnumerable<string> known) =>
+        Matching(written, known) is not null;
+
+    /// <returns>The known text <paramref name="written"/> says the same as, or null when it is none.</returns>
+    public static string? Matching(string written, IEnumerable<string> known)
+    {
+        var w = Words(written);
+        if (w.Length == 0) return null;
+        return known.FirstOrDefault(k => Same(w, Words(k)));
+    }
+
+    /// <returns>The known text <paramref name="written"/> most nearly matches, or null when it is known or near none.</returns>
     public static string? NearMiss(string written, IEnumerable<string> known)
     {
         var w = (written ?? "").Trim();
         if (w.Length == 0) return null;
         var candidates = known.Select(k => k.Trim()).Where(k => k.Length > 0).ToList();
-        if (candidates.Any(k => k == w)) return null;
+        if (IsKnown(w, candidates)) return null;
 
         string? best = null;
         var bestDistance = int.MaxValue;
         foreach (var k in candidates)
         {
-            int distance;
-            if (string.Equals(k, w, StringComparison.OrdinalIgnoreCase)) distance = 0;
-            else if (w.Length >= MinLength && k.Length >= MinLength && Digits(w) == Digits(k))
-                distance = Edits(w.ToLowerInvariant(), k.ToLowerInvariant());
-            else continue;
-            if (distance <= MaxEdits && distance < bestDistance) (best, bestDistance) = (k, distance);
+            if (Digits(w) != Digits(k)) continue;
+            var budget = EditBudget(k);
+            var distance = Edits(w.ToLowerInvariant(), k.ToLowerInvariant(), budget);
+            if (distance <= budget && distance < bestDistance) (best, bestDistance) = (k, distance);
         }
         return best;
     }
 
+    private static string[] Words(string? s) =>
+        (s ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+
+    private static bool Same(string[] a, string[] b) =>
+        a.Length == b.Length && a.Zip(b).All(p => SameWord(p.First, p.Second));
+
+    // The same word, ignoring case, or one the other with a plural ending: "Facials", "Lashes".
+    private static bool SameWord(string a, string b)
+    {
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+        var (shorter, longer) = a.Length <= b.Length ? (a, b) : (b, a);
+        if (!longer.StartsWith(shorter, StringComparison.OrdinalIgnoreCase)) return false;
+        var ending = longer[shorter.Length..];
+        return ending.Equals("s", StringComparison.OrdinalIgnoreCase) || ending.Equals("es", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string Digits(string s) => string.Concat(s.Where(char.IsAsciiDigit));
 
-    // Levenshtein distance, stopping early once it cannot come in under the threshold.
-    private static int Edits(string a, string b)
+    // Levenshtein distance, stopping early once it cannot come in under the budget.
+    private static int Edits(string a, string b, int budget)
     {
-        if (Math.Abs(a.Length - b.Length) > MaxEdits) return MaxEdits + 1;
+        if (Math.Abs(a.Length - b.Length) > budget) return budget + 1;
         var previous = new int[b.Length + 1];
         var current = new int[b.Length + 1];
         for (var j = 0; j <= b.Length; j++) previous[j] = j;
@@ -198,7 +230,7 @@ public static class KnownItemMatch
                 current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + cost);
                 rowMin = Math.Min(rowMin, current[j]);
             }
-            if (rowMin > MaxEdits) return MaxEdits + 1;
+            if (rowMin > budget) return budget + 1;
             (previous, current) = (current, previous);
         }
         return previous[b.Length];

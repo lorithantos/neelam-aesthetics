@@ -99,6 +99,34 @@ public class AssistantExportTests
         Assert.NotEmpty(doc["review"]!["worthALook"]!.AsArray());
     }
 
+    // Known items are held only against offer details (owner, 2026-10-09), so only offer details
+    // reach the assistant's "Worth a look": the prose's "Social", "Lasers" and "Facials" never do.
+    [Fact]
+    public void Only_offer_details_reach_worth_a_look_from_the_known_items()
+    {
+        var campaign = WithOpening(BeautyBankEmail.Corrected(), "Our Social is back: Lasers and Facials all evening.");
+        var known = new BusinessContext("Neelam Aesthetics")
+        {
+            Known = new KnownItems(
+            [
+                new KnownTreatment(KnownItem.NewId(), "Facial"),
+                new KnownTreatment(KnownItem.NewId(), "Lashes"),
+                new KnownTreatment(KnownItem.NewId(), "Wellness injection"),
+                new KnownTier(KnownItem.NewId(), "Platinum Member", 249m, []),
+            ]),
+        };
+        var report = CampaignGate.DemoReview(campaign, ByPriya, business: known);
+        var offerLabel = campaign.BlocksOf<OfferBlock>().Single().Label;
+
+        var fromKnown = report.Findings.Where(f => f.Rule == "known-item").ToList();
+        Assert.NotEmpty(fromKnown);
+        Assert.All(fromKnown, f => Assert.StartsWith($"{offerLabel} › Tier ", f.Location));
+        var worthALook = Parse(Exported(report, context: Context))["review"]!["worthALook"]!.AsArray()
+            .Select(n => n!.GetValue<string>()).ToList();
+        Assert.Contains($"{offerLabel} › Tier 2: 'Platinum Member' is $249/month in your known items; here it is $299/month.", worthALook);
+        Assert.DoesNotContain(worthALook, w => w.Contains("Social") || w.Contains("Lasers") || w.Contains("Facial"));
+    }
+
     // ---- The shape ----
 
     [Fact]
