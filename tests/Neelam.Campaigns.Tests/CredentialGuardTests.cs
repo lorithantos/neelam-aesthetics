@@ -1,4 +1,7 @@
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Neelam.Campaigns.Storage;
+using Neelam.Web.Security;
 
 namespace Neelam.Campaigns.Tests;
 
@@ -126,6 +129,68 @@ public class CredentialGuardTests
             Check((CredentialGuard.AppServiceMarker, "neelamtest-abc"), (CredentialGuard.KeySetting, Reference),
                 ("Storage:Connection", "AccountName=x;AccountKey=abc==")));
 
+    // ---- App Service's APPSETTING_ copy (owner, 2026-10-10). App Service hands every app setting to the
+    // app twice, as named and prefixed APPSETTING_; the staging deploy of 2026-10-10 died on the copy.
+
+    private const string OnAppService = "neelamtest-abc";
+
+    // As .NET's environment provider presents it, and as the raw variable is spelled.
+    public static TheoryData<string> CopyNames => new() { CredentialGuard.AppServiceCopy, "APPSETTING_Proofread__AnthropicApiKey" };
+
+    [Theory]
+    [MemberData(nameof(CopyNames))]
+    public void On_app_service_the_copy_holding_the_same_key_is_allowed(string copy) =>
+        Check((CredentialGuard.AppServiceMarker, OnAppService), (CredentialGuard.KeySetting, AnthropicKey), (copy, AnthropicKey));
+
+    [Theory]
+    [MemberData(nameof(CopyNames))]
+    public void On_app_service_the_copy_holding_the_reference_is_allowed(string copy) =>
+        Check((CredentialGuard.AppServiceMarker, OnAppService), (CredentialGuard.KeySetting, AnthropicKey), (copy, Reference));
+
+    [Theory]
+    [MemberData(nameof(CopyNames))]
+    public void Off_app_service_the_copy_stops_startup(string copy)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Check((CredentialGuard.KeySetting, Reference), (copy, Reference)));
+
+        // The copy alone: the reference in the setting itself is still allowed off App Service.
+        Assert.EndsWith("Remove: " + copy, ex.Message);
+    }
+
+    [Theory]
+    [MemberData(nameof(CopyNames))]
+    public void A_copy_holding_a_different_key_stops_startup_and_is_named_not_shown(string copy)
+    {
+        var other = string.Concat("sk-", "ant-", "api03-", new string('y', 40));
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Check((CredentialGuard.AppServiceMarker, OnAppService), (CredentialGuard.KeySetting, AnthropicKey), (copy, other)));
+
+        Assert.Contains(copy, ex.Message);
+        Assert.DoesNotContain(other, ex.Message);
+        Assert.DoesNotContain(AnthropicKey, ex.Message);
+    }
+
+    [Fact]
+    public void A_copy_with_no_key_setting_beside_it_stops_startup() =>
+        Assert.Throws<InvalidOperationException>(() =>
+            Check((CredentialGuard.AppServiceMarker, OnAppService), (CredentialGuard.AppServiceCopy, AnthropicKey)));
+
+    [Theory]
+    [InlineData("APPSETTING_Storage:Connection", "AccountName=x;AccountKey=abc==")]
+    [InlineData("APPSETTING_Proofread:Key", null)]
+    [InlineData("APPSETTING_Storage__Connection", "@Microsoft.KeyVault(SecretUri=https://neelam-kv-abc123.vault.azure.net/secrets/anthropic-api-key/)")]
+    public void An_app_service_copy_of_any_other_setting_is_judged_as_before(string copy, string? value)
+    {
+        value ??= AnthropicKey;
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Check((CredentialGuard.AppServiceMarker, OnAppService), (CredentialGuard.KeySetting, AnthropicKey), (copy, value)));
+
+        Assert.Contains(copy, ex.Message);
+    }
+
     // Every store the app opens goes through one StorageClients built at startup, so a SAS on
     // either endpoint stops the app there, before any request.
     [Theory]
@@ -142,5 +207,43 @@ public class CredentialGuardTests
 
         public override ValueTask<Azure.Core.AccessToken> GetTokenAsync(Azure.Core.TokenRequestContext r, CancellationToken c) =>
             throw new NotSupportedException();
+    }
+}
+
+/// <summary>
+/// The app as App Service starts it once the proofread's key is resolved: the key in its setting and
+/// again in App Service's APPSETTING_ copies. The staging deploy of 2026-10-10 died here, in Program,
+/// before telemetry was up ("Remove: APPSETTING_Proofread:AnthropicApiKey").
+/// </summary>
+public sealed class AppServiceKeyApp : InMemoryApp
+{
+    // Built from parts, so this file holds nothing shaped like a real key.
+    internal static readonly string FakeKey = string.Concat("sk-", "ant-", "fake-", new string('x', 40));
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting(PrototypeCallerSource.ClientSetting, DemoApp.Client.ToString());
+        builder.UseSetting(CredentialGuard.AppServiceMarker, "neelamtest-staging-abc");
+        builder.UseSetting(CredentialGuard.KeySetting, FakeKey);
+        builder.UseSetting(CredentialGuard.AppServiceCopy, FakeKey);
+        builder.UseSetting("APPSETTING_Proofread__AnthropicApiKey", FakeKey);
+        base.ConfigureWebHost(builder);
+    }
+
+    protected override void ConfigureAccess(IServiceCollection services)
+    {
+    }
+}
+
+public class AppServiceStartupTests
+{
+    [Fact]
+    public async Task The_app_starts_with_the_key_and_app_service_s_copies_of_it()
+    {
+        using var app = new AppServiceKeyApp();
+
+        var response = await app.CreateClient(new() { AllowAutoRedirect = false }).GetAsync("/");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
     }
 }

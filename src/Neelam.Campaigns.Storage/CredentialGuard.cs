@@ -19,6 +19,14 @@ namespace Neelam.Campaigns.Storage;
 /// App Service the setting holds what the vault gave. Anywhere else -- a local run, a file, an
 /// environment variable on a developer's machine -- a key in that setting is refused like any other,
 /// and an Anthropic key or a Key Vault reference in any other setting is refused too.
+/// <para>
+/// <b>App Service's copy</b> (owner, 2026-10-10: "no one should have access so long as azure itself
+/// isn't leaking"): App Service also hands every app setting to the app a second time, prefixed
+/// <c>APPSETTING_</c>, so the key arrives as <see cref="AppServiceCopy"/> too. That copy is the same
+/// setting, and is allowed only on App Service, and only while it holds exactly what
+/// <see cref="KeySetting"/> holds or the reference itself. Off App Service, or with any other value, it
+/// is refused; an <c>APPSETTING_</c> copy of any other setting is judged like any other setting.
+/// </para>
 /// </remarks>
 public static class CredentialGuard
 {
@@ -27,6 +35,12 @@ public static class CredentialGuard
 
     /// <summary>App Service sets this on every site; it is how the guard knows App Service resolved the reference.</summary>
     public const string AppServiceMarker = "WEBSITE_SITE_NAME";
+
+    /// <summary>
+    /// The copy of <see cref="KeySetting"/> App Service puts in the environment beside it, as .NET reads
+    /// <c>APPSETTING_Proofread__AnthropicApiKey</c>; the <c>__</c> spelling is the same setting.
+    /// </summary>
+    public const string AppServiceCopy = "APPSETTING_" + KeySetting;
 
     private static readonly string[] SecretMarkers =
     [
@@ -46,8 +60,10 @@ public static class CredentialGuard
         var onAppService = all.Any(kv =>
             string.Equals(kv.Key, AppServiceMarker, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(kv.Value));
 
+        var key = all.LastOrDefault(kv => string.Equals(kv.Key, KeySetting, StringComparison.OrdinalIgnoreCase)).Value;
+
         var offending = all
-            .Where(kv => !string.IsNullOrEmpty(kv.Value) && Refused(kv.Key, kv.Value!, onAppService))
+            .Where(kv => !string.IsNullOrEmpty(kv.Value) && Refused(kv.Key, kv.Value!, onAppService, key))
             .Select(kv => kv.Key)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -55,13 +71,21 @@ public static class CredentialGuard
         if (offending.Count > 0)
             throw new InvalidOperationException(
                 "Stored credentials are not allowed; this app uses managed identity only, and the AI proofread's key " +
-                $"only through Key Vault, in {KeySetting}. Remove: " + string.Join(", ", offending));
+                $"only through Key Vault, in {KeySetting} (on App Service also its {AppServiceCopy} copy, holding the same). " +
+                "Remove: " + string.Join(", ", offending));
     }
 
-    private static bool Refused(string key, string value, bool onAppService) =>
-        string.Equals(key, KeySetting, StringComparison.OrdinalIgnoreCase)
-            ? !(KeyVaultReference.Is(value) || onAppService)
-            : LooksLikeCredential(value) || KeyVaultReference.LooksLikeOne(value);
+    private static bool Refused(string name, string value, bool onAppService, string? key)
+    {
+        if (string.Equals(name, KeySetting, StringComparison.OrdinalIgnoreCase))
+            return !(KeyVaultReference.Is(value) || onAppService);
+        if (IsAppServiceCopy(name))
+            return !(onAppService && (string.Equals(value, key, StringComparison.Ordinal) || KeyVaultReference.Is(value)));
+        return LooksLikeCredential(value) || KeyVaultReference.LooksLikeOne(value);
+    }
+
+    private static bool IsAppServiceCopy(string name) =>
+        string.Equals(name.Replace("__", ":", StringComparison.Ordinal), AppServiceCopy, StringComparison.OrdinalIgnoreCase);
 
     private static bool LooksLikeCredential(string value) =>
         SecretMarkers.Any(m => value.Contains(m, StringComparison.OrdinalIgnoreCase))
