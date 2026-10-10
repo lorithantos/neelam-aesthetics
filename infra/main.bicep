@@ -68,6 +68,15 @@ var stagingPrototypeClient = stagingClients[?0] ?? ''
 // The developer's access, the same on each account; empty outside the test deployment.
 var developerOnAccounts = developerAccess ? developerPrincipalId : ''
 
+// The AI proofread's key (owner, 2026-10-09: "For now I will donate my credits"): the one secret this
+// app may be given, the Anthropic API key, kept in this vault and nowhere else. The owner sets the
+// secret with the CLI (WIP.md); this template never holds a value. Each site gets it as an App Service
+// Key Vault reference, which App Service resolves with that site's own identity, and CredentialGuard
+// lets it into that one setting alone. Both sites read the one secret: one key, one bill, one cap.
+var vaultName = take('${prefix}-kv-${suffix}', 24)
+var proofreadSecretName = 'anthropic-api-key'
+var proofreadKeyUri = 'https://${vaultName}${environment().suffixes.keyvaultDns}/secrets/${proofreadSecretName}/'
+
 // The metadata tables, in every account: clients, support grants, approvals and dismissals, and the
 // activity trail (one row per action, deletions included). Membership is Entra's, not a table's. Never
 // an index of saves and never their content, so a deleted save's contents still cannot be recovered.
@@ -122,6 +131,20 @@ resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
+// The vault and who reads it: each site's own identity, Key Vault Secrets User on this vault alone
+// (vault.bicep). The staging site reads the same secret as the client's site.
+module vault 'vault.bicep' = {
+  name: 'vault'
+  params: {
+    name: vaultName
+    location: location
+    readerSiteName: siteName
+    readerPrincipalId: site.outputs.principalId
+    stagingSiteName: staging ? stagingSiteName : ''
+    stagingPrincipalId: staging ? stagingSite!.outputs.principalId : ''
+  }
+}
+
 // The client's site and its account. Their names and resource ids are the ones they had before they
 // moved into site.bicep and storage.bicep, so the move changes nothing that is deployed.
 module site 'site.bicep' = {
@@ -134,6 +157,7 @@ module site 'site.bicep' = {
     prototypeClient: prototypeClient
     storageName: storageName
     insightsName: insights.name
+    proofreadKeyUri: proofreadKeyUri
   }
 }
 
@@ -161,6 +185,7 @@ module stagingSite 'site.bicep' = if (staging) {
     prototypeClient: stagingPrototypeClient
     storageName: stagingStorageName
     insightsName: insights.name
+    proofreadKeyUri: proofreadKeyUri
   }
 }
 
@@ -246,3 +271,6 @@ output prototypeClient string = prototypeClient
 
 @description('The staging site\'s name; empty where there is none.')
 output stagingSiteName string = staging ? stagingSiteName : ''
+
+@description('The vault holding the AI proofread\'s key: the owner sets the secret anthropic-api-key there.')
+output vaultName string = vaultName

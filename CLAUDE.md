@@ -58,6 +58,13 @@ reachable over HTTP:
   secret (Application Insights') is fine where nobody would expect it to be
   passed on, such as an App Service setting, but never in anything that reaches
   GitHub: files, history, PRs. `RepositoryTests` scans what git would commit.
+  **One exception** (owner, 2026-10-09: "For now I will donate my credits"):
+  the AI proofread's Anthropic API key, until the proofread moves to Microsoft
+  Foundry and the site's identity. It lives only in the deployment's Key Vault
+  (`infra/vault.bicep`), reaches the site only as the App Service Key Vault
+  reference in `Proofread__AnthropicApiKey`, resolved with the site's own
+  identity, and `CredentialGuard` allows it in that one setting alone. No other
+  secret, and no other route for this one.
 - **A deleted save's contents leave no record.** No versioning, soft delete,
   change feed, index or storage logging, so they cannot be recovered. The
   activity table does record that a save was deleted, and when, by ids only,

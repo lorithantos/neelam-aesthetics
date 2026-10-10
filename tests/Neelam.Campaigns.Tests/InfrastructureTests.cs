@@ -36,7 +36,7 @@ public class InfrastructureTests
     {
         Assert.Equal(["site", "stagingSite"], ModulesOf("site.bicep"));
         Assert.Equal(["stagingStorage", "storage"], ModulesOf("storage.bicep"));
-        Assert.Equal(4, Regex.Matches(Bicep, @"^module ", RegexOptions.Multiline).Count);
+        Assert.Equal(5, Regex.Matches(Bicep, @"^module ", RegexOptions.Multiline).Count);
         Assert.DoesNotContain("'Microsoft.Storage/", Bicep);
         Assert.DoesNotContain("'Microsoft.Web/sites@", Bicep);
         Assert.DoesNotContain("roleAssignments", Bicep);
@@ -65,7 +65,7 @@ public class InfrastructureTests
         {
             ["name"] = "siteName", ["location"] = "location", ["planId"] = "plan.id",
             ["environmentName"] = "environmentName", ["prototypeClient"] = "prototypeClient",
-            ["storageName"] = "storageName", ["insightsName"] = "insights.name",
+            ["storageName"] = "storageName", ["insightsName"] = "insights.name", ["proofreadKeyUri"] = "proofreadKeyUri",
         }, ModuleParams("site"));
         Assert.Equal(new Dictionary<string, string>
         {
@@ -77,7 +77,7 @@ public class InfrastructureTests
         {
             ["name"] = "stagingSiteName", ["location"] = "location", ["planId"] = "plan.id",
             ["environmentName"] = "environmentName", ["prototypeClient"] = "stagingPrototypeClient",
-            ["storageName"] = "stagingStorageName", ["insightsName"] = "insights.name",
+            ["storageName"] = "stagingStorageName", ["insightsName"] = "insights.name", ["proofreadKeyUri"] = "proofreadKeyUri",
         }, ModuleParams("stagingSite"));
         Assert.Equal(new Dictionary<string, string>
         {
@@ -85,6 +85,65 @@ public class InfrastructureTests
             ["tableNames"] = "tableNames", ["appId"] = "resourceId('Microsoft.Web/sites', stagingSiteName)",
             ["appPrincipalId"] = "stagingSite!.outputs.principalId", ["developerPrincipalId"] = "developerOnAccounts",
         }, ModuleParams("stagingStorage"));
+    }
+
+    // ---- The one secret: the AI proofread's Anthropic key, in Key Vault (owner, 2026-10-09) ----
+
+    private static readonly string Vault = Infra("vault.bicep");
+
+    // The vault's security settings, pinned: RBAC only with no access policies, purge protection,
+    // nothing else of Azure's allowed to read it, the same network as the other resources.
+    [Theory]
+    [InlineData("enableRbacAuthorization: true")]
+    [InlineData("accessPolicies: []")]
+    [InlineData("enablePurgeProtection: true")]
+    [InlineData("enableSoftDelete: true")]
+    [InlineData("enabledForDeployment: false")]
+    [InlineData("enabledForDiskEncryption: false")]
+    [InlineData("enabledForTemplateDeployment: false")]
+    [InlineData("publicNetworkAccess: 'Enabled'")]
+    [InlineData("4633458b-17de-408a-b874-0445c86b69e6")] // Key Vault Secrets User
+    public void The_vault_sets(string setting) => Assert.Contains(setting, Vault);
+
+    // One vault, one definition; its readers are the sites' own identities with Key Vault Secrets User
+    // on that vault alone, and no secret, key or value is ever written by a template.
+    [Fact]
+    public void Each_site_reads_the_key_and_nothing_else_in_the_vault()
+    {
+        Assert.Single(Regex.Matches(Vault, @"^resource \w+ 'Microsoft\.KeyVault/vaults@", RegexOptions.Multiline));
+        Assert.All(Templates.Append(Vault), t => Assert.DoesNotContain("Microsoft.KeyVault/vaults/secrets", t));
+        Assert.All(Templates.Append(Vault), t => Assert.DoesNotContain("KeyVault/vaults/accessPolicies", t));
+        Assert.DoesNotContain("'Microsoft.KeyVault/", Bicep);
+
+        string[] roles = Regex.Matches(Vault, @"scope: (\w+)\s*properties: \{\s*roleDefinitionId: (\w+)\s*principalId: (\w+)\s")
+            .Select(m => $"{m.Groups[1].Value} {m.Groups[2].Value} {m.Groups[3].Value}").ToArray();
+        Assert.Equal(["vault keyVaultSecretsUser readerPrincipalId", "vault keyVaultSecretsUser stagingPrincipalId"], roles);
+        Assert.Equal(2, Regex.Matches(Vault, "principalId: ").Count);
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["name"] = "vaultName", ["location"] = "location",
+            ["readerSiteName"] = "siteName", ["readerPrincipalId"] = "site.outputs.principalId",
+            ["stagingSiteName"] = "staging ? stagingSiteName : ''",
+            ["stagingPrincipalId"] = "staging ? stagingSite!.outputs.principalId : ''",
+        }, ModuleParams("vault"));
+    }
+
+    // The key reaches each site only as a Key Vault reference to the one secret, which App Service
+    // resolves with the site's own identity: the setting CredentialGuard lets it into, and no other.
+    [Fact]
+    public void The_site_gets_the_key_as_a_key_vault_reference_alone()
+    {
+        Assert.Contains("keyVaultReferenceIdentity: 'SystemAssigned'", Site);
+        Assert.Matches(new Regex(@"name: 'Proofread__AnthropicApiKey'\s*value: '@Microsoft\.KeyVault\(SecretUri=\$\{proofreadKeyUri\}\)'\s"), Site);
+        Assert.Single(Regex.Matches(Site, "@Microsoft.KeyVault"));
+        Assert.Matches(new Regex(@"var proofreadSecretName = 'anthropic-api-key'\s"), Bicep);
+        Assert.Matches(new Regex(@"var proofreadKeyUri = 'https://\$\{vaultName\}\$\{environment\(\)\.suffixes\.keyvaultDns\}/secrets/\$\{proofreadSecretName\}/'\s"), Bicep);
+        Assert.Equal(Neelam.Campaigns.KeyVaultReference.SecretName, Regex.Match(Bicep, @"var proofreadSecretName = '([^']+)'").Groups[1].Value);
+        Assert.Equal("Proofread__AnthropicApiKey", Neelam.Campaigns.Storage.CredentialGuard.KeySetting.Replace(":", "__"));
+        // What the Bicep writes is what the guard allows, for the vault name it makes on the test deployment.
+        Assert.Matches(new Regex(@"var vaultName = take\('\$\{prefix\}-kv-\$\{suffix\}', 24\)\s"), Bicep);
+        Assert.True(Neelam.Campaigns.KeyVaultReference.Is(
+            "@Microsoft.KeyVault(SecretUri=https://neelamtest-kv-6excvnu62r.vault.azure.net/secrets/anthropic-api-key/)"));
     }
 
     // The staging site exists on the test deployment alone: only test.bicepparam names its clients,

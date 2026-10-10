@@ -32,6 +32,9 @@ param storageName string
 @description('The deployment\'s Application Insights, which this site reports to.')
 param insightsName string
 
+@description('The Key Vault secret holding the AI proofread\'s Anthropic API key, as its versionless URI. The site gets it only as a Key Vault reference, resolved by App Service with the site\'s own identity; never a value.')
+param proofreadKeyUri string
+
 // Built-in role: Monitoring Metrics Publisher (send telemetry; read nothing).
 var metricsPublisher = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
@@ -55,6 +58,9 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
   properties: {
     serverFarmId: planId
     httpsOnly: true
+    // Key Vault references are resolved with the site's own identity, which holds Key Vault Secrets
+    // User on the deployment's vault (main.bicep).
+    keyVaultReferenceIdentity: 'SystemAssigned'
     clientAffinityEnabled: true // Blazor Server keeps each user on the instance holding their circuit
     siteConfig: {
       linuxFxVersion: 'DOTNETCORE|10.0'
@@ -66,7 +72,14 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
       // Addresses only. No keys, SAS or passwords: the app refuses to start if it finds one. The
       // Application Insights connection string carries none, since ingestion is Entra-only.
       // Only the test deployment names a prototype client (see prototypeClient).
+      // The one exception (owner, 2026-10-09): the AI proofread's Anthropic API key, written here only
+      // as a Key Vault reference, which App Service resolves; CredentialGuard allows it in this setting
+      // alone. Until the owner sets the secret, the reference stays unresolved and the proofread is off.
       appSettings: concat([
+        {
+          name: 'Proofread__AnthropicApiKey'
+          value: '@Microsoft.KeyVault(SecretUri=${proofreadKeyUri})'
+        }
         {
           name: 'Storage__BlobServiceUri'
           value: 'https://${storageName}.blob.${environment().suffixes.storage}/'

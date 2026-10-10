@@ -19,6 +19,8 @@ public class RepositoryTests
         ("account key", new Regex(@"(?i)AccountKey=[A-Za-z0-9+/]{40,}")),
         ("shared access key", new Regex(@"(?i)SharedAccessKey=[A-Za-z0-9+/]{20,}")),
         ("SAS signature", new Regex(@"(?i)[?&;]sig=[A-Za-z0-9%+/]{20,}")),
+        // The AI proofread's key lives in Key Vault alone (owner, 2026-10-09); never in anything committed.
+        ("Anthropic API key", new Regex(@"sk-ant-[A-Za-z0-9_\-]{20,}")),
     ];
 
     [Fact]
@@ -41,11 +43,17 @@ public class RepositoryTests
         Assert.NotEmpty(Leaks("AccountName=x;AccountKey=" + new string('k', 86) + "=="));
         Assert.NotEmpty(Leaks("Endpoint=sb://x/;SharedAccessKey=" + new string('k', 43) + "="));
         Assert.NotEmpty(Leaks("https://x.blob.core.windows.net/c?sv=2024-01-01&sig=" + new string('s', 44)));
+        Assert.NotEmpty(Leaks("Proofread__AnthropicApiKey=" + "sk-" + "ant-api03-" + new string('k', 60)));
     }
 
     [Fact]
     public void The_scan_passes_placeholders() =>
-        Assert.Empty(Leaks("InstrumentationKey=00000000-0000-0000-0000-000000000000;AccountKey=abc==;sig=abc"));
+        Assert.Empty(Leaks("InstrumentationKey=00000000-0000-0000-0000-000000000000;AccountKey=abc==;sig=abc;" +
+            "Proofread__AnthropicApiKey=@Microsoft.KeyVault(SecretUri=https://kv.vault.azure.net/secrets/anthropic-api-key/);sk-ant-"));
+
+    [Fact]
+    public void The_scan_covers_the_proofread_s_settings() =>
+        Assert.Contains("src/Neelam.Campaigns.Claude/Proofread/proofread.json", CommittableFiles());
 
     [Fact]
     public void The_scan_covers_the_files_that_matter()

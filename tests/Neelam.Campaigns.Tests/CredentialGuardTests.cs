@@ -58,6 +58,74 @@ public class CredentialGuardTests
         Assert.DoesNotContain("TOPSECRET", ex.Message);
     }
 
+    // ---- The one exception (owner, 2026-10-09): the AI proofread's Anthropic key, from Key Vault ----
+
+    private const string Reference = "@Microsoft.KeyVault(SecretUri=https://neelam-kv-abc123.vault.azure.net/secrets/anthropic-api-key/)";
+
+    // Built from parts, so this file holds nothing shaped like a real key.
+    private static readonly string AnthropicKey = string.Concat("sk-", "ant-", "api03-", new string('x', 40));
+
+    [Theory]
+    [InlineData(Reference)]
+    [InlineData("@Microsoft.KeyVault(SecretUri=https://neelam-kv-abc123.vault.azure.net/secrets/anthropic-api-key)")]
+    [InlineData("@Microsoft.KeyVault(SecretUri=https://neelam-kv-abc123.vault.azure.net/secrets/anthropic-api-key/0123456789abcdef0123456789abcdef)")]
+    public void The_proofread_key_setting_may_hold_its_key_vault_reference(string value) =>
+        Check((CredentialGuard.KeySetting, value));
+
+    [Fact]
+    public void The_reference_comes_in_as_app_service_writes_it_from_the_bicep() =>
+        Check(("Proofread:AnthropicApiKey", Reference), ("Storage:BlobServiceUri", "https://x.blob.core.windows.net/"));
+
+    // App Service resolves the reference with the site's identity: the app then sees the key, in that
+    // one setting, on App Service alone.
+    [Fact]
+    public void On_app_service_the_resolved_key_is_allowed_in_that_setting_only() =>
+        Check((CredentialGuard.AppServiceMarker, "neelamtest-abc"), (CredentialGuard.KeySetting, AnthropicKey));
+
+    [Fact]
+    public void Off_app_service_a_key_in_that_setting_stops_startup()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => Check((CredentialGuard.KeySetting, AnthropicKey)));
+
+        Assert.Contains(CredentialGuard.KeySetting, ex.Message);
+        Assert.DoesNotContain(AnthropicKey, ex.Message);
+    }
+
+    [Theory]
+    [InlineData("anything-at-all")]
+    [InlineData("@Microsoft.KeyVault(SecretUri=https://neelam-kv-abc123.vault.azure.net/secrets/storage-key/)")]
+    [InlineData("@Microsoft.KeyVault(SecretUri=https://evil.example.com/secrets/anthropic-api-key/)")]
+    [InlineData("@Microsoft.KeyVault(VaultName=neelam-kv;SecretName=anthropic-api-key)")]
+    public void Off_app_service_only_the_reference_to_that_one_secret_is_allowed_there(string value) =>
+        Assert.Throws<InvalidOperationException>(() => Check((CredentialGuard.KeySetting, value)));
+
+    [Theory]
+    [InlineData("Proofread:Key")]
+    [InlineData("ANTHROPIC_API_KEY")]
+    [InlineData("Logging:Note")]
+    public void An_anthropic_key_anywhere_else_stops_startup_even_on_app_service(string key)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Check((CredentialGuard.AppServiceMarker, "neelamtest-abc"), (key, AnthropicKey)));
+
+        Assert.Contains(key, ex.Message);
+    }
+
+    [Fact]
+    public void A_key_vault_reference_in_any_other_setting_stops_startup()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            Check((CredentialGuard.AppServiceMarker, "neelamtest-abc"), ("Storage:Connection", Reference)));
+
+        Assert.Contains("Storage:Connection", ex.Message);
+    }
+
+    [Fact]
+    public void Every_other_secret_is_still_refused_on_app_service() =>
+        Assert.Throws<InvalidOperationException>(() =>
+            Check((CredentialGuard.AppServiceMarker, "neelamtest-abc"), (CredentialGuard.KeySetting, Reference),
+                ("Storage:Connection", "AccountName=x;AccountKey=abc==")));
+
     // Every store the app opens goes through one StorageClients built at startup, so a SAS on
     // either endpoint stops the app there, before any request.
     [Theory]
