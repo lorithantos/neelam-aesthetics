@@ -76,9 +76,9 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         // A page that did not open would pass the rest for nothing.
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.DoesNotContain("admin/", page);
+        Assert.DoesNotContain(RenderedPage.Links(page), href => href.Contains("admin/"));
         Assert.DoesNotContain(">Clients<", page);
-        Assert.DoesNotContain("Entra", page);
+        Assert.DoesNotContain("Entra", RenderedPage.Text(page));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (status, page) = await Get("/admin/clients", Features.Operator);
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Contains("Admin", page);
+        Assert.Equal("Campaign safety · Admin", RenderedPage.Named(page, "site-name"));
         Assert.Contains("Client view", page);
         Assert.DoesNotContain("how-it-works", page);
     }

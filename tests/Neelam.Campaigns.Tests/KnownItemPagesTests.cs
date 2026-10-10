@@ -97,9 +97,9 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(HttpStatusCode.OK, status);
         var nav = Regex.Match(page, "<nav class=\"site-nav\".*?</nav>", RegexOptions.Singleline).Value;
         Assert.Contains("href=\"known-items\"", nav);
-        Assert.DoesNotContain("admin/", page);
+        Assert.DoesNotContain(RenderedPage.Links(page), href => href.Contains("admin/"));
         Assert.DoesNotContain(">Clients<", page);
-        Assert.DoesNotContain("Entra", page);
+        Assert.DoesNotContain("Entra", RenderedPage.Text(page));
     }
 
     // The campaign editor offers her known items: as suggestion lists while typing, a benefit to pick

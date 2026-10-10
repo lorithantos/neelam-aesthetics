@@ -415,8 +415,8 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         // A campaign with no label is headed by its subject, as before.
         Assert.Contains(ListHeading(Replayed, "Second send, replayed"), page);
         // Saved at noon UTC on 3 October: shown as five in the morning, Pacific daylight time.
-        Assert.Matches(@"Last saved 3 Oct 2026, 5:0\d AM PDT", page);
-        Assert.DoesNotContain(" UTC", page);
+        Assert.Matches(@"^Last saved 3 Oct 2026, 5:0\d AM PDT$", RenderedPage.Named(page, $"last-saved-{Finished}"));
+        Assert.DoesNotContain(" UTC", RenderedPage.Text(page));
 
         // The editor offers the label at the top, filled in.
         var (_, editor) = await Get($"/campaigns/{Finished}", [Features.Campaigns]);

@@ -208,7 +208,7 @@ else if (_session is not null)
                 }
                 @if (_session.Latest is { } latest)
                 {
-                    <p class="muted">Last saved @Times.DateAndTime(latest.SavedAt).</p>
+                    <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
                     @if (_confirmingUndo)
                     {
                         <p>Undo the last save? The version before it comes back, and any changes not saved are lost. The undone version can be restored for @Period(_store!.UndoGracePeriod), then it is deleted for good.</p>

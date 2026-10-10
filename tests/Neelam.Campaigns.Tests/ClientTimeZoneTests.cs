@@ -137,21 +137,24 @@ public class ClientTimeZonePageTests(EnforcedApp app) : IClassFixture<EnforcedAp
         var eastern = await Get("/templates", Features.Templates, NewYork);
         var pacific = await Get("/templates", Features.Templates, Unzoned);
 
-        Assert.Contains("Last saved 3 Oct 2026, 8:00 AM EDT", eastern);
-        Assert.DoesNotContain("PDT", eastern);
-        Assert.Contains("Last saved 3 Oct 2026, 5:00 AM PDT", pacific);
-        Assert.DoesNotContain("EDT", pacific);
+        Assert.Equal("Last saved 3 Oct 2026, 8:00 AM EDT", RenderedPage.Named(eastern, $"last-saved-{Template}"));
+        Assert.Equal("Last saved 3 Oct 2026, 5:00 AM PDT", RenderedPage.Named(pacific, $"last-saved-{Template}"));
+        // And no other time on either page in the other zone. On the text a reader sees: the raw
+        // page's random base64 said "PDT" in 15 of 2,000 requests.
+        Assert.DoesNotContain("PDT", RenderedPage.Text(eastern));
+        Assert.DoesNotContain("EDT", RenderedPage.Text(pacific));
     }
 
-    // Every other page that shows a time, in the zone of the client whose page it is.
+    // Every other page that shows a time, in the zone of the client whose page it is. The editors
+    // end the line with a full stop; the list does not.
     [Theory]
-    [InlineData("/templates/aaaaaaaa-0000-0000-0000-0000000000a1", Features.Templates)]
-    [InlineData("/campaigns", Features.Campaigns)]
-    [InlineData("/campaigns/cccccccc-0000-0000-0000-0000000000c1", Features.Campaigns)]
-    public async Task Each_page_shows_the_last_save_in_the_client_s_zone(string path, string role)
+    [InlineData("/templates/aaaaaaaa-0000-0000-0000-0000000000a1", Features.Templates, "last-saved", ".")]
+    [InlineData("/campaigns", Features.Campaigns, "last-saved-cccccccc-0000-0000-0000-0000000000c1", "")]
+    [InlineData("/campaigns/cccccccc-0000-0000-0000-0000000000c1", Features.Campaigns, "last-saved", ".")]
+    public async Task Each_page_shows_the_last_save_in_the_client_s_zone(string path, string role, string element, string end)
     {
-        Assert.Contains("Last saved 3 Oct 2026, 8:00 AM EDT", await Get(path, role, NewYork));
-        Assert.Contains("Last saved 3 Oct 2026, 5:00 AM PDT", await Get(path, role, Unzoned));
+        Assert.Equal("Last saved 3 Oct 2026, 8:00 AM EDT" + end, RenderedPage.Named(await Get(path, role, NewYork), element));
+        Assert.Equal("Last saved 3 Oct 2026, 5:00 AM PDT" + end, RenderedPage.Named(await Get(path, role, Unzoned), element));
     }
 
     [Fact]

@@ -197,7 +197,7 @@ else if (_session is not null)
                 }
                 @if (_session.Latest is { } latest)
                 {
-                    <p class="muted">Last saved @Times.DateAndTime(latest.SavedAt).</p>
+                    <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
                     @* With no version before it, undoing the save deletes the campaign: the button and
                        the question say so, rather than promising a version that is not there. *@
                     var deletes = _session.UndoDeletesTheCampaign;

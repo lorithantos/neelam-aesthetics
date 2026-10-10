@@ -57,7 +57,7 @@ else if (_campaigns is not null && _templates is not null)
             {
                 <h3><a href="@href">@campaign.Title</a></h3>
             }
-            <p class="muted">Last saved @Times.DateAndTime(campaign.SavedAt)</p>
+            <p class="muted" data-testid="last-saved-@campaign.Id">Last saved @Times.DateAndTime(campaign.SavedAt)</p>
             <a class="button" href="@href">Open</a>
         </section>
     }

@@ -56,8 +56,8 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.DoesNotContain("Salon One's", page);
         Assert.DoesNotContain("test-salon-one", page);
         // In her time zone, as every page shows a time.
-        Assert.Matches(@"Last saved 3 Oct 2026, 5:0\d AM PDT", page);
-        Assert.DoesNotContain(" UTC", page);
+        Assert.Matches(@"^Last saved 3 Oct 2026, 5:0\d AM PDT$", RenderedPage.Named(page, $"last-saved-{Membership}"));
+        Assert.DoesNotContain(" UTC", RenderedPage.Text(page));
     }
 
     // The role is not enough: whose templates comes from the client groups, through the access check.
@@ -80,7 +80,7 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("value=\"Membership announcement\"", page);
         Assert.Contains("‹Headline: written for each campaign›", page);
         Assert.Contains("Save template", page);
-        Assert.Matches(@"Last saved 3 Oct 2026, 5:0\d AM PDT\.", page);
+        Assert.Matches(@"^Last saved 3 Oct 2026, 5:0\d AM PDT\.$", RenderedPage.Named(page, "last-saved"));
     }
 
     [Fact]
