@@ -112,7 +112,18 @@ public sealed class ClientWorkspace(
     }
 
     /// <returns>The client, or null with the reason the page cannot show one.</returns>
-    public async Task<(ClientName? Client, string Reason)> ClientDataAsync(CancellationToken ct = default)
+    public Task<(ClientName? Client, string Reason)> ClientDataAsync(CancellationToken ct = default) =>
+        ClientAsync(Area.ClientData, ct);
+
+    /// <summary>
+    /// Whose look the caller's pages are drawn in and the look page edits: the caller's one client.
+    /// The look is not client data, so the operator needs no grant for it (<see cref="AccessCheck"/>).
+    /// </summary>
+    /// <returns>The client, or null with the reason there is none.</returns>
+    public Task<(ClientName? Client, string Reason)> LookClientAsync(CancellationToken ct = default) =>
+        ClientAsync(Area.Look, ct);
+
+    private async Task<(ClientName? Client, string Reason)> ClientAsync(Area area, CancellationToken ct)
     {
         var (caller, reason) = await callers.CurrentAsync(ct);
         if (caller is null) return (null, reason);
@@ -123,7 +134,7 @@ public sealed class ClientWorkspace(
         var client = caller.MemberOf[0];
         // A member needs no grant, so grants are read only for a caller who is not one.
         IReadOnlyList<SupportGrant> onRecord = caller.IsMemberOf(client) ? [] : await grants.ForClientAsync(client, ct);
-        var decision = AccessCheck.Decide(caller, Area.ClientData, client, onRecord, clock.GetUtcNow());
+        var decision = AccessCheck.Decide(caller, area, client, onRecord, clock.GetUtcNow());
         return decision.Allowed ? (client, decision.Reason) : (null, decision.Reason);
     }
 }

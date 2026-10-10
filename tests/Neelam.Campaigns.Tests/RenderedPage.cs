@@ -36,6 +36,26 @@ internal static class RenderedPage
         return Readable(elements[0].Groups["inner"].Value);
     }
 
+    /// <summary>How many elements carry the name <paramref name="name"/>: for a check that one is absent.</summary>
+    public static int Count(string html, string name) =>
+        Regex.Matches(Comments.Replace(html, ""), $"<[a-z][a-z0-9-]*\\b[^>]*?\\sdata-testid=\"{Regex.Escape(name)}\"").Count;
+
+    /// <summary>
+    /// The value of <paramref name="attribute"/> on the one element named <paramref name="name"/>,
+    /// decoded: for a field, whose value is an attribute rather than text. Fails unless exactly one
+    /// element carries the name and it has the attribute.
+    /// </summary>
+    public static string Attribute(string html, string name, string attribute)
+    {
+        var tags = Regex.Matches(html, $"<[a-z][a-z0-9-]*\\b[^>]*?\\sdata-testid=\"{Regex.Escape(name)}\"[^>]*>");
+        if (tags.Count != 1)
+            Assert.Fail($"Expected one element with data-testid=\"{name}\", found {tags.Count}.");
+        var value = Regex.Match(tags[0].Value, $"\\s{Regex.Escape(attribute)}=\"([^\"]*)\"");
+        if (!value.Success)
+            Assert.Fail($"The element with data-testid=\"{name}\" has no {attribute}.");
+        return WebUtility.HtmlDecode(value.Groups[1].Value);
+    }
+
     /// <summary>
     /// What a reader sees on the whole page: its text, without comments (where Blazor keeps its
     /// state), scripts, styles, tags or attributes. For a check that something is nowhere on the

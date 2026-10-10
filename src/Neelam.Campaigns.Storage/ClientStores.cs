@@ -85,8 +85,39 @@ public sealed class ClientStores
     public ImageLibrary Images(ClientName client, Actor actor) =>
         new(_container(client.Value), _clock, _activity.For(client, actor));
 
-    /// <summary>How the site looks for the client's people.</summary>
+    /// <summary>How the site looks for the client's people. With nothing saved, the standard look.</summary>
     public DocumentStore<ClientLook> Look(ClientName client) => LookIn(_container(SettingsContainer), client, _clock);
+
+    /// <summary>
+    /// Saves the client's own look, on its activity trail. A look whose text is too faint to read on it
+    /// is refused, naming each pair of colours below WCAG AA: a look is chosen for how it feels, and
+    /// must never make the checks or the email hard to read.
+    /// </summary>
+    /// <exception cref="ArgumentException">Some text would be below 4.5:1 on its background; the message says which.</exception>
+    public async Task<DocumentVersion> SaveLookAsync(ClientName client, ClientLook look, Actor actor, CancellationToken ct = default)
+    {
+        var problems = look.Palette.ContrastProblems();
+        if (problems.Count > 0)
+            throw new ArgumentException("This look is hard to read. " + string.Join(" ", problems), nameof(look));
+        var version = await Look(client).SaveAsync(look, ct);
+        await _activity.For(client, actor).RecordAsync(
+            ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.LookSaved, ct);
+        return version;
+    }
+
+    /// <summary>
+    /// Deletes every version of the client's own look, so its pages have the standard look again.
+    /// Nothing of its contents remains; the activity trail says it was reset, and when.
+    /// </summary>
+    public async Task UseStandardLookAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    {
+        await DeleteEveryVersionAsync(Look(client), ct);
+        await _activity.For(client, actor).RecordAsync(
+            ActivityEntity.Look, LookEntityId, null, ActivityAction.LookResetToStandard, ct);
+    }
+
+    /// <summary>A client has one look, named by this in its events.</summary>
+    internal const string LookEntityId = "look";
 
     /// <summary>
     /// The policy the checks run with for this client: its own once it has saved one, the starting

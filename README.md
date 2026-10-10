@@ -266,7 +266,14 @@ for them. A client's people only sign in and work on their campaigns.
 - **Each client has its own look, and both sides can edit it.** It lives in the `settings`
   container at `settings/{client}/{stamp}.json`. That client's members and the operator can read
   and edit it; other clients cannot see it. Keeping it out of the client's own container means
-  working on a look never needs access to their campaigns or catalog.
+  working on a look never needs access to their campaigns or catalog. A look is the colours of
+  her pages (`ClientLook`): page background, the surface she writes on, borders, text, quieter
+  text and the accent, each optional, the standard look's where she sets none. The client's
+  pages carry them as a small `:root` style block over `app.css`'s custom properties; the admin
+  pages never do. Only `#rrggbb` colours can be held, and a look whose text would fall below
+  WCAG AA (4.5:1) on its background or surface, or on or as the accent, is refused at save,
+  naming the pair. She sets it on her **Look** page (`/look`, `Client.Look`), with "Save" and
+  "Use the standard look".
 - Both are saved like campaigns, as timestamped blobs with the newest in force, so a bad change
   is undone by deleting the newest.
 

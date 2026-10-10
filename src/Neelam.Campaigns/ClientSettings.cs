@@ -48,24 +48,67 @@ public sealed record ClientCatalog
 }
 
 /// <summary>
-/// How the site looks when a client's people sign in. Both the client and the operator can edit it;
-/// other clients never see it. Only the accent colour exists so far: the rest of the look is
-/// designed later, and each part is added here when it is.
+/// How the site looks when a client's people sign in: the colours of its pages (owner, 2026-10-09:
+/// "maybe a light pink background and something softer than white for the main editing"). Both the
+/// client and the operator can edit it; other clients never see it. Each colour is a #RRGGBB colour,
+/// or null for the standard one (<see cref="LookPalette.Standard"/>). Nothing else can be held here:
+/// the colours are written into the pages' style, so the constructor is what keeps anything but a
+/// colour out of it.
 /// </summary>
 public sealed partial record ClientLook
 {
-    /// <summary>A #RRGGBB colour, or null for the default.</summary>
+    /// <summary>Links and the main buttons.</summary>
     public string? AccentColour { get; }
 
-    public ClientLook(string? accentColour = null)
+    /// <summary>Behind everything.</summary>
+    public string? PageBackground { get; }
+
+    /// <summary>The cards and panels she writes in.</summary>
+    public string? Surface { get; }
+
+    public string? Border { get; }
+
+    public string? Text { get; }
+
+    /// <summary>Help, dates and other quieter text.</summary>
+    public string? MutedText { get; }
+
+    // The accent comes first, as it did when it was the only colour, so every earlier caller reads the same.
+    public ClientLook(
+        string? accentColour = null, string? pageBackground = null, string? surface = null, string? border = null,
+        string? text = null, string? mutedText = null)
     {
-        if (accentColour is not null && !HexColour().IsMatch(accentColour))
-            throw new ArgumentException($"\"{accentColour}\" is not a #RRGGBB colour.", nameof(accentColour));
-        AccentColour = accentColour;
+        AccentColour = Checked(accentColour, nameof(accentColour));
+        PageBackground = Checked(pageBackground, nameof(pageBackground));
+        Surface = Checked(surface, nameof(surface));
+        Border = Checked(border, nameof(border));
+        Text = Checked(text, nameof(text));
+        MutedText = Checked(mutedText, nameof(mutedText));
     }
 
     public static ClientLook Default { get; } = new();
 
-    [GeneratedRegex("^#[0-9A-Fa-f]{6}$")]
+    /// <summary>The colours its pages are drawn in: its own where it has one, the standard's elsewhere.</summary>
+    public LookPalette Palette
+    {
+        get
+        {
+            var standard = LookPalette.Standard;
+            return new LookPalette(
+                PageBackground ?? standard.PageBackground, Surface ?? standard.Surface, Border ?? standard.Border,
+                Text ?? standard.Text, MutedText ?? standard.MutedText, AccentColour ?? standard.Accent);
+        }
+    }
+
+    /// <summary>Whether <paramref name="colour"/> is # and six hex digits, and nothing else.</summary>
+    public static bool IsColour(string? colour) => colour is not null && HexColour().IsMatch(colour);
+
+    private static string? Checked(string? colour, string name) =>
+        colour is null || IsColour(colour)
+            ? colour
+            : throw new ArgumentException($"\"{colour}\" is not a #RRGGBB colour.", name);
+
+    // \z, not $: $ also matches before a final newline.
+    [GeneratedRegex(@"^#[0-9A-Fa-f]{6}\z")]
     private static partial Regex HexColour();
 }

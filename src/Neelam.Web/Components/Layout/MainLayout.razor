@@ -1,7 +1,10 @@
 ﻿@inherits LayoutComponentBase
 @* What a client's people see. No admin links: the operator's pages use AdminLayout, under /admin.
-   On the demo (Prototype access, the test site only) every page says what is different. *@
+   On the demo (Prototype access, the test site only) every page says what is different. Drawn in
+   the client's own look, where it has one. *@
 @inject SiteMode Site
+
+<ClientLookStyle />
 
 @if (Site.IsDemo)
 {
@@ -17,6 +20,7 @@
             <NavLink href="templates">Templates</NavLink>
             <NavLink href="images">Images</NavLink>
             <NavLink href="known-items">Known items</NavLink>
+            <NavLink href="look">Look</NavLink>
         </nav>
     </div>
 </header>

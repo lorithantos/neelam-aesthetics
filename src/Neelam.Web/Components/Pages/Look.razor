@@ -1,0 +1,188 @@
+@page "/look"
+@* Her pages' colours (owner, 2026-10-09: "let's make the page look a little more like what an
+   Aesthetician would like -- maybe a light pink background and something softer than white for the
+   main editing"). The look is data, saved in settings/{client}/, as the baseline and ladders are her
+   own: "Save" keeps hers, "Use the standard look" deletes it. The access check decides whose look,
+   on top of the policy; the look is not client data, so the operator needs no grant for it. *@
+@attribute [Authorize(Policy = Features.Look)]
+@rendermode InteractiveServer
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+@inject NavigationManager Navigation
+
+<PageTitle>Look</PageTitle>
+
+<h1>Look</h1>
+
+@if (_denied is not null)
+{
+    <p>You cannot change the look here: @_denied.</p>
+}
+else if (_fields is not null)
+{
+    var chosen = Chosen();
+    var problems = chosen.Palette.ContrastProblems();
+    <p class="muted" data-testid="look-status">@(_isOwn ? "Your own look." : "The standard look.")
+        These colours are for your pages here, not for your emails: Square sends those as you set them up there.</p>
+
+    @if (Saved == "own")
+    {
+        <p role="status" data-testid="look-saved">Saved. Every page now has your look.</p>
+    }
+    else if (Saved == "standard")
+    {
+        <p role="status" data-testid="look-saved">Your own look is deleted; every page has the standard look again.</p>
+    }
+
+    <div class="workspace">
+        <section class="workspace-main card" aria-labelledby="colours-heading">
+            <h2 id="colours-heading">Colours</h2>
+            @foreach (var field in _fields)
+            {
+                var f = field;
+                <div class="field look-colour">
+                    <label for="look-@f.Id">@f.Name</label>
+                    <span class="look-colour-inputs">
+                        <input type="color" id="look-@f.Id" value="@f.Value" aria-describedby="look-@f.Id-help"
+                               @onchange="e => Set(f, e.Value as string)" />
+                        <input type="text" class="look-hex" aria-label="@f.Name as # and six hex digits" value="@f.Value"
+                               data-testid="look-hex-@f.Id" spellcheck="false" maxlength="7"
+                               @onchange="e => Set(f, e.Value as string)" />
+                    </span>
+                    <span class="field-help" id="look-@f.Id-help">@f.Help</span>
+                    @if (f.Error is not null)
+                    {
+                        <span class="validation-message">@f.Error</span>
+                    }
+                </div>
+            }
+        </section>
+
+        <section class="workspace-side" aria-labelledby="sample-heading">
+            <h2 id="sample-heading">Sample</h2>
+            @* Drawn with the same custom properties as every page, every one set from the colours above,
+               so nothing comes through from the look this page itself is drawn in. *@
+            <div class="look-sample" data-testid="look-sample" style="@LookStyle.Declarations(chosen.Palette)">
+                <div class="card">
+                    <p>Text as you write it.</p>
+                    <p class="muted">Help and dates, a little quieter.</p>
+                    <p><a href="look" @onclick:preventDefault>A link</a></p>
+                    <span class="button primary">Save</span>
+                </div>
+            </div>
+
+            @if (problems.Count > 0)
+            {
+                <ul class="errors" data-testid="look-problems">
+                    @foreach (var problem in problems)
+                    {
+                        <li>@problem</li>
+                    }
+                </ul>
+            }
+            <p>
+                <button class="button primary" disabled="@(problems.Count > 0)" @onclick="SaveAsync">Save</button>
+                @if (_isOwn)
+                {
+                    <button class="button" @onclick="UseStandardAsync">Use the standard look</button>
+                }
+            </p>
+            @if (_message is not null)
+            {
+                <p role="status">@_message</p>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    /// <summary>"own" after a save, "standard" after going back to the standard look.</summary>
+    [SupplyParameterFromQuery]
+    public string? Saved { get; set; }
+
+    private string? _denied;
+    private ClientName? _client;
+    private bool _isOwn;
+    private IReadOnlyList<ColourField>? _fields;
+    private string? _message;
+
+    // One colour of the look: what it is called here, and what she has chosen (the standard's until she
+    // changes it).
+    private sealed class ColourField(string id, string name, string help, string standard, string? own)
+    {
+        public string Id => id;
+        public string Name => name;
+        public string Help => help;
+        public string Standard => standard;
+        public string Value { get; set; } = own ?? standard;
+        public string? Error { get; set; }
+
+        // A colour left at the standard's is not hers: it follows the standard.
+        public string? Own => string.Equals(Value, Standard, StringComparison.OrdinalIgnoreCase) ? null : Value;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        (_client, var reason) = await Workspace.LookClientAsync();
+        if (_client is null)
+        {
+            _denied = reason;
+            return;
+        }
+        var own = await Stores.Look(_client).CurrentAsync();
+        _isOwn = own is not null;
+        var look = own ?? ClientLook.Default;
+        var standard = LookPalette.Standard;
+        _fields =
+        [
+            new("background", "Page background", "Behind everything.", standard.PageBackground, look.PageBackground),
+            new("surface", "Editing surface", "The cards and panels you write in.", standard.Surface, look.Surface),
+            new("border", "Borders", "Around cards and blocks.", standard.Border, look.Border),
+            new("text", "Text", "What you read and write.", standard.Text, look.Text),
+            new("muted", "Quieter text", "Help, dates and notes.", standard.MutedText, look.MutedText),
+            new("accent", "Accent", "Links and the main buttons, such as Save.", standard.Accent, look.AccentColour),
+        ];
+    }
+
+    private ClientLook Chosen()
+    {
+        string? Own(string id) => _fields!.Single(f => f.Id == id).Own;
+        return new ClientLook(
+            accentColour: Own("accent"), pageBackground: Own("background"), surface: Own("surface"), border: Own("border"),
+            text: Own("text"), mutedText: Own("muted"));
+    }
+
+    private void Set(ColourField field, string? value)
+    {
+        value = value?.Trim();
+        if (!ClientLook.IsColour(value))
+        {
+            field.Error = "Write a colour as # and six hex digits, such as #faf0f2.";
+            return;
+        }
+        field.Value = value!.ToLowerInvariant();
+        field.Error = null;
+        _message = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            await Stores.SaveLookAsync(_client!, Chosen(), await Workspace.ActorAsync());
+        }
+        catch (ArgumentException ex)
+        {
+            _message = ex.Message;
+            return;
+        }
+        // The look is in each page's head, drawn when the page loads, so this one loads again to show it.
+        Navigation.NavigateTo("look?saved=own", forceLoad: true);
+    }
+
+    private async Task UseStandardAsync()
+    {
+        await Stores.UseStandardLookAsync(_client!, await Workspace.ActorAsync());
+        Navigation.NavigateTo("look?saved=standard", forceLoad: true);
+    }
+}

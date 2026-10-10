@@ -136,14 +136,21 @@ public static class CampaignJson
     }
 
     public static string SerializeLook(ClientLook l) =>
-        JsonSerializer.Serialize(new LookDocument(SchemaVersion, l.AccentColour), Options);
+        JsonSerializer.Serialize(
+            new LookDocument(SchemaVersion, l.AccentColour, l.PageBackground, l.Surface, l.Border, l.Text, l.MutedText),
+            Options);
 
+    /// <summary>
+    /// A look as saved; one saved when the accent was its only colour reads with every other colour
+    /// the standard one. A colour that is not #RRGGBB is refused (<see cref="ArgumentException"/>), so a
+    /// document changed by hand never reaches a page's style.
+    /// </summary>
     public static ClientLook DeserializeLook(string json)
     {
         var doc = JsonSerializer.Deserialize<LookDocument>(json, Options)
                   ?? throw new InvalidDataException("Empty look document.");
         CheckVersion(doc.Schema);
-        return new ClientLook(doc.AccentColour);
+        return new ClientLook(doc.AccentColour, doc.PageBackground, doc.Surface, doc.Border, doc.Text, doc.MutedText);
     }
 
     public static string SerializeBaseline(TemplateBaseline b) =>
@@ -246,7 +253,10 @@ public static class CampaignJson
 
     private sealed record PolicyDocument(int Schema, CampaignPolicy Policy);
 
-    private sealed record LookDocument(int Schema, string? AccentColour);
+    // Every colour but the accent arrived on 2026-10-09; a document from before has only the accent.
+    private sealed record LookDocument(
+        int Schema, string? AccentColour, string? PageBackground = null, string? Surface = null, string? Border = null,
+        string? Text = null, string? MutedText = null);
 
     // Parts are block types by name ("signOff"), so an empty list is an empty baseline, not a missing one.
     private sealed record BaselineDocument(int Schema, IReadOnlyList<BlockType>? Parts);

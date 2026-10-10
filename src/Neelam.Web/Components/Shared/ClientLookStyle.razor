@@ -1,0 +1,33 @@
+@* The client's look over the stylesheet's defaults, as a small :root block in the head; nothing when
+   the client has no look of its own, or there is no client (signed out, or several). Only the client
+   layout carries it: admin pages keep the standard look. A look that cannot be read is logged and the
+   page goes on in the standard look: a colour never stops a page. *@
+@inject ClientWorkspace Workspace
+@inject ClientStores Stores
+@inject ILogger<ClientLookStyle> Log
+
+@if (_css is not null)
+{
+    <HeadContent>
+        <style data-testid="client-look">@_css</style>
+    </HeadContent>
+}
+
+@code {
+    private string? _css;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (client, _) = await Workspace.LookClientAsync();
+        if (client is null) return;
+        try
+        {
+            if (await Stores.Look(client).CurrentAsync() is { } look)
+                _css = LookStyle.RootBlock(look);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.LogError(ex, "The look of {Client} could not be read, so its pages show the standard look.", client.Value);
+        }
+    }
+}
