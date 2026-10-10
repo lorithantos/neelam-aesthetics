@@ -9,8 +9,9 @@ namespace Neelam.Campaigns;
 public sealed record Approval(string By, DateTimeOffset At)
 {
     /// <summary>
-    /// Who was shown this save's "Worth a look" findings at export and went on, and when; null until
-    /// someone has. Kept with the approval because both belong to the one save.
+    /// What was seen at export: which "Worth a look" findings had been shown, on this save or any
+    /// other of the same campaign (owner, 2026-10-09: "yes, carry across saves"), and who went on
+    /// last for the campaign, and when; null until someone has. Stored with each save's approval.
     /// </summary>
     public WarningsSeen? WarningsSeen { get; init; }
 }

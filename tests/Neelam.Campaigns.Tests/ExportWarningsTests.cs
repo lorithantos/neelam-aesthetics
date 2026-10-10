@@ -9,8 +9,9 @@ namespace Neelam.Campaigns.Tests;
 /// without explicitly addressing items like '110% off of botox'", and then "This is handholding, not
 /// handcuffs." So before the export of an approved version, every warning is listed, each with a way
 /// to its field, and one button goes on. Going on is recorded with that version's approval, who and
-/// when only, and the list is not shown again for it; a new save shows it again, unless only her label
-/// changed. A Must fix is never gone on past.
+/// when and the warnings' keys, and what was shown is not shown again for the campaign, on that
+/// version or a later one ("yes, carry across saves"), while it reads the same. A Must fix is never
+/// gone on past.
 /// </summary>
 public class ExportWarningsTests
 {
@@ -28,19 +29,24 @@ public class ExportWarningsTests
 
     // A finished campaign with something worth a look in it ("Beauty Bank", kept on purpose), saved
     // once, approved, and open as the page would have it.
-    private async Task<DraftSession> Approved(CampaignStore? store = null)
+    // Given an id, a later save of that campaign, of the draft given.
+    private async Task<DraftSession> Approved(CampaignStore? store = null, Guid? id = null, CampaignDraft? draft = null)
     {
         store ??= Store;
-        var id = Guid.NewGuid();
-        await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", DraftFixtures.Finished());
+        id ??= Guid.NewGuid();
+        await store.SaveDraftAsync(id.Value, "WE’RE TURNING ONE!", draft ?? DraftFixtures.Finished());
         _clock.Now += TimeSpan.FromMinutes(1);
-        var session = (await DraftSession.OpenAsync(store, id))!;
+        var session = (await DraftSession.OpenAsync(store, id.Value))!;
         await session.ApproveAsync("Priya");
         _clock.Now += TimeSpan.FromMinutes(1);
         return session;
     }
 
     private static Campaign Finished() => DraftFixtures.Finished().Build().Campaign!;
+
+    // Every warning the open version has, seen or not.
+    private static List<Finding> AllWarnings(DraftSession session) =>
+        CampaignGate.DemoReview(session.Editor.Status().Review!.Campaign, session.CurrentApproval!).Warnings.ToList();
 
     private static readonly Approval ByPriya = new("Priya", new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
 
@@ -132,26 +138,129 @@ public class ExportWarningsTests
         Assert.Equal(first.At, Assert.Single(Records.Approvals.Rows).WarningsSeenAt);
     }
 
-    // A new save is a new version: its warnings are shown again once it is approved.
+    // ---- Across saves (owner, 2026-10-09: "yes, carry across saves") ----
+
+    // A new save is a new version to approve, but a warning she went on past on an earlier one, still
+    // reading the same, is not shown again: approved, the export is there. The JSON's worthALookSeen
+    // is the latest going on for the campaign, by and at, here the one on the first save.
     [Fact]
-    public async Task A_new_save_shows_the_warnings_again()
+    public async Task An_unchanged_warning_seen_on_an_earlier_save_is_not_shown_again()
     {
         var session = await Approved();
-        await session.WarningsSeenAtExportAsync();
+        var seen = await session.WarningsSeenAtExportAsync();
+        _clock.Now += TimeSpan.FromMinutes(5);
 
         session.Editor.Subject.Text = "WE’RE TURNING TWO!";
         await session.SaveAsync();
         Assert.Null(session.CurrentApproval);
-        Assert.Empty(session.WarningsBeforeExport());
         Assert.Null(session.DemoExportReport());
 
         await session.ApproveAsync("Priya");
-        Assert.NotEmpty(session.WarningsBeforeExport());
-        Assert.Null(session.DemoExportReport());
-        // And as whoever opens it next reads it from the table.
+        Assert.NotEmpty(AllWarnings(session));
+        Assert.Empty(session.WarningsBeforeExport());
+        var report = session.DemoExportReport();
+        Assert.NotNull(report);
+        Assert.Equal(new ExportedWarningsSeen(seen.By, seen.At), AssistantExport.Build(report).Review.WorthALookSeen);
+        // And as whoever opens it next reads it from the table; nothing was written for it, since
+        // nothing new was shown.
         var reopened = (await DraftSession.OpenAsync(Store, session.Id!.Value))!;
-        Assert.NotEmpty(reopened.WarningsBeforeExport());
-        Assert.Null(reopened.CurrentApproval!.WarningsSeen);
+        Assert.Empty(reopened.WarningsBeforeExport());
+        Assert.NotNull(reopened.DemoExportReport());
+        Assert.Equal(seen, reopened.CurrentApproval!.WarningsSeen);
+        Assert.Single(Records.Approvals.Rows, r => r.WarningsSeenBy is not null);
+    }
+
+    // The template's photo with no description: a warning the finished campaign does not have.
+    private static CampaignDraft Undescribed(string photo = "Spa room")
+    {
+        var draft = DraftFixtures.Finished();
+        draft.Image("Photo").Set(new ImageRef(photo));
+        return draft;
+    }
+
+    // A save that adds a warning: the list comes back with it alone, as new since she last exported,
+    // and going on past it is recorded on that save, who and when anew, as hashes only.
+    [Fact]
+    public async Task A_warning_a_later_save_adds_is_listed_alone_as_new()
+    {
+        var first = await Approved();
+        var before = first.WarningsBeforeExport();
+        await first.WarningsSeenAtExportAsync();
+
+        var later = await Approved(id: first.Id, draft: Undescribed());
+
+        var only = Assert.Single(later.WarningsBeforeExport());
+        Assert.Equal("photo-described", only.Rule);
+        Assert.DoesNotContain(only, before);
+        // Seen before, with keys: the page says "1 new thing is worth a look since you last exported".
+        Assert.NotNull(later.CurrentApproval!.WarningsSeen!.Keys);
+        Assert.Null(later.DemoExportReport());
+
+        var seen = await later.WarningsSeenAtExportAsync();
+        Assert.Equal(_clock.Now, seen.At);
+        Assert.NotNull(later.DemoExportReport());
+        Assert.Equal(new ExportedWarningsSeen("Priya", _clock.Now), AssistantExport.Build(later.DemoExportReport()!).Review.WorthALookSeen);
+        Assert.Empty((await DraftSession.OpenAsync(Store, first.Id!.Value))!.WarningsBeforeExport());
+        // Two rows, each with keys only: never a finding's rule, place or words.
+        Assert.Equal(2, Records.Approvals.Rows.Count(r => r.WarningsSeenKeys is not null));
+        var stored = string.Join("\n", Records.Approvals.Rows.SelectMany(r => TableMetadata.FromApproval(r))
+            .Select(p => Convert.ToString(p.Value,System.Globalization.CultureInfo.InvariantCulture)));
+        Assert.All(before.Append(only), w =>
+        {
+            Assert.DoesNotContain(w.Message, stored);
+            Assert.DoesNotContain(w.Rule, stored);
+        });
+        Assert.All(Records.Approvals.Rows, r => Assert.Matches("^[0-9a-f]{32}(,[0-9a-f]{32})*$", r.WarningsSeenKeys!));
+    }
+
+    // A warning reworded by a later save is a new key, so it is shown: here the photo renamed.
+    [Fact]
+    public async Task A_reworded_warning_counts_as_new()
+    {
+        var first = await Approved(draft: Undescribed("Spa room"));
+        Assert.Contains(first.WarningsBeforeExport(), w => w.Rule == "photo-described");
+        await first.WarningsSeenAtExportAsync();
+
+        var later = await Approved(id: first.Id, draft: Undescribed("Treatment room"));
+
+        var only = Assert.Single(later.WarningsBeforeExport());
+        Assert.Equal("photo-described", only.Rule);
+        Assert.Contains("'Treatment room'", only.Message);
+        Assert.Null(later.DemoExportReport());
+    }
+
+    // What was seen belongs to its campaign: another campaign's keys never count, even for the same
+    // warnings word for word.
+    [Fact]
+    public async Task Another_campaign_s_seen_warnings_never_count()
+    {
+        var one = await Approved();
+        await one.WarningsSeenAtExportAsync();
+
+        var other = await Approved();
+
+        Assert.Equal(AllWarnings(one), other.WarningsBeforeExport());
+        Assert.Null(other.CurrentApproval!.WarningsSeen);
+        Assert.Null(other.DemoExportReport());
+    }
+
+    // The save she went on past undone: it was seen, so it still counts on the save that follows it.
+    [Fact]
+    public async Task What_was_seen_on_an_undone_save_still_counts()
+    {
+        var first = await Approved();
+        await first.WarningsSeenAtExportAsync();
+        var undone = first.Latest!;
+        first.Editor.Subject.Text = "WE’RE TURNING TWO!";
+        await first.SaveAsync();
+        await first.ApproveAsync("Priya");
+
+        await Store.MarkUndoneAsync(undone);
+
+        var reopened = (await DraftSession.OpenAsync(Store, first.Id!.Value))!;
+        Assert.Equal(first.Latest!.SavedAt, reopened.Latest!.SavedAt);
+        Assert.Empty(reopened.WarningsBeforeExport());
+        Assert.NotNull(reopened.DemoExportReport());
     }
 
     // Her label is not the email: a save that changes only the label carries the approval, and with
@@ -172,21 +281,25 @@ public class ExportWarningsTests
         Assert.Empty((await DraftSession.OpenAsync(Store, session.Id!.Value))!.WarningsBeforeExport());
     }
 
-    // Withdrawing the approval, or undoing the save, leaves it behind with the approval; approved
-    // again, the warnings are shown again.
+    // Withdrawing the approval takes the export with it, but not what she was shown: approved again,
+    // the warnings she went on past are not shown again.
     [Fact]
-    public async Task A_withdrawn_approval_takes_it_with_it()
+    public async Task A_withdrawn_approval_leaves_what_was_seen()
     {
         var session = await Approved();
-        await session.WarningsSeenAtExportAsync();
+        var seen = await session.WarningsSeenAtExportAsync();
 
         await session.WithdrawApprovalAsync();
         Assert.Empty(session.WarningsBeforeExport());
+        Assert.Null(session.DemoExportReport());
         await Assert.ThrowsAsync<InvalidOperationException>(() => session.WarningsSeenAtExportAsync());
 
         await session.ApproveAsync("Priya");
-        Assert.NotEmpty(session.WarningsBeforeExport());
-        Assert.NotEmpty((await DraftSession.OpenAsync(Store, session.Id!.Value))!.WarningsBeforeExport());
+        Assert.Empty(session.WarningsBeforeExport());
+        Assert.NotNull(session.DemoExportReport());
+        var reopened = (await DraftSession.OpenAsync(Store, session.Id!.Value))!;
+        Assert.Empty(reopened.WarningsBeforeExport());
+        Assert.Equal(seen, reopened.CurrentApproval!.WarningsSeen);
     }
 
     // Only an approved version as it stands: not one with an edit since, and not one never approved.
@@ -459,8 +572,10 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Contains("Download for an assistant (JSON)", page);
     }
 
+    // A new save, once approved, is exported without the list when what it has worth a look was
+    // all shown on an earlier save.
     [Fact]
-    public async Task A_new_save_once_approved_shows_the_list_again()
+    public async Task A_new_save_once_approved_does_not_list_what_was_seen_before()
     {
         var first = await GoneOnPast(await Approved());
         var edited = DraftFixtures.Finished();
@@ -469,8 +584,28 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
         await Approved(first.Id, edited);
         var page = await Get($"/campaigns/{first.Id}");
 
-        Assert.Contains("Export anyway", Panel(page));
-        Assert.DoesNotContain("data-copy", page);
+        Assert.Empty(Panel(page));
+        Assert.Contains("<h2>Copy into Square</h2>", page);
+        Assert.Contains("data-copy", page);
+    }
+
+    // Gone on past all but one on the first save: the next save's list holds that one alone, called new.
+    [Fact]
+    public async Task A_new_save_lists_only_what_was_not_seen_on_an_earlier_one()
+    {
+        var first = await Approved();
+        var warnings = CampaignGate.DemoReview(DraftFixtures.Finished().Build().Campaign!, first.Approval!).Warnings.ToList();
+        Assert.True(warnings.Count > 1);
+        await Store.WarningsSeenAtExportAsync(first, warnings[..^1].Select(w => w.SeenKey).ToList());
+        var edited = DraftFixtures.Finished();
+        edited.Subject.Set("WE’RE TURNING TWO!");
+
+        await Approved(first.Id, edited);
+        var panel = Panel(await Get($"/campaigns/{first.Id}"));
+
+        Assert.Contains("1 new thing is worth a look since you last exported.", panel);
+        Assert.Single(Regex.Matches(panel, "<li class=\"finding warning\">"));
+        Assert.Contains(warnings[^1].Message, panel);
     }
 
     // Gone on past all but one, as when that one appeared later: the list comes back with it alone,
@@ -511,6 +646,7 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
             Assert.NotEmpty(links);
             Assert.Equal(Regex.Matches(panel, "is outside your usual range for this line").Count, links.Count);
             Assert.All(links, l => Assert.Equal($"known-items?cap=highest-percent#known-line-{line.Id}", l.Groups[1].Value));
+            Assert.Equal(links.Count, Regex.Matches(panel, "</span> <a class=\"caps-link\"").Count);
         }
         finally
         {

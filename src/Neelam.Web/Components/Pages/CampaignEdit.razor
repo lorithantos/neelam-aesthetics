@@ -390,7 +390,7 @@ else if (_session is not null)
                     </ul>
                     <p class="field-help">Fixing one changes the campaign: save it again and approve the new version.</p>
                     <button class="button primary" @onclick="ExportAnywayAsync">Export anyway</button>
-                    <p class="field-help">You won't be asked again about these for this version; only something new would come up. The export notes that you saw them and went on.</p>
+                    <p class="field-help">You won't be asked again about these for this campaign, in this version or a later one, while they read the same; only something new would come up. The export notes that you saw them and went on.</p>
                 </section>
             }
             else
@@ -641,13 +641,14 @@ else
         Site.IsDemo && _canReview ? _session!.DemoExportReport(_policy, Business) : null;
 
     // The same gate's findings to show before that export, on the demo only, as the export is: those
-    // nobody has been shown for this version yet. Checked with the same business as the export
-    // (Business, with her library and ladders), so the list is exactly what the export waits for.
+    // nobody has been shown for this campaign yet, on this version or an earlier one. Checked with
+    // the same business as the export (Business, with her library and ladders), so the list is
+    // exactly what the export waits for.
     private IReadOnlyList<Finding> WarningsBeforeExport() =>
         Site.IsDemo && _canReview ? _session!.WarningsBeforeExport(_policy, Business) : [];
 
-    // Whether someone went on past this version's warnings before, with their keys kept: then the
-    // list holds only what is new since.
+    // Whether someone went on past this campaign's warnings before, on this version or an earlier
+    // one, with their keys kept: then the list holds only what is new since.
     private bool ExportedBefore => _session?.CurrentApproval?.WarningsSeen?.Keys is not null;
 
     // "Export anyway": recorded with this version's approval, who and when and the warnings' keys

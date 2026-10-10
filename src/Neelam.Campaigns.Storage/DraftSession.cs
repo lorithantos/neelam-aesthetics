@@ -145,8 +145,9 @@ public sealed class DraftSession
     /// <summary>
     /// The "Worth a look" findings to show before the demo export, or none: what stands between an
     /// approved campaign, unchanged since and with nothing to fix, and its export. Only those nobody
-    /// has been shown at export for this version (<see cref="ReviewReport.UnseenWarnings"/>), so after
-    /// she has gone on once, a warning that appears later is listed alone. In the order the checks
+    /// has been shown at export for this campaign, on this version or an earlier one
+    /// (<see cref="ReviewReport.UnseenWarnings"/>), so after she has gone on once, a warning that
+    /// appears later, or a new save adds or rewords, is listed alone. In the order the checks
     /// give. Warnings never stop the email (owner, 2026-10-09): going on is
     /// <see cref="WarningsSeenAtExportAsync"/>, one click, and fixing one is an edit like any other.
     /// </summary>
@@ -155,7 +156,7 @@ public sealed class DraftSession
 
     /// <summary>
     /// What the list of <see cref="WarningsBeforeExport"/> says first: how many, whether they are new
-    /// since she last went on past this version's warnings, and that none of them stops the email,
+    /// since she last went on past this campaign's warnings, and that none of them stops the email,
     /// each sentence agreeing with the count ("It doesn't stop the email" for one).
     /// </summary>
     public static string WarningsLead(int count, bool sinceLastExport)
@@ -171,9 +172,9 @@ public sealed class DraftSession
 
     /// <summary>
     /// Goes on to export past this version's "Worth a look" findings as they stand: recorded with its
-    /// approval, who and when and each finding's key, so they are not shown again for this version
-    /// while they stay as they are. A new save shows them again, unless it changes only her label.
-    /// Give the same policy and business as for <see cref="WarningsBeforeExport"/>, so the findings
+    /// approval, who and when and each finding's key, so they are not shown again for this campaign
+    /// while they stay as they are, on this version or a later one (owner, 2026-10-09: "yes, carry
+    /// across saves"). Give the same policy and business as for <see cref="WarningsBeforeExport"/>, so the findings
     /// recorded are the ones shown.
     /// </summary>
     /// <exception cref="InvalidOperationException">The version as it stands is not approved.</exception>

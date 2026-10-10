@@ -65,17 +65,20 @@ public sealed record ReviewReport(Campaign Campaign, IReadOnlyList<Finding> Find
     public Approval? DemoApproval { get; internal init; }
 
     /// <summary>
-    /// Who was shown this version's "Worth a look" findings at export and went on, and when; null
-    /// until someone has. Set by <see cref="CampaignGate"/> alone (it cannot be set outside this
-    /// library), from what was recorded for the save the report is of.
+    /// Which "Worth a look" findings were shown at export, on this version or an earlier one of the
+    /// campaign, and who went on last for the campaign and when; null until someone has. Set by
+    /// <see cref="CampaignGate"/> alone (it cannot be set outside this library), from what was
+    /// recorded for the campaign the report's save belongs to.
     /// </summary>
     public WarningsSeen? WarningsSeen { get; internal init; }
 
     /// <summary>
-    /// The "Worth a look" findings nobody has been shown at export for this version: every one whose
+    /// The "Worth a look" findings nobody has been shown at export for this campaign: every one whose
     /// <see cref="Finding.SeenKey"/> is not among those recorded (owner, 2026-10-09: warnings that
     /// appear after she went on, because her known items, numbers or a check's data changed, are
-    /// shown then). With nothing recorded, or a record from before keys were kept, all of them.
+    /// shown then; and "yes, carry across saves", so one seen on an earlier version and unchanged is
+    /// not, while one a new save adds or rewords is). With nothing recorded, or a record from before
+    /// keys were kept, all of them.
     /// </summary>
     public IEnumerable<Finding> UnseenWarnings =>
         Warnings.Where(w => WarningsSeen?.Keys is not { } seen || !seen.Contains(w.SeenKey));
@@ -101,12 +104,13 @@ public sealed record ReviewReport(Campaign Campaign, IReadOnlyList<Finding> Find
 }
 
 /// <summary>
-/// A person was shown a saved version's "Worth a look" findings when exporting it, and chose to go
-/// on. It belongs to that save, as its approval does: a new save (other than one that changes only
-/// her label) is shown its findings again. Who went on last and when, and which findings had been
-/// shown by then as their keys (<see cref="Finding.SeenKey"/>, hashes), never what they said.
+/// A person was shown a campaign's "Worth a look" findings when exporting it, and chose to go on.
+/// Recorded with the approval of the save exported, and read across the campaign's saves (owner,
+/// 2026-10-09: "yes, carry across saves"): a later save shows only findings that are new or reworded.
+/// Who went on last and when, and which findings had been shown by then as their keys
+/// (<see cref="Finding.SeenKey"/>, hashes), never what they said.
 /// </summary>
-/// <param name="By">Who went on, the last time. In Prototype, the name typed for the approval; from the sign-in once there is one.</param>
+/// <param name="By">Who went on, the last time for the campaign. In Prototype, the name typed for the approval; from the sign-in once there is one.</param>
 /// <param name="At">When, in UTC.</param>
 /// <param name="Keys">
 /// The keys of every warning shown by then. Null for a record from before keys were kept: then no

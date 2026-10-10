@@ -389,8 +389,9 @@ public sealed record ExportedImage(string Name, Uri? SquareUrl, string? AltText)
 public sealed record ExpectedContent(string? Text, string? Link, string? ImageName, string? ImageUrl, string? AltText);
 
 /// <param name="WorthALookSeen">
-/// Who was shown the <paramref name="WorthALook"/> items when exporting and went on, and when; present
-/// exactly when there are any.
+/// Who was shown the <paramref name="WorthALook"/> items when exporting and went on, and when: the
+/// latest time for the campaign, on this version or an earlier one (what was shown carries across
+/// saves); present exactly when there are any.
 /// </param>
 public sealed record ExportedReview(
     bool Proofread, ExportedApproval Approval, IReadOnlyList<string> WorthALook, ExportedWarningsSeen? WorthALookSeen, string? Notice);

@@ -65,17 +65,20 @@ public sealed class CampaignStore(
 
     /// <summary>
     /// Every save of one campaign or template, newest first. Undone saves are left out. A campaign's
-    /// saves carry their approvals, from the approvals table.
+    /// saves carry their approvals, from the approvals table, each with what was seen at export on
+    /// any save of the campaign (<see cref="ApprovalRecord.SeenAcross"/>).
     /// </summary>
     public async Task<IReadOnlyList<SaveRef>> HistoryAsync(DocumentKind kind, Guid id, CancellationToken ct = default)
     {
         var saves = InUse(await ListPrefixAsync(kind, $"{Prefix(kind)}/{id:N}/", ct));
         if (kind != DocumentKind.Draft || saves.Count == 0) return saves;
-        var standing = (await approvals.ForCampaignAsync(Client, id, ct))
-            .Where(a => !a.Withdrawn && a.Client == Client && a.CampaignId == id)
-            .ToDictionary(a => a.Stamp, StringComparer.Ordinal);
+        var rows = await RowsAsync(id, ct);
+        var seen = ApprovalRecord.SeenAcross(rows);
+        var standing = rows.Where(a => !a.Withdrawn).ToDictionary(a => a.Stamp, StringComparer.Ordinal);
         return saves
-            .Select(s => standing.TryGetValue(SaveStamp.Of(s.SavedAt), out var a) ? s with { Approval = a.Approval } : s)
+            .Select(s => standing.TryGetValue(SaveStamp.Of(s.SavedAt), out var a)
+                ? s with { Approval = a.Approval with { WarningsSeen = seen } }
+                : s)
             .ToList();
     }
 
@@ -130,10 +133,19 @@ public sealed class CampaignStore(
             throw new InvalidOperationException("That save is gone, so it cannot be approved.");
 
         var approval = new Approval(approvedBy.Trim(), clock.GetUtcNow());
-        await approvals.PutAsync(
-            new ApprovalRecord(Client, save.Id, SaveStamp.Of(save.SavedAt), approval.By, approval.At), ct);
+        var stamp = SaveStamp.Of(save.SavedAt);
+        var rows = await RowsAsync(save.Id, ct);
+        // Approved again after a withdrawal, the save's row is replaced: what was seen on it stays,
+        // since she was shown it.
+        var earlier = rows.FirstOrDefault(r => r.Stamp == stamp);
+        var row = new ApprovalRecord(Client, save.Id, stamp, approval.By, approval.At,
+            WarningsSeenBy: earlier?.WarningsSeenBy, WarningsSeenAt: earlier?.WarningsSeenAt,
+            WarningsSeenKeys: earlier?.WarningsSeenKeys);
+        await approvals.PutAsync(row, ct);
         await RecordAsync(save, ActivityAction.Approved, ct, activity.Actor.NameFor(approval.By));
-        return current with { Approval = approval };
+        // What was seen at export on any of the campaign's saves counts on this one too.
+        var seen = ApprovalRecord.SeenAcross(rows.Where(r => r.Stamp != stamp).Append(row));
+        return current with { Approval = approval with { WarningsSeen = seen } };
     }
 
     /// <summary>Takes an approval back: the save stays, unapproved, and the row stays, marked withdrawn.</summary>
@@ -162,11 +174,12 @@ public sealed class CampaignStore(
         Expect(later, DocumentKind.Draft);
         if (approved.Id != later.Id)
             throw new ArgumentException("An approval is kept only within one campaign.", nameof(later));
-        if (await StandingApprovalAsync(approved, ct) is not { } row) return later;
+        var rows = await RowsAsync(approved.Id, ct);
+        if (Standing(rows, approved) is not { } row) return later;
         await approvals.PutAsync(row with { Stamp = SaveStamp.Of(later.SavedAt), WithdrawnAt = null }, ct);
         // On the later save, by whoever saved it: ids only, as every event.
         await RecordAsync(later, ActivityAction.ApprovalCarriedToLabelOnlySave, ct);
-        return later with { Approval = row.Approval };
+        return later with { Approval = row.Approval with { WarningsSeen = ApprovalRecord.SeenAcross(rows) } };
     }
 
     /// <summary>
@@ -175,42 +188,56 @@ public sealed class CampaignStore(
     /// when, and which findings by their keys (<see cref="Finding.SeenKey"/>, hashes), never what they
     /// said. The keys add to those already recorded, so a warning that appears later is shown then,
     /// and going on past it records who and when anew; asked again with nothing new, the record
-    /// stands as it is. It goes with the approval: a label-only save carries it
-    /// (<see cref="KeepApprovalAsync"/>), and any other save, a withdrawal or an undo leaves it behind.
+    /// stands as it is. What was seen carries across the campaign's saves (owner, 2026-10-09: "yes,
+    /// carry across saves"): a key recorded on any of its rows, withdrawn or of an undone or deleted
+    /// save included, counts as seen on every save, so a later version shows only what is new or
+    /// reworded (<see cref="ApprovalRecord.SeenAcross"/>). Another campaign's rows never count.
     /// </summary>
     /// <param name="shown">The keys of the warnings she was shown, or the version's warnings as they stand.</param>
-    /// <returns>The save with its approval, now carrying <see cref="Approval.WarningsSeen"/>.</returns>
+    /// <returns>The save with its approval, now carrying <see cref="Approval.WarningsSeen"/> across the campaign.</returns>
     /// <exception cref="InvalidOperationException">The save's approval does not stand.</exception>
     public async Task<SaveRef> WarningsSeenAtExportAsync(
         SaveRef save, IReadOnlyCollection<string> shown, CancellationToken ct = default)
     {
         Expect(save, DocumentKind.Draft);
-        var row = await StandingApprovalAsync(save, ct)
+        var rows = await RowsAsync(save.Id, ct);
+        var row = Standing(rows, save)
                   ?? throw new InvalidOperationException("Approve this version first: export is of an approved version.");
-        var before = row.Approval.WarningsSeen;
-        if (before?.Keys is not { } known || !shown.All(known.Contains))
+        if (ApprovalRecord.SeenAcross(rows)?.Keys is not { } known || !shown.All(known.Contains))
         {
             // Signed in, the user; in Prototype, the name typed for this version's approval, as approvals are.
             var by = activity.Actor.NameFor(row.ApprovedBy);
+            var own = row.Approval.WarningsSeen?.Keys ?? Enumerable.Empty<string>();
             row = row with
             {
                 WarningsSeenBy = by,
                 WarningsSeenAt = clock.GetUtcNow(),
-                WarningsSeenKeys = ApprovalRecord.JoinKeys((before?.Keys ?? Enumerable.Empty<string>()).Union(shown, StringComparer.Ordinal)),
+                WarningsSeenKeys = ApprovalRecord.JoinKeys(own.Union(shown, StringComparer.Ordinal)),
             };
             await approvals.PutAsync(row, ct);
             await RecordAsync(save, ActivityAction.WarningsSeenAtExport, ct, by);
+            rows = rows.Where(r => r.Stamp != row.Stamp).Append(row).ToList();
         }
-        return save with { Approval = row.Approval };
+        return save with { Approval = row.Approval with { WarningsSeen = ApprovalRecord.SeenAcross(rows) } };
+    }
+
+    // Every approval row of one campaign, in this client's partition: withdrawn ones and those of
+    // undone or deleted saves included.
+    private async Task<IReadOnlyList<ApprovalRecord>> RowsAsync(Guid campaignId, CancellationToken ct) =>
+        (await approvals.ForCampaignAsync(Client, campaignId, ct))
+            .Where(a => a.Client == Client && a.CampaignId == campaignId)
+            .ToList();
+
+    // This save's approval among its campaign's rows, while it stands.
+    private static ApprovalRecord? Standing(IEnumerable<ApprovalRecord> rows, SaveRef save)
+    {
+        var stamp = SaveStamp.Of(save.SavedAt);
+        return rows.FirstOrDefault(a => a.CampaignId == save.Id && a.Stamp == stamp && !a.Withdrawn);
     }
 
     // This save's approval, while it stands.
-    private async Task<ApprovalRecord?> StandingApprovalAsync(SaveRef save, CancellationToken ct)
-    {
-        var stamp = SaveStamp.Of(save.SavedAt);
-        return (await approvals.ForCampaignAsync(Client, save.Id, ct))
-            .FirstOrDefault(a => a.Client == Client && a.CampaignId == save.Id && a.Stamp == stamp && !a.Withdrawn);
-    }
+    private async Task<ApprovalRecord?> StandingApprovalAsync(SaveRef save, CancellationToken ct) =>
+        Standing(await RowsAsync(save.Id, ct), save);
 
     // Never throws: the trail is wanted, but never at the cost of the action it records.
     private Task RecordAsync(SaveRef save, ActivityAction action, CancellationToken ct, string? actorName = null) =>

@@ -17,10 +17,12 @@
     </span>
     <span>@Finding.Message</span>
     @* A finding about one of her known lines' limits leads to that line on the Known items page,
-       where its range is changed in place (owner, 2026-10-09: the caps "easy to find and update"). *@
+       where its range is changed in place (owner, 2026-10-09: the caps "easy to find and update").
+       The space before it is written out, as Razor drops the one beside the @if ("...(5%–10%).Change
+       this line's range"). *@
     @if (FindingPlace.KnownLineLink(Finding) is { } link)
     {
-        <a class="caps-link" href="@link">Change this line's range</a>
+        @(" ")<a class="caps-link" href="@link">Change this line's range</a>
     }
 </li>
 

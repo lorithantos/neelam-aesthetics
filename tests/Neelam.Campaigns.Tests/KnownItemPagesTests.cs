@@ -409,6 +409,9 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(Regex.Matches(page, "is outside your usual range for this line").Count, links.Count);
         // Above the highest: the link starts her in Highest.
         Assert.All(links, l => Assert.Equal($"known-items?cap=highest-percent#known-line-{line.Id}", l.Groups[1].Value));
+        // A space between the message and the link, never "...(up to 5%).Change this line's range".
+        Assert.Equal(links.Count, Regex.Matches(page, "</span> <a class=\"caps-link\"").Count);
+        Assert.DoesNotContain("</span><a class=\"caps-link\"", page);
     }
 
     [Fact]

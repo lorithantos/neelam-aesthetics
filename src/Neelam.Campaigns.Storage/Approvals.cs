@@ -34,6 +34,24 @@ public sealed record ApprovalRecord(
             : null,
     };
 
+    /// <summary>
+    /// What one campaign's rows say was seen at export (owner, 2026-10-09: "yes, carry across saves"):
+    /// every key recorded on any of them, withdrawn rows and those of undone or deleted saves included,
+    /// since what she was shown she was shown; and who went on last and when, the latest of them. Null
+    /// when nobody has gone on past any save's warnings. Keys stay null only when no row has any (rows
+    /// from before keys were kept), so the list is shown once more.
+    /// </summary>
+    public static WarningsSeen? SeenAcross(IEnumerable<ApprovalRecord> campaignRows)
+    {
+        var seen = campaignRows.Select(r => r.Approval.WarningsSeen).OfType<WarningsSeen>().ToList();
+        if (seen.Count == 0) return null;
+        var latest = seen.MaxBy(s => s.At)!;
+        var keyed = seen.Where(s => s.Keys is not null).ToList();
+        return keyed.Count == 0
+            ? latest with { Keys = null }
+            : latest with { Keys = keyed.SelectMany(s => s.Keys!).ToHashSet(StringComparer.Ordinal) };
+    }
+
     /// <summary>Keys as the row holds them: comma-separated, in order.</summary>
     public static string JoinKeys(IEnumerable<string> keys) => string.Join(',', keys.Order(StringComparer.Ordinal));
 

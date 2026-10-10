@@ -61,7 +61,7 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "worthALookSeen": {
-          "description": "Who was shown the worthALook items when exporting and chose to go on, and when. Present exactly when worthALook has items: warnings never stop the email, but a person sees them first.",
+          "description": "Who was shown the worthALook items when exporting and chose to go on, and when: the latest time anyone did for this campaign, on this version or an earlier one, since an item already shown and unchanged is not shown again. Present exactly when worthALook has items: warnings never stop the email, but a person sees them first.",
           "type": "object",
           "additionalProperties": false,
           "required": ["by", "at"],
