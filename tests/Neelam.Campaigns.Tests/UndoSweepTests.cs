@@ -187,7 +187,63 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         await SweepOver(stores, new InMemoryClientDirectory(SalonOne, SalonTwo), clock, new PrototypeCallerSource(SalonOne.Name))
             .SweepOnceAsync();
 
-        Assert.Equal([SalonOne.Name.Value, SalonTwo.Name.Value], opened.Order(StringComparer.Ordinal));
+        // Each client's own container once; the settings container, where the looks are, once per client.
+        Assert.Equal(
+            [SalonOne.Name.Value, SalonTwo.Name.Value],
+            opened.Where(n => n != ClientStores.SettingsContainer).Order(StringComparer.Ordinal));
+        Assert.Equal(2, opened.Count(n => n == ClientStores.SettingsContainer));
+    }
+
+    // A look undone on her Look page lives in the settings container, apart from her drafts; the sweep
+    // reaches it there too, once its grace period has passed and not a moment before, and says so on
+    // her trail by stamp alone.
+    [Fact]
+    public async Task An_undone_look_is_swept_after_the_grace_period_and_not_before()
+    {
+        var containers = new InMemoryContainers();
+        var clock = new ManualClock(Noon);
+        var records = new TestRecords(clock);
+        var stores = records.Stores(containers.For, TimeSpan.FromDays(1));
+        var kept = await stores.SaveLookAsync(SalonOne.Name, ClientLookTests.Blush, Actor.Demo);
+        clock.Now += TimeSpan.FromMinutes(1);
+        await stores.SaveLookAsync(SalonOne.Name, new ClientLook(accentColour: "#225e3e"), Actor.Demo);
+        var undone = await stores.UndoLastLookSaveAsync(SalonOne.Name, Actor.Demo);
+        var keys = containers.For(ClientStores.SettingsContainer).Blobs.Keys;
+        var sweep = SweepOver(stores, new InMemoryClientDirectory(SalonOne), clock);
+
+        clock.Now = undone!.UndoneAt!.Value + TimeSpan.FromDays(1) - TimeSpan.FromTicks(1);
+        Assert.Equal(0, await sweep.SweepOnceAsync());
+        Assert.Contains(undone.BlobName, keys);
+
+        clock.Now += TimeSpan.FromTicks(1);
+        Assert.Equal(1, await sweep.SweepOnceAsync());
+        Assert.DoesNotContain(undone.BlobName, keys);
+        Assert.Contains(kept.BlobName, keys);
+        Assert.Equal(ClientLookTests.Blush, await stores.Look(SalonOne.Name).CurrentAsync());
+
+        var swept = Assert.Single(records.Activity.Events, e => e.Action == ActivityAction.DeletedBySweep);
+        Assert.Equal(
+            (SalonOne.Name, ActivityEntity.Look, "look", SaveStamp.Of(undone.SavedAt), Actor.UndoSweep.Name),
+            (swept.Client, swept.Entity, swept.EntityId, swept.SaveStamp, swept.Actor));
+    }
+
+    // A settings container that cannot be reached stops neither the drafts of that client nor the others.
+    [Fact]
+    public async Task A_look_that_cannot_be_swept_does_not_stop_the_drafts()
+    {
+        var (containers, clock, _) = Isolated();
+        var stores = new ClientStores(
+            name => name == ClientStores.SettingsContainer ? new UnreachableContainer() : containers.For(name), clock,
+            TimeSpan.FromDays(1), new InMemoryApprovals(), TestRecords.Unwatched);
+        var one = stores.Campaigns(SalonOne.Name, Actor.Demo);
+        var two = stores.Campaigns(SalonTwo.Name, Actor.Demo);
+        var expiredOne = await one.MarkUndoneAsync(await one.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
+        var expiredTwo = await two.MarkUndoneAsync(await two.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
+        clock.Now += TimeSpan.FromDays(1);
+
+        Assert.Equal(2, await SweepOver(stores, new InMemoryClientDirectory(SalonOne, SalonTwo), clock).SweepOnceAsync());
+        Assert.DoesNotContain(expiredOne.BlobName, containers.For(SalonOne.Name.Value).Blobs.Keys);
+        Assert.DoesNotContain(expiredTwo.BlobName, containers.For(SalonTwo.Name.Value).Blobs.Keys);
     }
 
     // One client whose container cannot be reached is logged and left for the next run; the

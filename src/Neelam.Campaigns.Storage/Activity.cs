@@ -69,8 +69,17 @@ public enum ActivityAction
     LaddersResetToStandard,
     LookSaved,
 
-    /// <summary>The client's own look deleted, so its pages have the standard look again.</summary>
+    /// <summary>
+    /// The client's pages back to the standard look. Since 2026-10-09 a version saying so is saved, its
+    /// stamp on the event, and her earlier looks are kept; before, her own look was deleted (no stamp).
+    /// </summary>
     LookResetToStandard,
+
+    /// <summary>
+    /// An earlier look saved again as a new version, which is in force. The stamp is the new version's;
+    /// the earlier one is left as it was.
+    /// </summary>
+    LookUsedAgain,
 }
 
 /// <summary>

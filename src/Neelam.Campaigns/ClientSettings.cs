@@ -86,7 +86,24 @@ public sealed partial record ClientLook
         MutedText = Checked(mutedText, nameof(mutedText));
     }
 
+    // The standard look as a version of her own: no colours, by construction.
+    private ClientLook(bool standard) => IsStandard = standard;
+
     public static ClientLook Default { get; } = new();
+
+    /// <summary>
+    /// What "Use the standard look" saves (owner, 2026-10-09: "We should allow it to be restored after a
+    /// set of edits, no?"): a version that holds no colours and says it is the standard look, so going
+    /// back to the standard keeps her earlier looks to come back to rather than deleting them. Its pages
+    /// are drawn exactly as with no look at all.
+    /// </summary>
+    public static ClientLook Standard { get; } = new(standard: true);
+
+    /// <summary>
+    /// True for <see cref="Standard"/>: she chose the standard look. A look whose colours all happen
+    /// to be the standard's is drawn the same, but is one she saved herself.
+    /// </summary>
+    public bool IsStandard { get; }
 
     /// <summary>The colours its pages are drawn in: its own where it has one, the standard's elsewhere.</summary>
     public LookPalette Palette

@@ -144,13 +144,16 @@ public class ClientLookTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         await app.Stores.SaveLookAsync(client, Blush, Actor.Demo);
         Assert.Equal(Blush, await app.Stores.Look(client).CurrentAsync());
 
+        // Back to the standard look by a version that says so: her own is kept, to use again.
+        app.Clock.Now += TimeSpan.FromMinutes(1);
         await app.Stores.UseStandardLookAsync(client, Actor.Demo);
-        Assert.Null(await app.Stores.Look(client).CurrentAsync());
-        Assert.Empty(app.Containers.For("settings").Blobs.Keys.Where(k => k.StartsWith("blush-salon/", StringComparison.Ordinal)));
+        Assert.Equal(ClientLook.Standard, await app.Stores.Look(client).CurrentAsync());
+        Assert.Equal(2, app.Containers.For("settings").Blobs.Keys.Count(k => k.StartsWith("blush-salon/", StringComparison.Ordinal)));
 
         var events = app.Activity.Events.Where(e => e.Client == client).ToList();
         Assert.Equal([ActivityAction.LookSaved, ActivityAction.LookResetToStandard], events.Select(e => e.Action));
         Assert.All(events, e => Assert.Equal((ActivityEntity.Look, "look"), (e.Entity, e.EntityId)));
+        Assert.All(events, e => Assert.NotNull(e.SaveStamp));
     }
 
     // The contrast check reads the standard look from code; the pages draw it from the stylesheet.

@@ -6,9 +6,10 @@ namespace Neelam.Web;
 
 /// <summary>
 /// Deletes for good the drafts and templates undone longer ago than the grace period, in every
-/// client's container: once at startup, then every <see cref="UndoOptions.SweepInterval"/>. It
-/// keeps no state of its own. Each run lists the blobs and reads their marks
-/// (<see cref="CampaignStore.SweepAsync"/>), so a run cut short by a crash or a restart is simply
+/// client's container, and the looks undone as long ago, in each client's place in the settings
+/// container: once at startup, then every <see cref="UndoOptions.SweepInterval"/>. It keeps no state
+/// of its own. Each run lists the blobs and reads their marks (<see cref="CampaignStore.SweepAsync"/>,
+/// <see cref="ClientStores.SweepLookAsync"/>), so a run cut short by a crash or a restart is simply
 /// finished by the next one. Undo itself never deletes, and neither does leaving a page.
 /// </summary>
 /// <param name="prototype">
@@ -68,6 +69,16 @@ public sealed class UndoSweep(
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 log.LogError(ex, "The undo sweep failed for {Client}; it tries again next run.", client.Value);
+            }
+            // Her look lives apart, in the settings container, so it is swept on its own: either can
+            // fail without stopping the other.
+            try
+            {
+                deleted += await stores.SweepLookAsync(client, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                log.LogError(ex, "The undo sweep failed for the look of {Client}; it tries again next run.", client.Value);
             }
         }
         if (deleted > 0) log.LogInformation("The undo sweep deleted {Count} undone saves.", deleted);

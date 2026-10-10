@@ -2,8 +2,11 @@
 @* Her pages' colours (owner, 2026-10-09: "let's make the page look a little more like what an
    Aesthetician would like -- maybe a light pink background and something softer than white for the
    main editing"). The look is data, saved in settings/{client}/, as the baseline and ladders are her
-   own: "Save" keeps hers, "Use the standard look" deletes it. The access check decides whose look,
-   on top of the policy; the look is not client data, so the operator needs no grant for it. *@
+   own: "Save" keeps hers as a new version, and "Use the standard look" saves one that says so, so her
+   earlier looks stay listed to use again (owner, 2026-10-09: "We should allow it to be restored after
+   a set of edits, no?"). "Undo last save" marks the newest undone, restorable for the grace period, as
+   the editors do. The access check decides whose look, on top of the policy; the look is not client
+   data, so the operator needs no grant for it. *@
 @attribute [Authorize(Policy = Features.Look)]
 @rendermode InteractiveServer
 @inject ClientWorkspace Workspace
@@ -22,16 +25,12 @@ else if (_fields is not null)
 {
     var chosen = Chosen();
     var problems = chosen.Palette.ContrastProblems();
-    <p class="muted" data-testid="look-status">@(_isOwn ? "Your own look." : "The standard look.")
+    <p class="muted" data-testid="look-status">@(_history!.IsOwn ? "Your own look." : "The standard look.")
         These colours are for your pages here, not for your emails: Square sends those as you set them up there.</p>
 
-    @if (Saved == "own")
+    @if (SavedMessage() is { } saved)
     {
-        <p role="status" data-testid="look-saved">Saved. Every page now has your look.</p>
-    }
-    else if (Saved == "standard")
-    {
-        <p role="status" data-testid="look-saved">Your own look is deleted; every page has the standard look again.</p>
+        <p role="status" data-testid="look-saved">@saved</p>
     }
 
     <div class="workspace">
@@ -82,29 +81,121 @@ else if (_fields is not null)
             }
             <p>
                 <button class="button primary" disabled="@(problems.Count > 0)" @onclick="SaveAsync">Save</button>
-                @if (_isOwn)
+                @if (_history!.Versions.FirstOrDefault() is { Look: not { IsStandard: true } })
                 {
-                    <button class="button" @onclick="UseStandardAsync">Use the standard look</button>
+                    <button class="button" data-testid="look-use-standard" @onclick="UseStandardAsync">Use the standard look</button>
                 }
             </p>
             @if (_message is not null)
             {
-                <p role="status">@_message</p>
+                <p role="status" data-testid="look-message">@_message</p>
+            }
+            @if (_history.Versions.Count > 0)
+            {
+                @if (_confirmingUndo)
+                {
+                    <p>Undo the last save? Your pages go back to the look before it. The undone look can be restored for @TimeWords.Period(_history.UndoGracePeriod), then it is deleted for good.</p>
+                    <button class="button danger" @onclick="UndoAsync">Undo it</button>
+                    <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
+                }
+                else
+                {
+                    <button class="button" data-testid="look-undo" @onclick="() => _confirmingUndo = true">Undo last save</button>
+                }
+            }
+            @if (_history.Restorable is not null)
+            {
+                <p class="field-help" data-testid="look-restorable">The last undo can be taken back until @Times.DateAndTime(_history.RestorableUntil!.Value).</p>
+                <button class="button" data-testid="look-restore" @onclick="RestoreAsync">Restore undone look</button>
             }
         </section>
     </div>
+
+    <section class="card" aria-labelledby="earlier-heading">
+        <h2 id="earlier-heading">Earlier looks</h2>
+        @if (_history.Versions.Count == 0)
+        {
+            <p class="muted" data-testid="earlier-looks-none">You have not saved a look of your own yet.</p>
+        }
+        else
+        {
+            <p class="field-help">Your last @ClientStores.EarlierLooksListed saves, newest first. Using one again saves it as your newest look; the others stay here.</p>
+            <ol class="earlier-looks">
+                @foreach (var version in _history.Versions)
+                {
+                    var v = version;
+                    <li class="earlier-look" data-testid="earlier-look-@v.Id">
+                        <span class="earlier-look-when" data-testid="earlier-look-when-@v.Id">@Times.DateAndTime(v.Version.SavedAt)</span>
+                        @if (v.Look is { } look)
+                        {
+                            <span class="look-swatches">
+                                @foreach (var (id, name, hex) in Swatches(look.Palette))
+                                {
+                                    <span class="look-swatch" style="background-color:@hex" data-testid="earlier-look-swatch-@v.Id-@id"><span class="visually-hidden">@name @hex</span></span>
+                                }
+                            </span>
+                            @if (look.IsStandard)
+                            {
+                                <span data-testid="earlier-look-standard-@v.Id">Standard look</span>
+                            }
+                        }
+                        @if (v.InUse)
+                        {
+                            <strong data-testid="earlier-look-state-@v.Id">In use</strong>
+                        }
+                        else if (v.Look is null)
+                        {
+                            <span class="muted" data-testid="earlier-look-state-@v.Id">Can't be used</span>
+                        }
+                        else
+                        {
+                            <button class="button" data-testid="earlier-look-use-@v.Id" @onclick="() => UseAgainAsync(v)">Use this look again</button>
+                        }
+                    </li>
+                }
+            </ol>
+        }
+    </section>
 }
 
 @code {
-    /// <summary>"own" after a save, "standard" after going back to the standard look.</summary>
+    /// <summary>
+    /// What was just done, since the page loads again after each change: "own" after a save, "standard"
+    /// after going back to the standard look, "again" after using an earlier look again, "undone" and
+    /// "restored" after an undo and its restore.
+    /// </summary>
     [SupplyParameterFromQuery]
     public string? Saved { get; set; }
 
     private string? _denied;
     private ClientName? _client;
-    private bool _isOwn;
+    private LookHistory? _history;
+    private LocalTime? _times;
+    private LocalTime Times => _times ?? Workspace.DefaultTimes;
     private IReadOnlyList<ColourField>? _fields;
     private string? _message;
+    private bool _confirmingUndo;
+
+    private string? SavedMessage() => Saved switch
+    {
+        "own" => "Saved. Every page now has your look.",
+        "standard" => "Every page has the standard look again. Your earlier looks are kept below, to use again.",
+        "again" => "Saved as your newest look. Every page now has it again.",
+        "undone" => "The last save was undone; your pages have the look before it.",
+        "restored" => "The undone look is back on every page.",
+        _ => null,
+    };
+
+    // The six colours of a look as a strip, each named for a screen reader.
+    private static IEnumerable<(string Id, string Name, string Hex)> Swatches(LookPalette palette) =>
+    [
+        ("background", "Page background", palette.PageBackground),
+        ("surface", "Editing surface", palette.Surface),
+        ("border", "Borders", palette.Border),
+        ("text", "Text", palette.Text),
+        ("muted", "Quieter text", palette.MutedText),
+        ("accent", "Accent", palette.Accent),
+    ];
 
     // One colour of the look: what it is called here, and what she has chosen (the standard's until she
     // changes it).
@@ -129,9 +220,10 @@ else if (_fields is not null)
             _denied = reason;
             return;
         }
-        var own = await Stores.Look(_client).CurrentAsync();
-        _isOwn = own is not null;
-        var look = own ?? ClientLook.Default;
+        _times = await Workspace.TimesAsync(_client);
+        _history = await Stores.LookHistoryAsync(_client);
+        // The look in force: hers, the standard one she went back to, or none (the standard's).
+        var look = _history.InForce ?? ClientLook.Default;
         var standard = LookPalette.Standard;
         _fields =
         [
@@ -184,5 +276,38 @@ else if (_fields is not null)
     {
         await Stores.UseStandardLookAsync(_client!, await Workspace.ActorAsync());
         Navigation.NavigateTo("look?saved=standard", forceLoad: true);
+    }
+
+    // A copy, saved as the newest version; the earlier one stays as it was.
+    private async Task UseAgainAsync(LookVersion earlier)
+    {
+        try
+        {
+            await Stores.UseLookAgainAsync(_client!, earlier.Version, await Workspace.ActorAsync());
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidDataException)
+        {
+            _message = ex.Message;
+            return;
+        }
+        Navigation.NavigateTo("look?saved=again", forceLoad: true);
+    }
+
+    // Undo marks the newest version for deletion; nothing is deleted here, or by leaving the page.
+    private async Task UndoAsync()
+    {
+        _confirmingUndo = false;
+        await Stores.UndoLastLookSaveAsync(_client!, await Workspace.ActorAsync());
+        Navigation.NavigateTo("look?saved=undone", forceLoad: true);
+    }
+
+    private async Task RestoreAsync()
+    {
+        if (await Stores.RestoreLookAsync(_client!, _history!.Restorable!, await Workspace.ActorAsync()))
+        {
+            Navigation.NavigateTo("look?saved=restored", forceLoad: true);
+            return;
+        }
+        _message = "That look can no longer be restored.";
     }
 }

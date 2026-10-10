@@ -41,6 +41,16 @@ internal static class RenderedPage
         Regex.Matches(Comments.Replace(html, ""), $"<[a-z][a-z0-9-]*\\b[^>]*?\\sdata-testid=\"{Regex.Escape(name)}\"").Count;
 
     /// <summary>
+    /// The rest of every name that starts with <paramref name="prefix"/>, in the order the elements
+    /// come on the page: for a check on the order of a list whose items are named by id, such as
+    /// <c>earlier-look-when-{id}</c>.
+    /// </summary>
+    public static IReadOnlyList<string> NamesStartingWith(string html, string prefix) =>
+        Regex.Matches(Comments.Replace(html, ""), $"<[a-z][a-z0-9-]*\\b[^>]*?\\sdata-testid=\"{Regex.Escape(prefix)}([^\"]*)\"")
+            .Select(m => m.Groups[1].Value)
+            .ToList();
+
+    /// <summary>
     /// The value of <paramref name="attribute"/> on the one element named <paramref name="name"/>,
     /// decoded: for a field, whose value is an attribute rather than text. Fails unless exactly one
     /// element carries the name and it has the attribute.

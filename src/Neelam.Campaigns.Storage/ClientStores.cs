@@ -94,26 +94,110 @@ public sealed class ClientStores
     /// must never make the checks or the email hard to read.
     /// </summary>
     /// <exception cref="ArgumentException">Some text would be below 4.5:1 on its background; the message says which.</exception>
-    public async Task<DocumentVersion> SaveLookAsync(ClientName client, ClientLook look, Actor actor, CancellationToken ct = default)
+    public Task<DocumentVersion> SaveLookAsync(ClientName client, ClientLook look, Actor actor, CancellationToken ct = default) =>
+        SaveLookAsync(client, look, actor, ActivityAction.LookSaved, ct);
+
+    /// <summary>
+    /// Saves an earlier look of the client's again, as a new version in force: the earlier version is
+    /// left as it was, and stays listed. Checked as any save is, so a look too faint to read is refused.
+    /// </summary>
+    /// <exception cref="ArgumentException">The look is too faint to read, or is not one of the client's.</exception>
+    /// <exception cref="InvalidDataException">The earlier version cannot be read as a look.</exception>
+    public async Task<DocumentVersion> UseLookAgainAsync(
+        ClientName client, DocumentVersion earlier, Actor actor, CancellationToken ct = default) =>
+        await SaveLookAsync(client, await Look(client).LoadAsync(earlier, ct), actor, ActivityAction.LookUsedAgain, ct);
+
+    /// <summary>
+    /// Puts the client's pages back in the standard look by saving a version that says so
+    /// (<see cref="ClientLook.Standard"/>). Her earlier looks are kept, to be used again; the activity
+    /// trail says it was reset, and when.
+    /// </summary>
+    public Task<DocumentVersion> UseStandardLookAsync(ClientName client, Actor actor, CancellationToken ct = default) =>
+        SaveLookAsync(client, ClientLook.Standard, actor, ActivityAction.LookResetToStandard, ct);
+
+    private async Task<DocumentVersion> SaveLookAsync(
+        ClientName client, ClientLook look, Actor actor, ActivityAction action, CancellationToken ct)
     {
         var problems = look.Palette.ContrastProblems();
         if (problems.Count > 0)
             throw new ArgumentException("This look is hard to read. " + string.Join(" ", problems), nameof(look));
         var version = await Look(client).SaveAsync(look, ct);
         await _activity.For(client, actor).RecordAsync(
-            ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.LookSaved, ct);
+            ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), action, ct);
         return version;
     }
 
+    /// <summary>How many of her saved looks the Look page lists, newest first.</summary>
+    public const int EarlierLooksListed = 20;
+
     /// <summary>
-    /// Deletes every version of the client's own look, so its pages have the standard look again.
-    /// Nothing of its contents remains; the activity trail says it was reset, and when.
+    /// The client's saved looks for her Look page: the newest <see cref="EarlierLooksListed"/> in use,
+    /// newest first, each read on its own so one that cannot be read is listed as such and never stops
+    /// the others; and the undone version Restore would bring back, while it can.
     /// </summary>
-    public async Task UseStandardLookAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    public async Task<LookHistory> LookHistoryAsync(ClientName client, CancellationToken ct = default)
     {
-        await DeleteEveryVersionAsync(Look(client), ct);
+        var look = Look(client);
+        var listed = (await look.HistoryAsync(ct)).Take(EarlierLooksListed).ToList();
+        var looks = await Task.WhenAll(listed.Select(v => ReadableAsync(look, v, ct)));
+        var versions = listed.Select((v, i) => new LookVersion(v, looks[i], InUse: i == 0 && looks[i] is not null)).ToList();
+        var restorable = await look.RestorableAsync(_undoGracePeriod, ct);
+        return new LookHistory(versions, restorable, restorable?.UndoneAt + _undoGracePeriod, _undoGracePeriod);
+    }
+
+    // A look whose document cannot be read is listed as one that cannot be used; an outage still throws.
+    private static async Task<ClientLook?> ReadableAsync(DocumentStore<ClientLook> look, DocumentVersion version, CancellationToken ct)
+    {
+        try
+        {
+            return await look.LoadAsync(version, ct);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidDataException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Undoes the client's newest look as the editors undo a save: the version is marked undone, the one
+    /// before is in force at once (or the standard look, when there is none), and it can be restored for
+    /// the grace period before the sweep deletes it. Null when she has no look to undo.
+    /// </summary>
+    public async Task<DocumentVersion?> UndoLastLookSaveAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    {
+        var look = Look(client);
+        if ((await look.HistoryAsync(ct)).FirstOrDefault() is not { } newest) return null;
+        var undone = await look.MarkUndoneAsync(newest, ct);
         await _activity.For(client, actor).RecordAsync(
-            ActivityEntity.Look, LookEntityId, null, ActivityAction.LookResetToStandard, ct);
+            ActivityEntity.Look, LookEntityId, SaveStamp.Of(undone.SavedAt), ActivityAction.Undone, ct);
+        return undone;
+    }
+
+    /// <summary>
+    /// Takes back the undo of <paramref name="version"/>, so it is in force again. False when it is gone,
+    /// not undone, or its grace period has passed.
+    /// </summary>
+    public async Task<bool> RestoreLookAsync(ClientName client, DocumentVersion version, Actor actor, CancellationToken ct = default)
+    {
+        if (!await Look(client).RestoreAsync(version, _undoGracePeriod, ct)) return false;
+        await _activity.For(client, actor).RecordAsync(
+            ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.Restored, ct);
+        return true;
+    }
+
+    /// <summary>
+    /// Deletes for good the client's look versions undone longer ago than the grace period, each on its
+    /// trail by stamp only, against <see cref="Actor.UndoSweep"/>. Returns how many it deleted.
+    /// </summary>
+    public async Task<int> SweepLookAsync(ClientName client, CancellationToken ct = default)
+    {
+        var deleted = await Look(client).SweepAsync(_undoGracePeriod, ct);
+        foreach (var version in deleted)
+        {
+            await _activity.For(client, Actor.UndoSweep).RecordAsync(
+                ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.DeletedBySweep, ct);
+        }
+        return deleted.Count;
     }
 
     /// <summary>A client has one look, named by this in its events.</summary>
@@ -251,3 +335,30 @@ public sealed record BaselineInForce(TemplateBaseline Baseline, bool IsOwn);
 
 /// <summary>The tier-name ladders in force for a client, and whether they are the client's own or the standard ones.</summary>
 public sealed record LaddersInForce(TierLadders Ladders, bool IsOwn);
+
+/// <summary>One of a client's saved looks, as her Look page lists it.</summary>
+/// <param name="Look">The look, or null when its document cannot be read: listed, but never used.</param>
+/// <param name="InUse">The newest, and readable: the look her pages are drawn in.</param>
+public sealed record LookVersion(DocumentVersion Version, ClientLook? Look, bool InUse)
+{
+    /// <summary>The version's stamp, which names it in storage and on the activity trail.</summary>
+    public string Id => SaveStamp.Of(Version.SavedAt);
+}
+
+/// <summary>A client's saved looks, newest first, and the undone one Restore would bring back.</summary>
+/// <param name="Versions">At most <see cref="ClientStores.EarlierLooksListed"/>, newest first.</param>
+/// <param name="Restorable">The last version undone, while it can be restored.</param>
+/// <param name="RestorableUntil">When <paramref name="Restorable"/> goes for good.</param>
+/// <param name="UndoGracePeriod">How long an undone look can be restored.</param>
+public sealed record LookHistory(
+    IReadOnlyList<LookVersion> Versions, DocumentVersion? Restorable, DateTimeOffset? RestorableUntil, TimeSpan UndoGracePeriod)
+{
+    /// <summary>
+    /// The look her pages are drawn in, or null for the standard one: with nothing saved, or when the
+    /// newest cannot be read (as the pages then fall back to the standard look).
+    /// </summary>
+    public ClientLook? InForce => Versions.FirstOrDefault(v => v.InUse)?.Look;
+
+    /// <summary>Whether her pages have a look of her own, rather than the standard one.</summary>
+    public bool IsOwn => InForce is { IsStandard: false };
+}

@@ -189,8 +189,9 @@ the client's own container (see [Clients and access](#clients-and-access)):
   each delete holds only if the blob is unchanged since listed (If-Match on its ETag), so a save
   restored in the meantime survives. This is a deliberate, bounded exception to the rule below:
   for the grace period an undone save still exists; once swept, its contents leave no record (its
-  `DeletedBySweep` event, by id, stays). A client's
-  catalog, policy and look have no undo page yet and still delete outright.
+  `DeletedBySweep` event, by id, stays). Her look is undone the same way, from her Look page, and
+  the sweep reaches it in `settings/{client}/` as well, apart from her drafts so one failing never
+  stops the other. A client's catalog and policy have no undo page yet and still delete outright.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed
@@ -273,7 +274,13 @@ for them. A client's people only sign in and work on their campaigns.
   pages never do. Only `#rrggbb` colours can be held, and a look whose text would fall below
   WCAG AA (4.5:1) on its background or surface, or on or as the accent, is refused at save,
   naming the pair. She sets it on her **Look** page (`/look`, `Client.Look`), with "Save" and
-  "Use the standard look".
+  "Use the standard look". Every save is a version she can come back to: the page lists her last
+  20 under "Earlier looks", newest first, each with its time and a strip of its six colours, the
+  one in force marked "In use" and the others with "Use this look again", which saves a copy as
+  her newest. "Use the standard look" saves a version that says so (`"standard": true`, no
+  colours), so her earlier looks are kept. "Undo last save" marks the newest undone as the
+  editors do, restorable for the grace period, after which the undo sweep deletes it. A stored
+  look that cannot be read is listed as "Can't be used" and never drawn.
 - Both are saved like campaigns, as timestamped blobs with the newest in force, so a bad change
   is undone by deleting the newest.
 

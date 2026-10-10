@@ -16,14 +16,32 @@ public class LookPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     private static readonly ClientRecord Tampered = Client("tampered-salon", 3);
     private static readonly ClientRecord Editing = Client("editing-salon", 4);
     private static readonly ClientRecord Operated = Client("operated-salon", 5);
+    private static readonly ClientRecord Historied = Client("historied-salon", 6);
+    private static readonly ClientRecord Reverted = Client("reverted-salon", 7);
+    private static readonly ClientRecord Broken = Client("broken-salon", 8);
+    private static readonly ClientRecord Undoing = Client("undoing-salon", 9);
+
+    private static readonly ClientLook Green = new(accentColour: "#225e3e");
+
+    // No zone registered, so her times are the deployment's default, Pacific.
+    private static readonly LocalTime Pacific = LocalTime.For(LocalTime.DefaultZone);
 
     private static ClientRecord Client(string name, int n) =>
         new(new ClientName(name), Guid.Parse($"{n:D8}-0000-0000-0000-00000000000{n}"), name);
 
+    // Saves a look a minute after the last, so each version has its own time.
+    private async Task<LookVersion> Saved(ClientRecord client, ClientLook look)
+    {
+        app.Clock.Now += TimeSpan.FromMinutes(1);
+        var version = await app.Stores.SaveLookAsync(client.Name, look, Actor.Demo);
+        return new LookVersion(version, look, InUse: false);
+    }
+
     private async Task<(HttpStatusCode Status, string Page)> Get(string path, ClientRecord? member, params string[] roles)
     {
         var known = (await app.Clients.ListAsync()).Select(c => c.Name).ToHashSet();
-        foreach (var c in new[] { Blush, Plain, Tampered, Editing, Operated }.Where(c => !known.Contains(c.Name)))
+        foreach (var c in new[] { Blush, Plain, Tampered, Editing, Operated, Historied, Reverted, Broken, Undoing }
+                     .Where(c => !known.Contains(c.Name)))
             await app.Clients.AddAsync(c);
         var http = app.CreateClient(new() { AllowAutoRedirect = false });
         if (roles.Length > 0) http.SignedIn(roles, member is null ? [] : [member.GroupId]);
@@ -110,6 +128,123 @@ public class LookPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(0, RenderedPage.Count(page, "look-problems"));
         // Every colour set on the sample, the standard ones too, so the page's own look never shows through.
         Assert.Equal(LookStyle.Declarations(LookPalette.Standard), RenderedPage.Attribute(page, "look-sample", "style"));
+        // Nothing saved: nothing listed, nothing to undo.
+        Assert.Equal(1, RenderedPage.Count(page, "earlier-looks-none"));
+        Assert.Equal(0, RenderedPage.Count(page, "look-undo"));
+        Assert.Equal(0, RenderedPage.Count(page, "look-use-standard"));
+    }
+
+    // Each save listed, newest first, with its time in her zone and its six colours; the newest is
+    // in use, and every other can be used again.
+    [Fact]
+    public async Task Her_earlier_looks_are_listed_newest_first_with_the_one_in_use_marked()
+    {
+        var green = await Saved(Historied, Green);
+        var blush = await Saved(Historied, ClientLookTests.Blush);
+
+        var (status, page) = await Get("/look", Historied, Features.Look);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal([blush.Id, green.Id], RenderedPage.NamesStartingWith(page, "earlier-look-when-"));
+        Assert.Equal(Pacific.DateAndTime(blush.Version.SavedAt), RenderedPage.Named(page, $"earlier-look-when-{blush.Id}"));
+        Assert.Equal("In use", RenderedPage.Named(page, $"earlier-look-state-{blush.Id}"));
+        Assert.Equal(0, RenderedPage.Count(page, $"earlier-look-use-{blush.Id}"));
+        Assert.Equal(0, RenderedPage.Count(page, $"earlier-look-state-{green.Id}"));
+        Assert.Equal("Use this look again", RenderedPage.Named(page, $"earlier-look-use-{green.Id}"));
+        // Each swatch is its colour, and says it in words for a screen reader.
+        Assert.Equal("Page background #faf0f2", RenderedPage.Named(page, $"earlier-look-swatch-{blush.Id}-background"));
+        Assert.Equal("background-color:#faf0f2", RenderedPage.Attribute(page, $"earlier-look-swatch-{blush.Id}-background", "style"));
+        Assert.Equal("Accent #225e3e", RenderedPage.Named(page, $"earlier-look-swatch-{green.Id}-accent"));
+        // Green set only the accent: the rest of its strip is the standard look's.
+        Assert.Equal(
+            $"Page background {LookPalette.Standard.PageBackground}",
+            RenderedPage.Named(page, $"earlier-look-swatch-{green.Id}-background"));
+        Assert.Equal(1, RenderedPage.Count(page, "look-undo"));
+    }
+
+    // Back to the standard look: the pages lose her colours, but her look stays listed to use again.
+    [Fact]
+    public async Task The_standard_look_keeps_her_earlier_looks_and_the_pages_draw_the_standard_one()
+    {
+        var blush = await Saved(Reverted, ClientLookTests.Blush);
+        app.Clock.Now += TimeSpan.FromMinutes(1);
+        var standard = await app.Stores.UseStandardLookAsync(Reverted.Name, Actor.Demo);
+        var standardId = new LookVersion(standard, ClientLook.Standard, InUse: true).Id;
+
+        var (_, templates) = await Get("/templates", Reverted, Features.Templates);
+        var (status, page) = await Get("/look", Reverted, Features.Look);
+
+        Assert.Equal(0, RenderedPage.Count(templates, "client-look"));
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.StartsWith("The standard look.", RenderedPage.Named(page, "look-status"));
+        Assert.Equal(LookPalette.Standard.PageBackground, RenderedPage.Attribute(page, "look-hex-background", "value"));
+        Assert.Equal([standardId, blush.Id], RenderedPage.NamesStartingWith(page, "earlier-look-when-"));
+        Assert.Equal("Standard look", RenderedPage.Named(page, $"earlier-look-standard-{standardId}"));
+        Assert.Equal("In use", RenderedPage.Named(page, $"earlier-look-state-{standardId}"));
+        Assert.Equal("Use this look again", RenderedPage.Named(page, $"earlier-look-use-{blush.Id}"));
+        Assert.Equal(0, RenderedPage.Count(page, "look-use-standard"));
+    }
+
+    // A look changed by hand after her good one is listed, so she can see a save is there, but neither
+    // it nor the one before is drawn: the pages fall back to the standard look, and the page still opens.
+    [Fact]
+    public async Task A_stored_look_that_cannot_be_read_is_listed_as_cant_be_used_and_never_applied()
+    {
+        var blush = await Saved(Broken, ClientLookTests.Blush);
+        app.Clock.Now += TimeSpan.FromMinutes(1);
+        var tampered = new LookVersion(new DocumentVersion(app.Clock.Now, ""), null, InUse: false);
+        app.Containers.For("settings").Put(
+            $"broken-salon/{tampered.Id}.json", """{"schema":2,"accentColour":"#zzzzzz"}""");
+
+        var (_, templates) = await Get("/templates", Broken, Features.Templates);
+        var (status, page) = await Get("/look", Broken, Features.Look);
+
+        Assert.Equal(0, RenderedPage.Count(templates, "client-look"));
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.StartsWith("The standard look.", RenderedPage.Named(page, "look-status"));
+        Assert.Equal([tampered.Id, blush.Id], RenderedPage.NamesStartingWith(page, "earlier-look-when-"));
+        Assert.Equal("Can't be used", RenderedPage.Named(page, $"earlier-look-state-{tampered.Id}"));
+        Assert.Equal(0, RenderedPage.Count(page, $"earlier-look-use-{tampered.Id}"));
+        Assert.Equal(0, RenderedPage.Count(page, $"earlier-look-swatch-{tampered.Id}-accent"));
+        Assert.Equal(0, RenderedPage.Count(page, $"earlier-look-state-{blush.Id}"));
+        // Her way out: the standard look, or her good one again.
+        Assert.Equal(1, RenderedPage.Count(page, "look-use-standard"));
+        Assert.Equal("Use this look again", RenderedPage.Named(page, $"earlier-look-use-{blush.Id}"));
+    }
+
+    // After an undo the look before is drawn at once, and Restore is offered until the grace period ends.
+    [Fact]
+    public async Task After_an_undo_the_look_before_is_drawn_and_restore_is_offered()
+    {
+        var green = await Saved(Undoing, Green);
+        await Saved(Undoing, ClientLookTests.Blush);
+        var undone = await app.Stores.UndoLastLookSaveAsync(Undoing.Name, Actor.Demo);
+
+        var (_, templates) = await Get("/templates", Undoing, Features.Templates);
+        var (status, page) = await Get("/look", Undoing, Features.Look);
+
+        Assert.Equal(LookStyle.RootBlock(Green), RenderedPage.Named(templates, "client-look"));
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("#225e3e", RenderedPage.Attribute(page, "look-hex-accent", "value"));
+        Assert.Equal(LookPalette.Standard.PageBackground, RenderedPage.Attribute(page, "look-hex-background", "value"));
+        Assert.Equal([green.Id], RenderedPage.NamesStartingWith(page, "earlier-look-when-"));
+        Assert.Equal("In use", RenderedPage.Named(page, $"earlier-look-state-{green.Id}"));
+        Assert.Equal(
+            $"The last undo can be taken back until {Pacific.DateAndTime(undone!.UndoneAt!.Value + TimeSpan.FromDays(1))}.",
+            RenderedPage.Named(page, "look-restorable"));
+        Assert.Equal("Restore undone look", RenderedPage.Named(page, "look-restore"));
+    }
+
+    [Theory]
+    [InlineData("again", "Saved as your newest look. Every page now has it again.")]
+    [InlineData("standard", "Every page has the standard look again. Your earlier looks are kept below, to use again.")]
+    [InlineData("undone", "The last save was undone; your pages have the look before it.")]
+    [InlineData("restored", "The undone look is back on every page.")]
+    public async Task The_page_says_what_was_just_done(string saved, string says)
+    {
+        var (_, page) = await Get($"/look?saved={saved}", Plain, Features.Look);
+
+        Assert.Equal(says, RenderedPage.Named(page, "look-saved"));
     }
 
     // Her own colours in the fields, and the sample drawn with every one of them.

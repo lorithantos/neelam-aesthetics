@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Neelam.Campaigns.Storage;
 
 public enum DocumentKind { Draft, Template }
@@ -45,7 +43,6 @@ public sealed class CampaignStore(
     IBlobBackend blobs, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityTrail activity)
 {
     private const string TitleKey = "title";
-    private const string UndoneKey = "undone";
 
     public Task<SaveRef> SaveDraftAsync(Guid id, string title, CampaignDraft draft, CancellationToken ct = default) =>
         SaveAsync(DocumentKind.Draft, id, title, CampaignJson.SerializeDraft(draft), ct);
@@ -106,11 +103,7 @@ public sealed class CampaignStore(
         // first, so a failure between the two leaves the save unapproved rather than approved.
         if (save.Kind == DocumentKind.Draft && await StandingApprovalAsync(save, ct) is { } approved)
             await approvals.PutAsync(approved with { WithdrawnAt = at }, ct);
-        var metadata = new Dictionary<string, string>(blob.Metadata)
-        {
-            [UndoneKey] = at.ToString("o", CultureInfo.InvariantCulture),
-        };
-        if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct))
+        if (!await blobs.SetMetadataAsync(save.BlobName, UndoMark.With(blob.Metadata, at), ct))
             throw new InvalidOperationException("That save is already gone.");
         await RecordAsync(save, ActivityAction.Undone, ct);
         return save with { UndoneAt = at, Approval = null };
@@ -286,8 +279,7 @@ public sealed class CampaignStore(
         var blob = await FindAsync(save, ct);
         if (blob is null || !TryParse(save.Kind, blob, out var current) || !CanRestore(current))
             return false;
-        var metadata = blob.Metadata.Where(m => m.Key != UndoneKey).ToDictionary(m => m.Key, m => m.Value);
-        if (!await blobs.SetMetadataAsync(save.BlobName, metadata, ct)) return false;
+        if (!await blobs.SetMetadataAsync(save.BlobName, UndoMark.Without(blob.Metadata), ct)) return false;
         await RecordAsync(current, ActivityAction.Restored, ct);
         return true;
     }
@@ -321,7 +313,7 @@ public sealed class CampaignStore(
     }
 
     // The grace period runs from the mark; at its end the save belongs to the sweep.
-    private bool CanRestore(SaveRef save) => save.UndoneAt is { } at && clock.GetUtcNow() < at + undoGracePeriod;
+    private bool CanRestore(SaveRef save) => UndoMark.Restorable(save.UndoneAt, undoGracePeriod, clock.GetUtcNow());
 
     private static List<SaveRef> InUse(List<SaveRef> saves) => saves.Where(s => s.UndoneAt is null).ToList();
 
@@ -382,13 +374,8 @@ public sealed class CampaignStore(
             return false;
 
         var title = blob.Metadata.TryGetValue(TitleKey, out var t) ? Uri.UnescapeDataString(t) : "(untitled)";
-        // A mark that cannot be read is treated as no mark: the save stays in use and is never swept.
-        DateTimeOffset? undone = blob.Metadata.TryGetValue(UndoneKey, out var u)
-                                 && DateTimeOffset.TryParse(u, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var when)
-            ? when
-            : null;
         // Approvals are the approvals table's, never the blob's: HistoryAsync adds them.
-        save = new SaveRef(kind, id, at, title, blob.Name, undone);
+        save = new SaveRef(kind, id, at, title, blob.Name, UndoMark.Read(blob.Metadata));
         return true;
     }
 

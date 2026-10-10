@@ -365,8 +365,12 @@ public class ActivityTests
         await Stores.UseStandardBaselineAsync(Salon, Asha);
         await Stores.SaveLaddersAsync(Salon, TierLadders.Standard.With(OwnLadder), Asha);
         await Stores.UseStandardLaddersAsync(Salon, Asha);
-        await Stores.SaveLookAsync(Salon, ClientLookTests.Blush, Asha);
+        var ownLook = await Stores.SaveLookAsync(Salon, ClientLookTests.Blush, Asha);
         await Stores.UseStandardLookAsync(Salon, Asha);
+        _clock.Now += TimeSpan.FromMinutes(1);
+        await Stores.UseLookAgainAsync(Salon, ownLook, Asha);
+        var undoneLook = await Stores.UndoLastLookSaveAsync(Salon, Asha);
+        await Stores.RestoreLookAsync(Salon, undoneLook!, Asha);
         var library = Stores.Images(Salon, Asha);
         await library.AddFromSquareAsync(Photo, PhotoAddress);
         await library.DeleteAsync(Photo);
@@ -381,7 +385,9 @@ public class ActivityTests
         var events = Records.Activity.Events;
         Assert.Equal(Enum.GetValues<ActivityAction>().Order(), events.Select(e => e.Action).Distinct().Order());
 
-        var content = ContentOf(draft, finished, DraftFixtures.Membership).Concat(OwnLadder.Words).Append(OwnLadder.Name).ToList();
+        var content = ContentOf(draft, finished, DraftFixtures.Membership).Concat(OwnLadder.Words).Append(OwnLadder.Name)
+            .Concat(new[] { ClientLookTests.Blush.AccentColour!, ClientLookTests.Blush.PageBackground!, ClientLookTests.Blush.Text! })
+            .ToList();
         Assert.Contains(Label, content);
         Assert.Contains("Radiance", content);
         Assert.Contains("Gold Member", content);

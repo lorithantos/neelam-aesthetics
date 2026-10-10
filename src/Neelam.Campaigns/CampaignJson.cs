@@ -137,20 +137,29 @@ public static class CampaignJson
 
     public static string SerializeLook(ClientLook l) =>
         JsonSerializer.Serialize(
-            new LookDocument(SchemaVersion, l.AccentColour, l.PageBackground, l.Surface, l.Border, l.Text, l.MutedText),
+            new LookDocument(
+                SchemaVersion, l.AccentColour, l.PageBackground, l.Surface, l.Border, l.Text, l.MutedText,
+                l.IsStandard ? true : null),
             Options);
 
     /// <summary>
     /// A look as saved; one saved when the accent was its only colour reads with every other colour
     /// the standard one. A colour that is not #RRGGBB is refused (<see cref="ArgumentException"/>), so a
-    /// document changed by hand never reaches a page's style.
+    /// document changed by hand never reaches a page's style. <c>"standard": true</c> is
+    /// <see cref="ClientLook.Standard"/>, which holds no colours; one that names a colour as well is
+    /// refused (<see cref="InvalidDataException"/>). A reader from before the marker sees a look with no
+    /// colours, which is drawn the same.
     /// </summary>
     public static ClientLook DeserializeLook(string json)
     {
         var doc = JsonSerializer.Deserialize<LookDocument>(json, Options)
                   ?? throw new InvalidDataException("Empty look document.");
         CheckVersion(doc.Schema);
-        return new ClientLook(doc.AccentColour, doc.PageBackground, doc.Surface, doc.Border, doc.Text, doc.MutedText);
+        var look = new ClientLook(doc.AccentColour, doc.PageBackground, doc.Surface, doc.Border, doc.Text, doc.MutedText);
+        if (doc.Standard != true) return look;
+        return look == ClientLook.Default
+            ? ClientLook.Standard
+            : throw new InvalidDataException("The standard look holds no colours of its own.");
     }
 
     public static string SerializeBaseline(TemplateBaseline b) =>
@@ -254,9 +263,10 @@ public static class CampaignJson
     private sealed record PolicyDocument(int Schema, CampaignPolicy Policy);
 
     // Every colour but the accent arrived on 2026-10-09; a document from before has only the accent.
+    // Standard is true only on the version "Use the standard look" saves, and absent otherwise.
     private sealed record LookDocument(
         int Schema, string? AccentColour, string? PageBackground = null, string? Surface = null, string? Border = null,
-        string? Text = null, string? MutedText = null);
+        string? Text = null, string? MutedText = null, bool? Standard = null);
 
     // Parts are block types by name ("signOff"), so an empty list is an empty baseline, not a missing one.
     private sealed record BaselineDocument(int Schema, IReadOnlyList<BlockType>? Parts);
