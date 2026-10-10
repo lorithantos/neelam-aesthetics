@@ -35,7 +35,7 @@ param clients string[]
 ])
 param environmentName string = 'Production'
 
-@description('The developer\'s Entra object ID, given full blob and table data access to this storage account so local runs and checks can see what the app writes. Honoured on the test deployment only: Production grants no person data access, whatever is passed here.')
+@description('The developer\'s Entra object ID, given full blob and table data access to this storage account so local runs and checks can see what the app writes, and Key Vault Secrets Officer on the vault to add and rotate the proofread\'s key. Honoured on the test deployment only: Production grants no person data access, whatever is passed here.')
 param developerPrincipalId string = ''
 
 @description('The clients of the staging site, which tries each build before the client\'s site gets it; empty for no staging site. Honoured on the test deployment only: Production gets no staging site, whatever is passed here. Its first client is the one its prototype works as.')
@@ -65,7 +65,8 @@ var stagingStorageName = take(toLower('${prefix}stg${suffix}'), 24)
 var stagingSiteName = '${prefix}-staging-${suffix}'
 var stagingPrototypeClient = stagingClients[?0] ?? ''
 
-// The developer's access, the same on each account; empty outside the test deployment.
+// The developer's access, the same on each account, and the key's setter on the vault; empty
+// outside the test deployment.
 var developerOnAccounts = developerAccess ? developerPrincipalId : ''
 
 // The AI proofread's key (owner, 2026-10-09: "For now I will donate my credits"): the one secret this
@@ -132,7 +133,9 @@ resource plan 'Microsoft.Web/serverfarms@2023-12-01' = {
 }
 
 // The vault and who reads it: each site's own identity, Key Vault Secrets User on this vault alone
-// (vault.bicep). The staging site reads the same secret as the client's site.
+// (vault.bicep). The staging site reads the same secret as the client's site. Who sets it: the
+// developer, Key Vault Secrets Officer on this vault alone, on the test deployment only; production
+// names no one until the owner decides who (WIP.md, open decisions).
 module vault 'vault.bicep' = {
   name: 'vault'
   params: {
@@ -142,6 +145,7 @@ module vault 'vault.bicep' = {
     readerPrincipalId: site.outputs.principalId
     stagingSiteName: staging ? stagingSiteName : ''
     stagingPrincipalId: staging ? stagingSite!.outputs.principalId : ''
+    keyOfficerPrincipalId: developerOnAccounts
   }
 }
 

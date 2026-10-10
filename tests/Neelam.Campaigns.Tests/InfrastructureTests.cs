@@ -106,7 +106,8 @@ public class InfrastructureTests
     public void The_vault_sets(string setting) => Assert.Contains(setting, Vault);
 
     // One vault, one definition; its readers are the sites' own identities with Key Vault Secrets User
-    // on that vault alone, and no secret, key or value is ever written by a template.
+    // on that vault alone, its one setter is pinned below, and no secret, key or value is ever written
+    // by a template.
     [Fact]
     public void Each_site_reads_the_key_and_nothing_else_in_the_vault()
     {
@@ -117,15 +118,43 @@ public class InfrastructureTests
 
         string[] roles = Regex.Matches(Vault, @"scope: (\w+)\s*properties: \{\s*roleDefinitionId: (\w+)\s*principalId: (\w+)\s")
             .Select(m => $"{m.Groups[1].Value} {m.Groups[2].Value} {m.Groups[3].Value}").ToArray();
-        Assert.Equal(["vault keyVaultSecretsUser readerPrincipalId", "vault keyVaultSecretsUser stagingPrincipalId"], roles);
-        Assert.Equal(2, Regex.Matches(Vault, "principalId: ").Count);
+        Assert.Equal([
+            "vault keyVaultSecretsUser readerPrincipalId",
+            "vault keyVaultSecretsUser stagingPrincipalId",
+            "vault keyVaultSecretsOfficer keyOfficerPrincipalId",
+        ], roles);
+        Assert.Equal(3, Regex.Matches(Vault, "principalId: ").Count);
         Assert.Equal(new Dictionary<string, string>
         {
             ["name"] = "vaultName", ["location"] = "location",
             ["readerSiteName"] = "siteName", ["readerPrincipalId"] = "site.outputs.principalId",
             ["stagingSiteName"] = "staging ? stagingSiteName : ''",
             ["stagingPrincipalId"] = "staging ? stagingSite!.outputs.principalId : ''",
+            ["keyOfficerPrincipalId"] = "developerOnAccounts",
         }, ModuleParams("vault"));
+    }
+
+    // The person who adds and rotates the key (owner, 2026-10-10: "I should be allowed to add a key
+    // and to rotate one") holds Key Vault Secrets Officer, the smallest built-in role that can set a
+    // secret, as a user, on the vault alone, and only when one is named: the developer, on the test
+    // deployment (developerOnAccounts, pinned above). Production names no one; who should hold it there
+    // is the owner's open decision (WIP.md).
+    [Fact]
+    public void Only_the_named_person_sets_the_key_and_on_the_vault_alone()
+    {
+        Assert.Matches(new Regex(@"param keyOfficerPrincipalId string = ''\s"), Vault);
+        Assert.Matches(new Regex(
+            @"var keyVaultSecretsOfficer = subscriptionResourceId\(\s*'Microsoft\.Authorization/roleDefinitions',\s*'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'\s*\)"), Vault);
+        Assert.Single(Regex.Matches(Vault,
+            @"^resource \w+ 'Microsoft\.Authorization/roleAssignments@2022-04-01' = if \(!empty\(keyOfficerPrincipalId\)\) \{\s*" +
+            @"name: guid\(vault\.id, keyOfficerPrincipalId, keyVaultSecretsOfficer\)\s*" +
+            @"scope: vault\s*" +
+            @"properties: \{\s*roleDefinitionId: keyVaultSecretsOfficer\s*principalId: keyOfficerPrincipalId\s*principalType: 'User'\s*\}\s*\}",
+            RegexOptions.Multiline));
+        Assert.Single(Regex.Matches(Vault, @"roleDefinitionId: keyVaultSecretsOfficer\s"));
+        Assert.Single(Regex.Matches(Vault, @"principalId: keyOfficerPrincipalId\s"));
+        Assert.All(Templates, t => Assert.DoesNotContain("b86a8fe4-44ce-4948-aee5-eccb2c155cd7", t));
+        Assert.Equal("developerOnAccounts", ModuleParams("vault")["keyOfficerPrincipalId"]);
     }
 
     // The key reaches each site only as a Key Vault reference to the one secret, which App Service
