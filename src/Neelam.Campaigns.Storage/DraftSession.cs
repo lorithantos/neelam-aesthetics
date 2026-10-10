@@ -21,9 +21,12 @@ public sealed class DraftSession
     // How many saves of the campaign are in use: undoing the only one takes the campaign off her list.
     private int _versions;
 
+    // The AI proofread kept for Latest, if it has one.
+    private ProofreadRecord? _proofread;
+
     private DraftSession(
         CampaignStore store, Guid? id, CampaignEditor editor, SaveRef? latest, SaveRef? restorable = null, SaveRef? superseded = null,
-        int versions = 0)
+        int versions = 0, ProofreadRecord? proofread = null)
     {
         _store = store;
         Id = id;
@@ -32,6 +35,7 @@ public sealed class DraftSession
         Restorable = restorable;
         SupersededApproval = superseded;
         _versions = versions;
+        _proofread = proofread;
         if (latest is not null) MarkSaved();
     }
 
@@ -124,9 +128,81 @@ public sealed class DraftSession
     {
         if (Latest is null || HasUnsavedChanges) return "Save the campaign first: an approval is of a saved version.";
         var status = Editor.Status(policy, business);
-        if (status.Review is null || status.Review.Blockers.Any())
+        if (status.Review is null || status.Review.Blockers.Any()
+            || CurrentProofread?.Findings.Any(f => f.Severity == Severity.Blocker) == true)
             return "Fix everything marked Must fix first.";
         return null;
+    }
+
+    /// <summary>
+    /// The AI proofread of <see cref="Latest"/>, while the form still holds exactly that save, her
+    /// label aside (the label is never in the email, so it is never proofread). Null once anything else
+    /// is edited, and for a save nobody has had proofread: the result belongs to the saved version it
+    /// read, and any edit voids it (owner, 2026-10-10).
+    /// </summary>
+    public ProofreadRecord? CurrentProofread =>
+        _proofread is null || _savedContent is null || Editor.Errors().Count > 0 || ContentOf(Editor.Draft) != _savedContent
+            ? null
+            : _proofread;
+
+    /// <summary>
+    /// Why the saved version cannot be proofread as it stands, or null when it can: saved, unchanged
+    /// since, built with no part missing, and not proofread already.
+    /// </summary>
+    public string? CannotProofread(CampaignPolicy? policy = null, BusinessContext? business = null)
+    {
+        if (Latest is null) return "Save the campaign first: the AI proofread reads a saved version.";
+        if (HasUnsavedChanges) return "Changed since the last save: save it, then the proofread reads that version.";
+        if (Editor.Status(policy, business).Review is null) return "Fill in every part first: the AI proofread reads the whole email.";
+        if (CurrentProofread is not null) return "This version is proofread.";
+        return null;
+    }
+
+    /// <summary>
+    /// Has the saved version, as it stands, proofread by AI: only when she asks, once per version
+    /// (owner, 2026-10-10: on her click, never per keystroke or by itself). The result is kept beside
+    /// the save (<see cref="CampaignStore.SaveProofreadAsync"/>) and its findings join the rules'
+    /// (<see cref="DemoExportReport"/>). Never throws for the proofread itself: a refusal, a failure
+    /// or today's limit comes back as what to tell her, and the rules' checks stand as they are.
+    /// </summary>
+    /// <param name="allowance">Today's proofreads for this client, taken before the call.</param>
+    public async Task<ProofreadAttempt> ProofreadAsync(
+        IProofreader proofreader, DailyProofreadAllowance allowance, TimeProvider clock,
+        CampaignPolicy? policy = null, BusinessContext? business = null, CancellationToken ct = default)
+    {
+        if (CannotProofread(policy, business) is { } why) return new(false, why);
+        // The version read, held now: the result is that save's, whatever happens on the page meanwhile.
+        var save = Latest!;
+        var campaign = Editor.Status(policy, business).Review!.Campaign;
+        if (!allowance.TryTake(_store.Client.ToString()))
+            return new(false, $"The AI proofread has run {allowance.PerClientPerDay} times for you today, its daily limit. " +
+                "It can run again tomorrow; the rules' checks above still stand.");
+        ProofreadResult result;
+        try
+        {
+            result = await proofreader.ProofreadAsync(campaign, business, ct);
+        }
+        catch (ProofreadUnavailableException ex)
+        {
+            return new(false, $"{ex.Message} The rules' checks above still stand.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Not one the proofreader words for her: its message could say anything, so it is not shown.
+            return new(false, "The AI proofread could not run. The rules' checks above still stand.");
+        }
+        var kept = await _store.SaveProofreadAsync(save, new ProofreadRecord(clock.GetUtcNow(), result.Findings, result.Photos), ct);
+        if (Latest?.BlobName == save.BlobName) _proofread = kept;
+        return new(true, ProofreadSummary(kept));
+    }
+
+    /// <summary>What the page says of a version's proofread: whether it found anything, and how much.</summary>
+    public static string ProofreadSummary(ProofreadRecord proofread)
+    {
+        var count = proofread.Findings.Count;
+        return count == 0
+            ? "The AI proofread found nothing to fix in this version."
+            : $"The AI proofread found {(count == 1 ? "1 thing" : $"{count} things")} in this version, listed with the rules' findings.";
     }
 
     /// <summary>
@@ -193,7 +269,7 @@ public sealed class DraftSession
     {
         if (CurrentApproval is not { } approval) return null;
         var review = Editor.Status(policy, business).Review;
-        return review is null ? null : CampaignGate.DemoReview(review.Campaign, approval, policy, business);
+        return review is null ? null : CampaignGate.DemoReview(review.Campaign, approval, policy, business, CurrentProofread?.Findings);
     }
 
     /// <summary>
@@ -277,7 +353,8 @@ public sealed class DraftSession
         return latest is null
             ? null
             : new DraftSession(store, id, CampaignEditor.Open(await store.LoadDraftAsync(latest, ct)), latest,
-                await store.RestorableAsync(DocumentKind.Draft, id, ct), Superseded(history), history.Count);
+                await store.RestorableAsync(DocumentKind.Draft, id, ct), Superseded(history), history.Count,
+                await store.ProofreadOfAsync(latest, ct));
     }
 
     // The newest earlier version with an approval, when the newest itself has none.
@@ -309,6 +386,8 @@ public sealed class DraftSession
         // approval goes with it to the new save.
         var keeps = before?.Approval is not null && CurrentApproval == before.Approval ? before : null;
         Latest = await _store.SaveDraftAsync(Id.Value, Editor.Title, Editor.Draft, ct);
+        // A new version, which nobody has had proofread yet.
+        _proofread = null;
         _versions++;
         MarkSaved();
         // Saved over: an undone version below the new one is no longer offered back.
@@ -362,9 +441,11 @@ public sealed class DraftSession
         if (Latest is null)
         {
             _saved = _savedContent = null;
+            _proofread = null;
             return false;
         }
         Editor = CampaignEditor.Open(await _store.LoadDraftAsync(Latest, ct));
+        _proofread = await _store.ProofreadOfAsync(Latest, ct);
         MarkSaved();
         return true;
     }
@@ -374,3 +455,7 @@ public sealed class DraftSession
 /// <param name="Save">The newest version in use; its title is the subject, from the blob's metadata as before.</param>
 /// <param name="Label">The client's own label, read from that version's JSON; null when it has none.</param>
 public sealed record CampaignListing(SaveRef Save, string? Label);
+
+/// <summary>What came of asking for the AI proofread, in words for her: done, or why not.</summary>
+/// <param name="Done">True when the proofread ran and its result is kept with the version.</param>
+public sealed record ProofreadAttempt(bool Done, string Message);

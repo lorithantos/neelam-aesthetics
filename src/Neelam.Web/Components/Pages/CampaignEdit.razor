@@ -27,6 +27,10 @@
 @inject ActivityRecorder Recorder
 @inject ILogger<CampaignEdit> Log
 @inject IJSRuntime JS
+@inject ProofreadSwitch Proofreading
+@inject IProofreader Proofreader
+@inject DailyProofreadAllowance Allowance
+@inject TimeProvider Clock
 
 <PageTitle>@Title</PageTitle>
 
@@ -61,6 +65,10 @@ else if (_session is not null)
     var status = editor.Status(_policy, Business);
     var approval = _session.CurrentApproval;
     var cannotApprove = _session.CannotApprove(_policy, Business);
+    // The AI proofread of this saved version, while the form still holds it; its findings are listed
+    // with the rules', and the export takes them as it takes theirs.
+    var proofread = _session.CurrentProofread;
+    IReadOnlyList<Finding> proofreadFindings = proofread?.Findings ?? [];
     // One gate for both forms of the export: the copy blocks and the assistant's JSON come from
     // the same report, so neither exists without the other, and both carry the approval that
     // report was made with (DraftSession.DemoExportReport: the approval in force, never the
@@ -70,6 +78,8 @@ else if (_session is not null)
     // version: listed with a way to each field, and one button to go on. Never a fix required.
     var warningsFirst = WarningsBeforeExport();
     var export = exportReport is null ? null : EditorExport.Blocks(exportReport);
+    // Proofread by AI: then nothing is marked "Not proofread by AI yet", and the JSON says proofread.
+    var exportProofread = exportReport?.Proofread == true;
     var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, exportReport.DemoApproval,
         new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
 
@@ -248,13 +258,60 @@ else if (_session is not null)
                     <p>The rules find nothing to fix@(status.Missing.Count > 0 ? " so far" : "").</p>
                 }
                 <ul class="findings">
-                    @foreach (var finding in status.Findings.OrderByDescending(f => f.Severity))
+                    @foreach (var finding in status.Findings.Concat(proofreadFindings).OrderByDescending(f => f.Severity))
                     {
                         <FindingItem Finding="finding" />
                     }
                 </ul>
-                <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
+                @if (!ProofreadOffered)
+                {
+                    <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
+                }
+                else if (proofread is not null)
+                {
+                    <p class="muted" data-testid="checks-with-proofread">These are the instant rules, with what the AI proofread found in this saved version.</p>
+                }
+                else
+                {
+                    <p class="muted">These are the instant rules. The AI proofread reads a saved version when you ask it to, below.</p>
+                }
             </section>
+
+            @if (ProofreadOffered)
+            {
+                @* The AI proofread, on the demo, on her click only (owner, 2026-10-10): never per keystroke
+                   or by itself. Its result is the saved version's; any edit voids it. A refusal or a
+                   failure is said plainly here and changes nothing else: the rules stand on their own. *@
+                <section class="card" aria-labelledby="proofread-title">
+                    <h2 id="proofread-title">AI proofread</h2>
+                    @if (proofread is not null)
+                    {
+                        <p data-testid="proofread-status">Proofread by AI @Times.DateAndTime(proofread.At). @DraftSession.ProofreadSummary(proofread)</p>
+                    }
+                    else if (_session.CannotProofread(_policy, Business) is { } notYet)
+                    {
+                        <p class="field-help" data-testid="proofread-status">@notYet</p>
+                    }
+                    else
+                    {
+                        <p class="field-help" data-testid="proofread-status">It reads this saved version once, when you click, photos included, the way a careful editor would. Any change after needs a new save and a new proofread.</p>
+                        <button class="button primary" data-testid="proofread-button" disabled="@_proofreading" @onclick="ProofreadAsync">@(_proofreading ? "Proofreading…" : "Proofread with AI")</button>
+                    }
+                    @if (_proofreadMessage is not null)
+                    {
+                        <p role="status" data-testid="proofread-message">@_proofreadMessage</p>
+                    }
+                    @if (proofread is { Photos.Count: > 0 })
+                    {
+                        <ul class="findings" data-testid="proofread-photos">
+                            @foreach (var photo in proofread.Photos)
+                            {
+                                <li class="finding @(photo.Checked ? "" : "warning")"><strong>@photo.Name</strong> <span>@photo.Note</span></li>
+                            }
+                        </ul>
+                    }
+                </section>
+            }
 
             <section class="card">
                 <h2>Preview</h2>
@@ -304,12 +361,19 @@ else if (_session is not null)
             {
                 <section class="card">
                     <h2>Copy into Square</h2>
-                    <p><span class="not-proofread">Not proofread by AI yet</span></p>
-                    <p class="field-help">Approved, and the rules find nothing to stop it. The AI proofread isn't switched on yet, so read each block as you paste it. Paste them into Square's editor in this order.</p>
+                    @if (exportProofread)
+                    {
+                        <p class="field-help" data-testid="export-proofread">Approved and proofread by AI, and nothing found stops it. Paste the blocks into Square's editor in this order.</p>
+                    }
+                    else
+                    {
+                        <p><span class="not-proofread">Not proofread by AI yet</span></p>
+                        <p class="field-help">Approved, and the rules find nothing to stop it. @(ProofreadOffered ? "This version has not been proofread by AI" : "The AI proofread isn't switched on yet"), so read each block as you paste it. Paste them into Square's editor in this order.</p>
+                    }
                     @if (assistant?.Json is { } json)
                     {
                         <div class="copy-actions">
-                            <a class="button" href="@DataUrl(json)" download="@assistant.FileName">Download for an assistant (JSON)</a>
+                            <a class="button" href="@DataUrl(json)" download="@assistant.FileName" data-testid="assistant-download">Download for an assistant (JSON)</a>
                         </div>
                         <p class="field-help">The same blocks, for an assistant to fill in Square's editor and check against. It stops at Square's preview; a person sends.</p>
                     }
@@ -325,7 +389,10 @@ else if (_session is not null)
                             <li class="export-block">
                                 <div class="block-card-head">
                                     <strong>@(i + 1). @KindName(block.Kind)</strong>
-                                    <span class="not-proofread">Not proofread by AI yet</span>
+                                    @if (!exportProofread)
+                                    {
+                                        <span class="not-proofread">Not proofread by AI yet</span>
+                                    }
                                 </div>
                                 @switch (block.Kind)
                                 {
@@ -398,7 +465,15 @@ else if (_session is not null)
             {
                 <section class="card">
                     <h2>Export</h2>
-                    @if (Site.IsDemo)
+                    @if (Site.IsDemo && proofreadFindings.Any(f => f.Severity == Severity.Blocker))
+                    {
+                        <p class="muted" data-testid="export-waits-for-proofread-fix">The AI proofread found something to fix in this version. Fix it, save, and approve the new version.</p>
+                    }
+                    else if (Site.IsDemo && ProofreadOffered)
+                    {
+                        <p class="muted">On this demo, export comes once the campaign is approved with nothing left to fix. Unless this version is proofread by AI first, its blocks will be marked as not proofread.</p>
+                    }
+                    else if (Site.IsDemo)
                     {
                         <p class="muted">On this demo, export comes once the campaign is approved with nothing left to fix. The AI proofread isn't switched on yet, so its blocks will be marked as not proofread.</p>
                     }
@@ -452,7 +527,41 @@ else
         {
             LibraryPhotos = _photos.Select(p => p.Name).ToList(),
             Ladders = _ladders,
+            // For the AI proofread alone: where Square holds her photos, and what it read in them before.
+            PhotoAddresses = _photos.Where(p => p.SquareUrl is not null)
+                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().SquareUrl!, StringComparer.OrdinalIgnoreCase),
+            PhotoReadings = Stores.PhotoReadings(_client!),
         };
+
+    // The AI proofread is offered on the demo, when it is switched on (owner, 2026-10-10). Enforced
+    // keeps its gate as it was: export there waits for the full review.
+    private bool ProofreadOffered => Site.IsDemo && Proofreading.IsOn;
+
+    private bool _proofreading;
+    private string? _proofreadMessage;
+
+    // Her click, and only that, runs the proofread, of the saved version as it stands. It never throws
+    // here: an exception on this interactive page would end the connection and her unsaved work with it.
+    private async Task ProofreadAsync()
+    {
+        if (!ProofreadOffered || _proofreading) return;
+        _proofreading = true;
+        _proofreadMessage = null;
+        try
+        {
+            _proofreadMessage = (await _session!.ProofreadAsync(Proofreader, Allowance, Clock, _policy, Business)).Message;
+        }
+        catch (Exception ex)
+        {
+            Log.LogError(ex, "The AI proofread of a campaign of {Client} could not be kept.", _client!.Value);
+            _proofreadMessage = "The AI proofread could not be kept just now. The rules' checks above still stand.";
+        }
+        finally
+        {
+            _proofreading = false;
+        }
+    }
     private TierLadders _ladders = TierLadders.Standard;
 
     // "Save as a known item" next to a tier or a benefit: kept exactly as written, then the pickers
@@ -539,6 +648,8 @@ else
         var saved = await _session.SaveAsync();
         _message = DraftSession.SavedMessage(before, saved, Times);
         _confirmingUndo = false;
+        // A new version: what was said of the last one's proofread no longer applies.
+        _proofreadMessage = null;
         // The address now names the campaign, so a reload opens what was saved. Only the address
         // changes: navigating would load the page afresh, at the top and without the saved line.
         if (isNew) await ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{saved.Id}").AbsoluteUri);

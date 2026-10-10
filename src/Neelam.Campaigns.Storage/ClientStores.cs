@@ -72,6 +72,12 @@ public sealed class ClientStores
     public CampaignStore Campaigns(ClientName client, Actor actor) =>
         new(_container(client.Value), _clock, _undoGracePeriod, _approvals, _activity.For(client, actor));
 
+    /// <summary>
+    /// What the AI proofread read in the client's photos, by the hash of each image's bytes, in her own
+    /// container (<c>proofread/images/</c>), so an unchanged photo is not sent again.
+    /// </summary>
+    public IPhotoReadings PhotoReadings(ClientName client) => new PhotoReadingStore(_container(client.Value));
+
     /// <summary>The procedures and medications the client offers.</summary>
     public DocumentStore<ClientCatalog> Catalog(ClientName client) => CatalogIn(_container(client.Value), _clock);
 

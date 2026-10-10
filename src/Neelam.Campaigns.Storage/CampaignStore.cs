@@ -214,6 +214,42 @@ public sealed class CampaignStore(
         return save with { Approval = row.Approval with { WarningsSeen = ApprovalRecord.SeenAcross(rows) } };
     }
 
+    /// <summary>
+    /// Keeps the AI proofread of one draft save beside it, at <c>proofread/{id}/{stamp}.json</c> in
+    /// this client's own container: it quotes her email, so it is her data like the save, and nowhere
+    /// else. Created once and never replaced; when one is already there, that one stands and is
+    /// returned. The trail records that the save was proofread, by ids only. The sweep deletes it
+    /// with the save, so a deleted save's proofread leaves no record either.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The save is gone or undone.</exception>
+    public async Task<ProofreadRecord> SaveProofreadAsync(SaveRef save, ProofreadRecord proofread, CancellationToken ct = default)
+    {
+        Expect(save, DocumentKind.Draft);
+        var blob = await FindAsync(save, ct);
+        if (blob is null || !TryParse(save.Kind, blob, out var current) || current.UndoneAt is not null)
+            throw new InvalidOperationException("That save is gone, so its proofread is not kept.");
+        if (!await blobs.TryCreateTextAsync(ProofreadName(save), ProofreadJson.Serialize(proofread), new Dictionary<string, string>(), ct))
+            return await ProofreadOfAsync(save, ct) ?? proofread;
+        await RecordAsync(save, ActivityAction.Proofread, ct);
+        return proofread;
+    }
+
+    /// <summary>The AI proofread kept for this draft save, or null when it has none.</summary>
+    public async Task<ProofreadRecord?> ProofreadOfAsync(SaveRef save, CancellationToken ct = default)
+    {
+        Expect(save, DocumentKind.Draft);
+        var name = ProofreadName(save);
+        await foreach (var blob in blobs.ListAsync(name, ct))
+        {
+            if (blob.Name == name) return ProofreadJson.Deserialize(await blobs.ReadTextAsync(name, ct));
+        }
+        return null;
+    }
+
+    internal static string ProofreadName(SaveRef save) => $"{ProofreadPrefix}{save.Id:N}/{SaveStamp.Of(save.SavedAt)}.json";
+
+    private const string ProofreadPrefix = "proofread/";
+
     // Every approval row of one campaign, in this client's partition: withdrawn ones and those of
     // undone or deleted saves included.
     private async Task<IReadOnlyList<ApprovalRecord>> RowsAsync(Guid campaignId, CancellationToken ct) =>
@@ -294,10 +330,24 @@ public sealed class CampaignStore(
     /// <remarks>
     /// Each delete holds only if the blob is still as listed (its ETag): a save restored, or undone
     /// again, between the listing and the delete has changed, so it is skipped and left to the next run.
+    /// <para>
+    /// A draft save's AI proofread (<see cref="SaveProofreadAsync"/>) goes with it: every proofread
+    /// whose save is no longer there is deleted, so one left behind by a crash part-way goes on the
+    /// next run. The proofreads are listed before the saves, and a proofread is only ever written
+    /// after its save, so one whose save is missing from the later listing really has none.
+    /// </para>
     /// </remarks>
     public async Task<int> SweepAsync(CancellationToken ct = default)
     {
+        var proofreads = new List<string>();
+        // Her photo readings (proofread/images/) belong to her photos, not to any one save.
+        await foreach (var blob in blobs.ListAsync(ProofreadPrefix, ct))
+        {
+            if (!blob.Name.StartsWith(PhotoReadingStore.Prefix, StringComparison.Ordinal)) proofreads.Add(blob.Name);
+        }
+
         var deleted = 0;
+        var remaining = new HashSet<string>(StringComparer.Ordinal);
         foreach (var kind in Enum.GetValues<DocumentKind>())
         {
             foreach (var (save, etag) in await ListEntriesAsync(kind, $"{Prefix(kind)}/", ct))
@@ -307,8 +357,14 @@ public sealed class CampaignStore(
                     deleted++;
                     await RecordAsync(save, ActivityAction.DeletedBySweep, ct);
                 }
+                else if (kind == DocumentKind.Draft)
+                {
+                    remaining.Add(ProofreadName(save));
+                }
             }
         }
+        foreach (var orphan in proofreads.Where(p => !remaining.Contains(p)))
+            await blobs.DeleteAsync(orphan, ct);
         return deleted;
     }
 

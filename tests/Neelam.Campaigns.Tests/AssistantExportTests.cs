@@ -853,7 +853,7 @@ public class AssistantExportPageTests(DemoApp app) : IClassFixture<DemoApp>
 
     private static (string Json, string FileName)? Downloaded(string page)
     {
-        var link = Regex.Match(page, "<a class=\"button\" href=\"data:application/json;charset=utf-8;base64,([^\"]+)\" download=\"([^\"]+)\">" + Regex.Escape(Download) + "</a>");
+        var link = Regex.Match(page, "<a class=\"button\" href=\"data:application/json;charset=utf-8;base64,([^\"]+)\" download=\"([^\"]+)\"[^>]*>" + Regex.Escape(Download) + "</a>");
         return link.Success ? (Encoding.UTF8.GetString(Convert.FromBase64String(link.Groups[1].Value)), link.Groups[2].Value) : null;
     }
 

@@ -80,6 +80,12 @@ public enum ActivityAction
     /// the earlier one is left as it was.
     /// </summary>
     LookUsedAgain,
+
+    /// <summary>
+    /// A campaign's save proofread by AI, on her click; the stamp is the save's. What it found is kept
+    /// beside the save in her container, never here.
+    /// </summary>
+    Proofread,
 }
 
 /// <summary>

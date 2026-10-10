@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Neelam.Campaigns.Storage\Neelam.Campaigns.Storage.csproj" />
+    <ProjectReference Include="..\Neelam.Campaigns.Claude\Neelam.Campaigns.Claude.csproj" />
   </ItemGroup>
 
 </Project>

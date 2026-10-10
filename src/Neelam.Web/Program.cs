@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Neelam.Web;
 using Neelam.Web.Security;
 using Neelam.Campaigns;
+using Neelam.Campaigns.Claude;
 using Neelam.Campaigns.Storage;
 using Neelam.Web.Components;
 
@@ -60,6 +61,26 @@ builder.Services.AddSingleton(new DefaultTimeZone(LocalTime.For(builder.Configur
 // startup. When the files and the code disagree, the app stops here, saying every problem.
 builder.Services.AddSingleton(BlockCatalog.Shipped(AppContext.BaseDirectory));
 
+// The AI proofread (owner, 2026-10-09/10): Claude Opus 5.5 through the Anthropic API for now, its key
+// from Key Vault through App Service (Proofread:AnthropicApiKey, the one secret CredentialGuard lets in),
+// Foundry later. What it is told is data (Proofread/proofread.json), read and checked here even while
+// it is off. Without a provider and a resolved key it is off, and pages say so. Photos are fetched by
+// one client that follows no redirect itself and sends no cookie, credential or proxy, through the
+// fetcher's own checks against the image library's Square hosts.
+var proofread = ProofreadSetup.From(
+    builder.Configuration.GetSection(ProofreadOptions.Section).Get<ProofreadOptions>() ?? new ProofreadOptions(),
+    ProofreadInstructions.Shipped(AppContext.BaseDirectory));
+builder.Services.AddSingleton(proofread.Switch);
+builder.Services.AddHttpClient(SquarePhotoFetcher.HttpClientName)
+    .ConfigurePrimaryHttpMessageHandler(SquarePhotoFetcher.Handler);
+builder.Services.AddSingleton(services => new SquarePhotoFetcher(
+    services.GetRequiredService<IHttpClientFactory>().CreateClient(SquarePhotoFetcher.HttpClientName), ImageLibrary.SquareHosts));
+builder.Services.AddSingleton<IProofreader>(services => proofread.Switch.IsOn
+    ? proofread.Create(services.GetRequiredService<SquarePhotoFetcher>(), services.GetRequiredService<ILogger<ClaudeProofreader>>())
+    : new ProofreadNotSwitchedOn());
+builder.Services.AddSingleton(services =>
+    new DailyProofreadAllowance(proofread.MaxPerClientPerDay, services.GetRequiredService<TimeProvider>()));
+
 // Undo marks a save and the sweep deletes it once the grace period has passed (owner, 2026-10-09).
 // The period is a setting, Undo:GracePeriod, required: the app refuses to start without it.
 builder.Services.AddOptions<UndoOptions>()
@@ -98,6 +119,9 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 var app = builder.Build();
+
+// Why the proofread is off, when it is: the setting's name and state, never a value.
+if (!proofread.Switch.IsOn) app.Logger.LogInformation("The AI proofread is off: {Why}", proofread.Switch.Why);
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

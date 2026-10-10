@@ -361,6 +361,12 @@ public class ActivityTests
         _clock.Now += TimeSpan.FromMinutes(1);
         finished.Label = Label + " (sent)";
         await store.KeepApprovalAsync(relabelled, await store.SaveDraftAsync(id, "WE’RE TURNING ONE!", finished));
+        // Proofread by AI, its finding quoting the email: kept beside the save, never on the trail.
+        var proofreading = (await DraftSession.OpenAsync(store, id))!;
+        var attempt = await proofreading.ProofreadAsync(
+            new FakeProofreader(new Finding(Severity.Warning, "ai-clarity", "Offer", $"'Gold Member' and {Label} read alike.", "Gold Member")),
+            new DailyProofreadAllowance(20, _clock), _clock);
+        Assert.True(attempt.Done, attempt.Message);
         await Stores.SaveBaselineAsync(Salon, TemplateBaseline.Standard, Asha);
         await Stores.UseStandardBaselineAsync(Salon, Asha);
         await Stores.SaveLaddersAsync(Salon, TierLadders.Standard.With(OwnLadder), Asha);
