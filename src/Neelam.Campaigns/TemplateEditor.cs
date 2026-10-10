@@ -32,16 +32,16 @@ public sealed class TemplateEditor
 
     /// <summary>
     /// A new template starting with one block of each part the baseline names (owner, 2026-10-09:
-    /// what every template should have is what you get when you say new). The blocks come in the
-    /// order an email reads, the order <see cref="BlockGuide.All"/> keeps, whatever order the
-    /// baseline lists them in. Each is a block as <see cref="Add"/> makes it: its usual label,
-    /// written by each campaign, never fixed content. An empty baseline is a blank start.
+    /// what every template should have is what you get when you say new), in the baseline's own
+    /// order, which she sets ("It should use the same order she does"). Each is a block as
+    /// <see cref="Add"/> makes it: its usual label, written by each campaign, never fixed content.
+    /// An empty baseline is a blank start.
     /// </summary>
     public static TemplateEditor StartFrom(TemplateBaseline baseline)
     {
         var editor = StartBlank();
-        foreach (var guide in BlockGuide.All.Where(g => baseline.Parts.Contains(g.Type)))
-            editor.Add(guide.Type);
+        foreach (var part in baseline.Parts)
+            editor.Add(part);
         editor.FromBaseline = editor._blocks.Count > 0;
         return editor;
     }

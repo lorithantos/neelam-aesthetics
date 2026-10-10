@@ -24,11 +24,6 @@ public sealed record BlockGuide(BlockType Type, string Name, string Purpose, IRe
     private const string PhotoCheck = "A photo with no description is flagged: say what it shows, and put any offer or dates it holds in the text too.";
     private const string PhotoRule = "photo-described";
 
-    /// <summary>
-    /// Every block type, in the order an email reads from top to bottom: the order the editor offers
-    /// them in, and the order a new template's starting blocks take. The photo comes above the
-    /// button, as in Neelam's sends (which put both below the sign-off; a template can move them).
-    /// </summary>
     public static IReadOnlyList<BlockGuide> All { get; } =
     [
         new(BlockType.Header, "Header", "The top of the email: the business's name, over a photo from the library if you like.",
@@ -51,12 +46,12 @@ public sealed record BlockGuide(BlockType Type, string Name, string Purpose, IRe
             ],
             ["cta-required", "tier-names-unique", "tier-names-numbered", "tier-rung-repeated", "tier-rung-order", "tier-content-distinct", "tier-price-positive", "tier-prices-increase",
              "benefit-value", "terms-required", "tiers-parallel", .. TextRules]),
-        new(BlockType.Image, "Image", "A photo from the client's image library.",
-            [PhotoCheck, "Its description, what a reader gets when images do not load, gets the text checks."],
-            [PhotoRule, .. TextRules]),
         new(BlockType.Button, "Button", "What the reader should do next, and the web page it opens.",
             ["Its link must be a full https:// address.", "An email with an offer needs one.", .. TextChecks],
             ["cta-https", "cta-required", .. TextRules]),
+        new(BlockType.Image, "Image", "A photo from the client's image library.",
+            [PhotoCheck, "Its description, what a reader gets when images do not load, gets the text checks."],
+            [PhotoRule, .. TextRules]),
         new(BlockType.SignOff, "Sign-off", "The closing: a valediction, who it is from, and a tagline if you like.",
             TextChecks, TextRules),
         new(BlockType.FinePrint, "Fine print", "Terms, disclaimers and other small print.",

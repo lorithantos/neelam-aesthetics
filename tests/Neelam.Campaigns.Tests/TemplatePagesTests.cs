@@ -110,7 +110,7 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (status, page) = await Get("/templates/new", [Features.Templates]);
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Equal(["Header", "Heading", "Image", "Button", "Sign-off"], BlockLabels(page));
+        Assert.Equal(["Header", "Heading", "Sign-off", "Image", "Button"], BlockLabels(page));
         Assert.Contains(StartedWith + " <a href=\"templates#baseline-heading\">Change that list on the Templates page.</a>", page);
         Assert.DoesNotContain("No blocks yet", page);
         // Nothing in the baseline is missing from it.
@@ -126,7 +126,8 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         {
             var (_, page) = await Get("/templates/new", [Features.Templates]);
 
-            Assert.Equal(["Heading", "Greeting"], BlockLabels(page));
+            // In her order, not the order the editor lists block types in.
+            Assert.Equal(["Greeting", "Heading"], BlockLabels(page));
             Assert.Contains(StartedWith, page);
         }
         finally

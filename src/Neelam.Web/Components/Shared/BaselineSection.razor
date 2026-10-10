@@ -9,19 +9,20 @@
     <section class="card" aria-labelledby="baseline-heading">
         <h2 id="baseline-heading">Every template should have</h2>
         <p class="muted">@(_inForce.IsOwn ? "Your own baseline." : "The standard baseline.")
-            A template without one of these still saves; its editor says what it lacks.</p>
+            A template without one of these still saves; its editor says what it lacks. A new template
+            starts with them, top to bottom in this order.</p>
         @if (parts.Count == 0)
         {
             <p>Nothing: these warnings are off.</p>
         }
         else
         {
-            <ul>
+            <ol>
                 @foreach (var part in parts)
                 {
                     <li>@BlockGuide.For(part).Name</li>
                 }
-            </ul>
+            </ol>
         }
 
         <details>
@@ -30,9 +31,30 @@
             {
                 var type = guide.Type;
                 <label class="check">
-                    <input type="checkbox" checked="@_chosen.Contains(type)" @onchange="e => Choose(type, e.Value is true)" />
+                    <input type="checkbox" checked="@_chosen.Parts.Contains(type)" @onchange="e => Choose(type, e.Value is true)" />
                     @guide.Name
                 </label>
+            }
+            @if (_chosen.Parts.Count > 0)
+            {
+                <p class="field-help">Top to bottom, as a new template starts:</p>
+                @* Laid out as the ladders' words are, Up and Down beside each. *@
+                <ol class="ladder-words">
+                    @for (var i = 0; i < _chosen.Parts.Count; i++)
+                    {
+                        var index = i;
+                        var name = BlockGuide.For(_chosen.Parts[index]).Name;
+                        <li>
+                            <span>@name</span>
+                            <span class="block-actions">
+                                <button class="button" aria-label="Move @name up" disabled="@(index == 0)"
+                                        @onclick="() => Order(index, -1)">Up</button>
+                                <button class="button" aria-label="Move @name down" disabled="@(index == _chosen.Parts.Count - 1)"
+                                        @onclick="() => Order(index, 1)">Down</button>
+                            </span>
+                        </li>
+                    }
+                </ol>
             }
             <p>
                 <button class="button primary" @onclick="SaveOwnAsync">Save as your own</button>
@@ -53,7 +75,8 @@
 @code {
     private ClientName? _client;
     private BaselineInForce? _inForce;
-    private HashSet<BlockType> _chosen = [];
+    // Her changes, parts and order, not saved until "Save as your own".
+    private TemplateBaseline _chosen = TemplateBaseline.None;
     private string? _message;
 
     protected override async Task OnInitializedAsync()
@@ -65,19 +88,18 @@
     private async Task LoadAsync()
     {
         _inForce = await Stores.BaselineInForceAsync(_client!);
-        _chosen = [.. _inForce.Baseline.Parts];
+        _chosen = _inForce.Baseline;
     }
 
-    private void Choose(BlockType type, bool chosen)
-    {
-        if (chosen) _chosen.Add(type);
-        else _chosen.Remove(type);
-    }
+    // A part she ticks goes last; she moves it from there.
+    private void Choose(BlockType type, bool chosen) =>
+        _chosen = chosen ? _chosen.With(type) : _chosen.Without(type);
+
+    private void Order(int index, int by) => _chosen = _chosen.Move(index, by);
 
     private async Task SaveOwnAsync()
     {
-        await Stores.SaveBaselineAsync(
-            _client!, new TemplateBaseline(BlockGuide.All.Select(g => g.Type).Where(_chosen.Contains)), await Workspace.ActorAsync());
+        await Stores.SaveBaselineAsync(_client!, _chosen, await Workspace.ActorAsync());
         await LoadAsync();
         _message = "Saved as your own baseline.";
     }

@@ -58,23 +58,24 @@ public class TemplateEditorTests
     // ---- Starting from the baseline (owner, 2026-10-09: what every template should have is what
     // you get when you say new)
 
-    // The standard lists Header, Heading, Sign-off, Button, Image; the blocks come as an email reads.
+    // The standard's order is her sends' order: the photo and the button come after the sign-off.
     [Fact]
-    public void A_new_template_starts_with_the_standard_baseline_s_parts_in_email_order()
+    public void A_new_template_starts_with_the_standard_baseline_s_parts_in_the_order_her_sends_have()
     {
         var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard);
 
-        Assert.Equal([BlockType.Header, BlockType.Heading, BlockType.Image, BlockType.Button, BlockType.SignOff],
+        Assert.Equal([BlockType.Header, BlockType.Heading, BlockType.SignOff, BlockType.Image, BlockType.Button],
             editor.Blocks.Select(b => b.Type));
-        Assert.Equal(["Header", "Heading", "Image", "Button", "Sign-off"], editor.Blocks.Select(b => b.Label));
+        Assert.Equal(["Header", "Heading", "Sign-off", "Image", "Button"], editor.Blocks.Select(b => b.Label));
         Assert.True(editor.FromBaseline);
     }
 
+    // Her own order wins, whatever order the editor lists block types in.
     [Fact]
-    public void A_client_s_own_baseline_gives_its_parts_and_an_empty_one_a_blank_start()
+    public void A_client_s_own_baseline_gives_its_parts_in_its_order_and_an_empty_one_a_blank_start()
     {
         var own = TemplateEditor.StartFrom(new TemplateBaseline([BlockType.SignOff, BlockType.Greeting, BlockType.Offer]));
-        Assert.Equal([BlockType.Greeting, BlockType.Offer, BlockType.SignOff], own.Blocks.Select(b => b.Type));
+        Assert.Equal([BlockType.SignOff, BlockType.Greeting, BlockType.Offer], own.Blocks.Select(b => b.Type));
 
         var none = TemplateEditor.StartFrom(TemplateBaseline.None);
         Assert.Empty(none.Blocks);
@@ -98,7 +99,7 @@ public class TemplateEditorTests
         var image = editor.Blocks.Single(b => b.Type == BlockType.Image);
         editor.MoveDown(image);
         editor.Remove(editor.Blocks[0]);
-        Assert.Equal(["Heading", "Button", "Image", "Sign-off"], editor.Blocks.Select(b => b.Label));
+        Assert.Equal(["Heading", "Sign-off", "Button", "Image"], editor.Blocks.Select(b => b.Label));
     }
 
     [Fact]

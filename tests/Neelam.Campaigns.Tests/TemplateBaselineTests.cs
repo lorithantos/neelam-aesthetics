@@ -27,9 +27,72 @@ public class TemplateBaselineTests
         var inForce = await Stores.BaselineInForceAsync(Neelam);
 
         Assert.False(inForce.IsOwn);
+        // In the order her sends have them: the photo, then the button, after the sign-off.
         Assert.Equal(
-            [BlockType.Header, BlockType.Heading, BlockType.SignOff, BlockType.Button, BlockType.Image],
+            [BlockType.Header, BlockType.Heading, BlockType.SignOff, BlockType.Image, BlockType.Button],
             inForce.Baseline.Parts);
+    }
+
+    // ---- Order (owner, 2026-10-09: "It should use the same order she does...if it changes, she can
+    // change that too")
+
+    // Up and Down on the Templates page are Move; "Save as your own" saves the order as it stands.
+    [Fact]
+    public async Task Up_and_down_change_the_order_and_it_is_kept_through_a_save()
+    {
+        var moved = TemplateBaseline.Standard
+            .Move(4, -1)   // Button up, above the photo
+            .Move(0, -1)   // Header up: already at the top, so it stays
+            .Move(1, 9);   // Heading down past the end: last
+        Assert.Equal([BlockType.Header, BlockType.SignOff, BlockType.Button, BlockType.Image, BlockType.Heading], moved.Parts);
+
+        await Stores.SaveBaselineAsync(Neelam, moved, Actor.Demo);
+        var reloaded = (await Stores.BaselineInForceAsync(Neelam)).Baseline;
+
+        Assert.Equal(moved.Parts, reloaded.Parts);
+        Assert.Equal(moved.Parts, TemplateSession.New(Stores.Campaigns(Neelam, Actor.Demo), reloaded).Editor.Blocks.Select(b => b.Type));
+    }
+
+    // A part she ticks goes last, and one she unticks leaves the rest in their order.
+    [Fact]
+    public void A_part_added_goes_last_and_a_part_removed_keeps_the_rest_in_order()
+    {
+        var changed = TemplateBaseline.Standard.With(BlockType.Greeting).Without(BlockType.SignOff).With(BlockType.Header);
+
+        Assert.Equal([BlockType.Header, BlockType.Heading, BlockType.Image, BlockType.Button, BlockType.Greeting], changed.Parts);
+    }
+
+    // Saved before the order was hers, in the order the checklist then listed block types (Image above
+    // Button, as 9d62b94 had it): that order is now simply hers, not re-sorted to today's list.
+    [Fact]
+    public async Task An_old_saved_baseline_reads_in_its_stored_order()
+    {
+        const string old = """{"schema":2,"parts":["header","heading","image","button","signOff"]}""";
+        var saved = await Stores.Baseline(Neelam).SaveAsync(TemplateBaseline.None);
+        var container = _containers.For(Neelam.Value);
+        container.Put(saved.BlobName, old, container.Blobs[saved.BlobName].Metadata);
+
+        var inForce = await Stores.BaselineInForceAsync(Neelam);
+
+        BlockType[] stored = [BlockType.Header, BlockType.Heading, BlockType.Image, BlockType.Button, BlockType.SignOff];
+        Assert.Equal(stored, inForce.Baseline.Parts);
+        Assert.Equal(stored, TemplateEditor.StartFrom(inForce.Baseline).Blocks.Select(b => b.Type));
+    }
+
+    // A part counts wherever it sits: the order says how a new template starts, never what is missing.
+    [Fact]
+    public void The_warnings_ignore_order()
+    {
+        var upsideDown = Template(
+            new TemplateBlock("Join", BlockType.Button),
+            new TemplateBlock("Photo", BlockType.Image),
+            new TemplateBlock("Sign-off", BlockType.SignOff),
+            new TemplateBlock("Headline", BlockType.Heading),
+            new TemplateBlock("Header", BlockType.Header));
+
+        Assert.Empty(TemplateBaseline.Standard.MissingFrom(upsideDown));
+        Assert.Empty(TemplateBaseline.Standard.Move(0, 4).MissingFrom(upsideDown));
+        Assert.Empty(TemplateEditor.Open(upsideDown).Missing(TemplateBaseline.Standard));
     }
 
     // The standard is data the operator can change, in operator settings, not in the code.
@@ -207,5 +270,27 @@ public class TemplatesPageBaselineTests(EnforcedApp app) : IClassFixture<Enforce
         Assert.Contains("<li>Greeting</li>", own);
         Assert.DoesNotContain("<li>Sign-off</li>", own);
         Assert.Contains("Use the standard baseline", own);
+    }
+
+    // The parts read top to bottom in the baseline's own order, and each can be moved up or down.
+    [Fact]
+    public async Task It_lists_the_parts_in_her_order_with_up_and_down()
+    {
+        await app.Stores.Baseline(SalonOne.Name).SaveAsync(new TemplateBaseline([BlockType.Button, BlockType.Header, BlockType.Greeting]));
+        string page;
+        try
+        {
+            page = await TemplatesPage();
+        }
+        finally
+        {
+            await app.Stores.UseStandardBaselineAsync(SalonOne.Name, Actor.Demo);
+        }
+
+        Assert.True(page.IndexOf("<li>Button</li>", StringComparison.Ordinal) < page.IndexOf("<li>Header</li>", StringComparison.Ordinal));
+        Assert.True(page.IndexOf("<li>Header</li>", StringComparison.Ordinal) < page.IndexOf("<li>Greeting</li>", StringComparison.Ordinal));
+        Assert.True(page.IndexOf("Move Button down", StringComparison.Ordinal) < page.IndexOf("Move Header down", StringComparison.Ordinal));
+        Assert.Contains("aria-label=\"Move Greeting up\"", page);
+        Assert.Contains("aria-label=\"Move Button down\"", page);
     }
 }

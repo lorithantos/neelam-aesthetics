@@ -5,10 +5,16 @@ namespace Neelam.Campaigns;
 /// operator keeps a standard baseline for every client; a client may save its own, which replaces
 /// the standard for that client, and saving an empty one turns the warnings off. A template that
 /// lacks a part still saves; the editor says what it lacks. A part counts as present when the
-/// template has a block of that type, required or optional.
+/// template has a block of that type, required or optional, wherever it sits.
 /// </summary>
+/// <remarks>
+/// The parts are in order, top to bottom, and a new template starts with them in that order (owner,
+/// 2026-10-09: "It should use the same order she does...if it changes, she can change that too").
+/// The order is hers to change, and is stored with the parts; it never affects the warnings.
+/// </remarks>
 public sealed class TemplateBaseline
 {
+    /// <summary>The parts, top to bottom: the order a new template's blocks start in.</summary>
     public IReadOnlyList<BlockType> Parts { get; }
 
     /// <summary>The parts, each once, in the order given.</summary>
@@ -26,13 +32,34 @@ public sealed class TemplateBaseline
     /// <see cref="CampaignPolicy.Default"/> is for policy. The owner's decision of 2026-10-09, from
     /// Neelam's five sent emails (Aug-Sep 2026): every one had a header, a headline, a button and a
     /// photo, and the latest signs off from the team. Greeting and body text were in four of the
-    /// five, so they are not in it.
+    /// five, so they are not in it. In the order her sends put them: the photo and the button come
+    /// after the sign-off.
     /// </summary>
     public static TemplateBaseline Standard { get; } =
-        new([BlockType.Header, BlockType.Heading, BlockType.SignOff, BlockType.Button, BlockType.Image]);
+        new([BlockType.Header, BlockType.Heading, BlockType.SignOff, BlockType.Image, BlockType.Button]);
 
     /// <summary>No parts at all: a client that saves this gets no baseline warnings.</summary>
     public static TemplateBaseline None { get; } = new([]);
+
+    /// <summary>The same parts with <paramref name="part"/> added last, or unchanged when it is already in.</summary>
+    public TemplateBaseline With(BlockType part) => new([.. Parts, part]);
+
+    /// <summary>The same parts, in the same order, without <paramref name="part"/>.</summary>
+    public TemplateBaseline Without(BlockType part) => new(Parts.Where(p => p != part));
+
+    /// <summary>
+    /// The same parts with the one at <paramref name="index"/> moved <paramref name="by"/> places:
+    /// negative is up (towards the top of the email), positive down; a move past either end leaves it
+    /// at that end.
+    /// </summary>
+    public TemplateBaseline Move(int index, int by)
+    {
+        var parts = Parts.ToList();
+        var moved = parts[index];
+        parts.RemoveAt(index);
+        parts.Insert(Math.Clamp(index + by, 0, parts.Count), moved);
+        return new(parts);
+    }
 
     /// <summary>Each part the blocks lack, in the baseline's order; empty when nothing is missing.</summary>
     public IReadOnlyList<BaselineGap> MissingFrom(IEnumerable<BlockType> blocks)

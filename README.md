@@ -118,15 +118,16 @@ The block types were derived from the one real email the tool has seen, the Beau
 announcement, read from both real sends as Square rendered them, and grow from the next real ones rather than from guesses ("data over dogma").
 The text checks (restricted terms, repetition, emoji) run over every block's text.
 
-**A baseline says which parts every template should have**, as a list of block types
+**A baseline says which parts every template should have**, as an ordered list of block types
 (`TemplateBaseline`), held as data. The operator keeps a standard baseline for every client;
 a client may save its own, which replaces it for that client, and saving an empty one turns the
-warnings off. The standard one is header, heading, sign-off, button and image, from Neelam's
-five sent emails. A template lacking a part still saves: the editor says, for example, "Your
-templates usually have a sign-off; this one doesn't." A block counts whether it is required or
-optional. A new template starts with one block of each part, in the order an email reads (the
-order `BlockGuide.All` keeps), each left for every campaign to write and removable like any
-block; a copy starts from the template it copies. Square adds the legal address and unsubscribe in its own footer, so templates never
+warnings off. The standard one is header, heading, sign-off, image and button, in that order,
+from Neelam's five sent emails. A template lacking a part still saves: the editor says, for
+example, "Your templates usually have a sign-off; this one doesn't." A block counts whether it is
+required or optional, and wherever it sits. A new template starts with one block of each part, in
+the baseline's order, which the client can change (Up and Down on the Templates page), each left
+for every campaign to write and removable like any block; a copy starts from the template it
+copies. Square adds the legal address and unsubscribe in its own footer, so templates never
 include them.
 
 Campaigns are written as a `CampaignDraft`, started from a template. Every value in a draft is
