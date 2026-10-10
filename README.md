@@ -20,12 +20,23 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 - **The AI proofread** catches what a careful reader would: spelling, contradictions, offers
   that don't match their names, placeholder text left in. Its errors block too, but a person
   can dismiss one with a recorded reason and name (`Dismissal`), since a model can be wrong.
-  When it is built it may **read the images** too (owner, 2026-10-09): the email's photos go to
-  the model with its text, so words inside a picture are checked like any other. About a cent or
-  two per image per check, within the proofread's $20 a month cap. Until then `photo-described`
-  asks for every photo's description and for any offer in a photo to be in the text as well.
+  It **reads the images** too (owner, 2026-10-09): the app fetches each photo itself from her
+  library's Square address, through one fetcher that parses every address and holds it to the
+  Square hosts exactly (owner, 2026-10-10: "We should both parse them and allowlist the
+  domains"), and sends the bytes with the text, so words inside a picture are checked like any
+  other. What it read in a photo is kept per client by the hash of the bytes, so an unchanged
+  photo is not sent again ("we should track if we've seen them before"). About a cent or two per
+  new image, within the proofread's $20 a month cap. `photo-described` still asks for every
+  photo's description and for any offer in a photo to be in the text as well.
+- **Claude Opus 5.5 on the Anthropic API, for now** (owner, 2026-10-09/10: "For now I will donate
+  my credits"; Microsoft Foundry stays the production route). What it is told is data
+  (`Proofread/proofread.json`), cached as the request's one fixed prefix; the email, the business
+  and the photos are content, never instructions. The key lives in Key Vault and reaches the site
+  only as an App Service Key Vault reference: the single exception to "no secrets". On the demo it
+  runs on her click for a saved version, and any edit voids its result; a client gets 20 a day.
 - **It fails closed.** If the proofread can't run (outage, refusal, cut off), that is itself a
-  blocker. Sending without it takes a named dismissal.
+  blocker. Sending without it takes a named dismissal. (On the demo, where the proofread is asked
+  for, a failed or refused one says so plainly and changes nothing else; the rules stand alone.)
 - An AI finding whose quoted excerpt isn't actually in the email is downgraded to a warning
   rather than trusted.
 - **A person approves** a saved campaign with nothing left to fix: no missing part and no "Must
@@ -51,10 +62,11 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 
 **The demo exception (owner, 2026-10-09).** The test site is a full demo for a client to walk
 every step on, and it runs Prototype access, which is refused in Production. There, and only
-there, an **approved** campaign whose rules pass exports without the AI proofread, which is not
-switched on yet: `CampaignGate.DemoReview` returns a report with `Proofread` false and the
-approval in `DemoApproval`, and every exported block says "Not proofread by AI yet". Nothing fakes
-a proofread result. Enforced access, which production runs, never takes this path, so there
+there, an **approved** campaign whose rules pass exports without the AI proofread:
+`CampaignGate.DemoReview` returns a report with `Proofread` false and the approval in
+`DemoApproval`, and every exported block says "Not proofread by AI yet". When she has had that
+saved version proofread (2026-10-10), its findings join the rules' in the same report, which then
+says `Proofread` true, and the marks go. Nothing fakes a proofread result. Enforced access, which production runs, never takes this path, so there
 export still needs `CampaignGate.ReviewAsync` and the proofread; tests pin both sides
 (`EnforcedIsNotTheDemoTests`, `The_rules_alone_never_unlock_export`). Real security arrives with
 the real approval and sign-in. Because Prototype lets everyone through every policy, the operator's
@@ -453,8 +465,12 @@ ladders" on her Known items page; "Use the standard ladders" deletes hers.
   and the export (`EditorExport`, and `AssistantExport` for the assistant's JSON, checked in code;
   `docs/assistant-export.schema.json` is its published contract, checked by the tests with
   JsonSchema.Net, a test-only dependency). No web, storage, hosting, AI or schema dependency.
-- `src/Neelam.Campaigns.Claude` — `ClaudeProofreader`, the `IProofreader` backed by Claude
-  (Anthropic C# SDK, structured JSON output). Reads `ANTHROPIC_API_KEY` by default.
+- `src/Neelam.Campaigns.Claude` — `ClaudeProofreader`, the `IProofreader` backed by Claude Opus
+  5.5 (Anthropic C# SDK, beta messages: adaptive thinking, explicit effort, structured JSON output,
+  server-side refusal fallback), its instructions as data (`Proofread/proofread.json`,
+  `ProofreadInstructions`), the photo fetcher (`SquarePhotoFetcher`) and the settings
+  (`ProofreadSetup`: `Proofread:Provider`, model, effort, limits; the key only from
+  `Proofread:AnthropicApiKey`, a Key Vault reference).
 - `src/Neelam.Campaigns.Storage` — `CampaignStore` (timestamped blob saves), `AzureBlobBackend`,
   `ClientStores`, the metadata tables (`TableMetadata`), the access check (`AccessCheck`,
   `SupportGrant`), the caller from the sign-in (`CallerClaims`) and `CredentialGuard`. Storage
@@ -466,10 +482,12 @@ ladders" on her Known items page; "Use the standard ladders" deletes hers.
   page's footer shows the deploy's build stamp (the App Service setting `LATEST_BUILD_INFO`).
 - `infra/main.bicep` — the plan, Application Insights and the key-auth policies, with the site
   (`site.bicep`) and its storage account, containers, tables and role assignments
-  (`storage.bicep`); on the test deployment, the staging site and its own account as well.
+  (`storage.bicep`); on the test deployment, the staging site and its own account as well; and
+  the Key Vault for the proofread's key, with each site's read role on it (`vault.bicep`).
 - `tests/Neelam.Campaigns.Tests` — both real sends and a corrected version, one test per rule,
   drafts and saves (against an in-memory blob store), the credential guard, the infrastructure
-  settings, and parsing of Claude's answer. No test calls the network.
+  settings, Claude's request and answer (through the SDK against a fake HTTP handler) and the
+  photo fetcher (against a fake Square). No test calls the network.
 
 ```
 dotnet test
@@ -490,8 +508,9 @@ dotnet test
 3. **Approval** — one person, or a second approver required before export? (Warnings are not
    acknowledged individually: the owner decided on 2026-10-09 that they are shown at export and
    never block.)
-4. **Where Claude runs** — directly against the Anthropic API, or through Microsoft Foundry
-   inside the Azure subscription (`AnthropicFoundryClient`, same proofreader code).
+4. **Where Claude runs** — decided: the Anthropic API on the owner's credits for now (key in Key
+   Vault), Microsoft Foundry inside the Azure subscription later (`AnthropicFoundryClient`, not
+   built; `Proofread:Provider` chooses). See WIP.md, "AI proofread".
 5. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`
    are starting points. They become each client's own policy, set by the client (decided
    2026-10-03); Neelam's values are still to be chosen.
