@@ -249,12 +249,7 @@ else if (_session is not null)
                 <ul class="findings">
                     @foreach (var finding in status.Findings.OrderByDescending(f => f.Severity))
                     {
-                        <li class="finding @(finding.Severity == Severity.Blocker ? "blocker" : "warning")">
-                            <strong>@(finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
-                            <span class="muted">@finding.Location</span>
-                            <span>@finding.Message</span>
-                            @CapsLink(finding)
-                        </li>
+                        <FindingItem Finding="finding" />
                     }
                 </ul>
                 <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
@@ -386,25 +381,11 @@ else if (_session is not null)
                    button goes on. Nothing here can be exported until she goes on. *@
                 <section class="card export-warnings" role="dialog" aria-labelledby="export-warnings-title">
                     <h2 id="export-warnings-title">Before you copy it into Square</h2>
-                    <p>@(ExportedBefore
-                           ? (warningsFirst.Count == 1 ? "1 new thing is" : $"{warningsFirst.Count} new things are") + " worth a look since you last exported."
-                           : (warningsFirst.Count == 1 ? "One thing is" : $"{warningsFirst.Count} things are") + " worth a look.") None of them stops the email. If one is a mistake, go to it and fix it; if it is right as written, carry on.</p>
+                    <p>@DraftSession.WarningsLead(warningsFirst.Count, ExportedBefore)</p>
                     <ul class="findings">
                         @foreach (var warning in warningsFirst)
                         {
-                            <li class="finding warning">
-                                <strong>Worth a look</strong>
-                                @if (JumpTo(warning) is { } jump)
-                                {
-                                    <a class="muted" href="@jump">@warning.Location</a>
-                                }
-                                else
-                                {
-                                    <span class="muted">@warning.Location</span>
-                                }
-                                <span>@warning.Message</span>
-                                @CapsLink(warning)
-                            </li>
+                            <FindingItem Finding="warning" JumpTo="@JumpTo(warning)" />
                         }
                     </ul>
                     <p class="field-help">Fixing one changes the campaign: save it again and approve the new version.</p>
@@ -560,6 +541,7 @@ else
         // The address now names the campaign, so a reload opens what was saved. Only the address
         // changes: navigating would load the page afresh, at the top and without the saved line.
         if (isNew) await ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{saved.Id}").AbsoluteUri);
+        await ShowTitleAsync(Title);
     }
 
     // The browser's address, replaced in place. A failure is only logged: the save stands, and the
@@ -573,6 +555,21 @@ else
         catch (Exception ex) when (ex is JSException or JSDisconnectedException or TaskCanceledException)
         {
             Log.LogWarning(ex, "Could not show the saved campaign's address.");
+        }
+    }
+
+    // The tab's title, as a reload would show it. PageTitle sets it only as the page is first sent
+    // (the head is not interactive), so after a save it is set here: the first save's tab otherwise
+    // says "Untitled campaign" until a reload. A failure is only logged, as for the address.
+    private async Task ShowTitleAsync(string title)
+    {
+        try
+        {
+            await JS.SetValueAsync("document.title", title);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or TaskCanceledException)
+        {
+            Log.LogWarning(ex, "Could not show the saved campaign's title.");
         }
     }
 
@@ -682,14 +679,6 @@ else
                 : null;
         return anchor is null ? null : $"campaigns/{_session.Id}#{anchor}";
     }
-
-    // A finding about one of her known lines' limits leads to that line on the Known items page, where
-    // its range is changed in place (owner, 2026-10-09: the caps "easy to find and update"). Nothing
-    // for any other finding.
-    private static RenderFragment? CapsLink(Finding finding) =>
-        FindingPlace.KnownLineLink(finding) is { } link
-            ? @<a class="caps-link" href="@link">Change this line's range</a>
-            : null;
 
     // The JSON as a link to download, with no endpoint: an endpoint would be a second way out.
     private static string DataUrl(string json) =>

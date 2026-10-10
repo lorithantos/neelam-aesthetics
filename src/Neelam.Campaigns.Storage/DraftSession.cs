@@ -154,6 +154,22 @@ public sealed class DraftSession
         DemoReview(policy, business) is { WarningsToSee: true } report ? report.UnseenWarnings.ToList() : [];
 
     /// <summary>
+    /// What the list of <see cref="WarningsBeforeExport"/> says first: how many, whether they are new
+    /// since she last went on past this version's warnings, and that none of them stops the email,
+    /// each sentence agreeing with the count ("It doesn't stop the email" for one).
+    /// </summary>
+    public static string WarningsLead(int count, bool sinceLastExport)
+    {
+        var one = count == 1;
+        var howMany = sinceLastExport
+            ? (one ? "1 new thing is" : $"{count} new things are") + " worth a look since you last exported."
+            : (one ? "One thing is" : $"{count} things are") + " worth a look.";
+        return one
+            ? $"{howMany} It doesn't stop the email. If it is a mistake, go to it and fix it; if it is right as written, carry on."
+            : $"{howMany} None of them stops the email. If one is a mistake, go to it and fix it; if it is right as written, carry on.";
+    }
+
+    /// <summary>
     /// Goes on to export past this version's "Worth a look" findings as they stand: recorded with its
     /// approval, who and when and each finding's key, so they are not shown again for this version
     /// while they stay as they are. A new save shows them again, unless it changes only her label.

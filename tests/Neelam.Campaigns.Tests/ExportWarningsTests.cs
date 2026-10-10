@@ -358,6 +358,16 @@ public class ExportWarningsTests
     [InlineData("Openings", null)]
     public void A_finding_names_the_block_its_field_is_in(string location, int? expected) =>
         Assert.Equal(expected, FindingPlace.BlockIndex(location, ["Headline", "Opening", "Offer", "Offer 2"]));
+
+    // ---- What the list says first: each sentence agrees with the count ----
+
+    [Theory]
+    [InlineData(1, false, "One thing is worth a look. It doesn't stop the email. If it is a mistake, go to it and fix it; if it is right as written, carry on.")]
+    [InlineData(3, false, "3 things are worth a look. None of them stops the email. If one is a mistake, go to it and fix it; if it is right as written, carry on.")]
+    [InlineData(1, true, "1 new thing is worth a look since you last exported. It doesn't stop the email. If it is a mistake, go to it and fix it; if it is right as written, carry on.")]
+    [InlineData(2, true, "2 new things are worth a look since you last exported. None of them stops the email. If one is a mistake, go to it and fix it; if it is right as written, carry on.")]
+    public void The_list_s_lead_agrees_with_how_many(int count, bool sinceLastExport, string expected) =>
+        Assert.Equal(expected, DraftSession.WarningsLead(count, sinceLastExport));
 }
 
 /// <summary>
@@ -400,11 +410,11 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
 
         var panel = Panel(page);
         Assert.Contains("Before you copy it into Square", panel);
-        Assert.Contains("None of them stops the email.", panel);
         Assert.Contains(">Export anyway</button>", panel);
         // Exactly the warnings the gate has, each once, and none of them asked to be fixed first.
         var warnings = CampaignGate.DemoReview(DraftFixtures.Finished().Build().Campaign!, save.Approval!).Warnings.ToList();
-        Assert.NotEmpty(warnings);
+        Assert.True(warnings.Count > 1);
+        Assert.Contains($"{warnings.Count} things are worth a look. None of them stops the email. If one is a mistake,", panel);
         Assert.Equal(warnings.Count, Regex.Matches(panel, "<li class=\"finding warning\">").Count);
         var labels = CampaignEditor.Open(DraftFixtures.Finished()).Blocks.Select(b => b.Label).ToList();
         foreach (var warning in warnings)
@@ -419,6 +429,17 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
             }
         }
         Assert.Contains("#block-", panel);
+        // Each warning's severity, place and message are elements of their own with a space between,
+        // as under "What the checks say": never "Worth a lookOffer › ...".
+        foreach (var warning in warnings)
+        {
+            var place = Regex.Escape(warning.Location);
+            Assert.Matches(
+                $"<strong>Worth a look</strong>\\s+<span class=\"muted\">(<a class=\"muted\" href=\"[^\"]*\">{place}</a>|{place})</span>\\s+<span>{Regex.Escape(warning.Message)}</span>",
+                panel);
+        }
+        Assert.DoesNotMatch("</strong><", panel);
+        Assert.DoesNotMatch("</a><span>", panel);
         // No export of either kind beside it.
         Assert.DoesNotContain("<h2>Copy into Square</h2>", page);
         Assert.DoesNotContain("data-copy", page);
@@ -465,7 +486,7 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
 
         var panel = Panel(await Get($"/campaigns/{save.Id}"));
 
-        Assert.Contains("1 new thing is worth a look since you last exported. None of them stops the email.", panel);
+        Assert.Contains("1 new thing is worth a look since you last exported. It doesn't stop the email. If it is a mistake,", panel);
         Assert.Single(Regex.Matches(panel, "<li class=\"finding warning\">"));
         Assert.Contains(later.Message, panel);
         Assert.All(warnings[..^1], w => Assert.DoesNotContain(w.Message, panel));
@@ -489,7 +510,7 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
             var links = Regex.Matches(panel, "<a class=\"caps-link\" href=\"([^\"]*)\">Change this line's range</a>");
             Assert.NotEmpty(links);
             Assert.Equal(Regex.Matches(panel, "is outside your usual range for this line").Count, links.Count);
-            Assert.All(links, l => Assert.Equal($"known-items#known-line-{line.Id}", l.Groups[1].Value));
+            Assert.All(links, l => Assert.Equal($"known-items?cap=highest-percent#known-line-{line.Id}", l.Groups[1].Value));
         }
         finally
         {

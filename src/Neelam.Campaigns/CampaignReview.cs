@@ -143,10 +143,13 @@ public static class CampaignReview
             _ => null,
         };
         // Outside a line's limits, the finding carries that line's id (never its text), so the page can
-        // take her straight to the limits to change them.
+        // take her straight to the limits to change them, and which box: the end its first amount
+        // outside them is past.
+        var outside = check.Standing == BenefitStanding.OutsideLimits;
         return message is null ? null : new(Severity.Warning, "known-item", where, message, Excerpt: written)
         {
-            KnownLine = check.Standing == BenefitStanding.OutsideLimits ? check.Line?.Id : null,
+            KnownLine = outside ? check.Line?.Id : null,
+            KnownCap = outside && check.Outside is [var first, ..] ? FindingPlace.CapBox(first) : null,
         };
     }
 

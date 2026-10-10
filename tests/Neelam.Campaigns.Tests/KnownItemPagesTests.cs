@@ -377,6 +377,10 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains($"<label for=\"cap-highest-{key}\">Highest</label>", item.Value);
         Assert.Matches($"<input id=\"cap-usual-{key}\"[^>]*value=\"75\"", item.Value);
         Assert.Matches($"<input id=\"cap-highest-{key}\"[^>]*placeholder=\"no limit\"", item.Value);
+        // Named as a finding's link names them (?cap=), so arriving from one starts in that box.
+        Assert.Matches($"<input id=\"cap-lowest-{key}\" data-cap=\"lowest-amount\"", item.Value);
+        Assert.Matches($"<input id=\"cap-highest-{key}\" data-cap=\"highest-amount\"", item.Value);
+        Assert.Equal(2, Regex.Matches(item.Value, "data-cap=").Count);
         Assert.Contains("Leave Lowest or Highest empty for no limit.", item.Value);
         Assert.Contains(">Save</button>", item.Value);
         // One anchor per line, and only for lines.
@@ -403,7 +407,8 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var links = Regex.Matches(page, "<a class=\"caps-link\" href=\"([^\"]*)\">Change this line's range</a>");
         Assert.NotEmpty(links);
         Assert.Equal(Regex.Matches(page, "is outside your usual range for this line").Count, links.Count);
-        Assert.All(links, l => Assert.Equal($"known-items#known-line-{line.Id}", l.Groups[1].Value));
+        // Above the highest: the link starts her in Highest.
+        Assert.All(links, l => Assert.Equal($"known-items?cap=highest-percent#known-line-{line.Id}", l.Groups[1].Value));
     }
 
     [Fact]

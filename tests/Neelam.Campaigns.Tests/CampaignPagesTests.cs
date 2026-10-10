@@ -129,6 +129,26 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("‹Headline: not filled in yet›", page);
     }
 
+    // After the first save the tab is titled as a reload would title it: the saved campaign's subject,
+    // where the new campaign's address said "Untitled campaign from ...". The page sets the tab's
+    // title from the session's Title after a save (its head is not interactive, so PageTitle alone
+    // leaves the first title standing); that call needs a browser, so here it is the title it is
+    // given, and what the saved campaign's own address renders, that are checked.
+    [Fact]
+    public async Task After_the_first_save_the_title_is_the_saved_campaign_s_subject()
+    {
+        var (_, fresh) = await Get($"/campaigns/new/{Membership}", [Features.Campaigns]);
+        Assert.Contains("<title>Untitled campaign from Membership announcement</title>", fresh);
+        var session = (await DraftSession.StartAsync(app.Stores.Campaigns(SalonOne.Name, Actor.Demo), Membership))!;
+        session.Editor.Subject.Text = "Our first birthday";
+
+        var saved = await session.SaveAsync();
+
+        Assert.Equal("Our first birthday", session.Editor.Title);
+        var (_, reloaded) = await Get($"/campaigns/{saved.Id}", [Features.Campaigns]);
+        Assert.Contains($"<title>{session.Editor.Title}</title>", reloaded);
+    }
+
     // What only the list carries.
     private const string TheList = "<h2>Your campaigns</h2>";
 

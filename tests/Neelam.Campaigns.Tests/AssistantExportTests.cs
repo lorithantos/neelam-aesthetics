@@ -209,6 +209,7 @@ public class AssistantExportTests
         Assert.Equal(Severity.Warning, finding.Severity);
         // The page links the finding to her line by its id; the assistant's file never carries it.
         Assert.Equal(line.Id, finding.KnownLine);
+        Assert.NotNull(finding.KnownCap);
         var json = Exported(report, context: Context);
         var worthALook = Parse(json)["review"]!["worthALook"]!.AsArray()
             .Select(n => n!.GetValue<string>()).ToList();
@@ -216,6 +217,7 @@ public class AssistantExportTests
                         $"(up to {amount.Field.Show(amount.Value - 1)}).", worthALook);
         Assert.DoesNotContain(line.Id, json);
         Assert.DoesNotContain("known-line", json);
+        Assert.DoesNotContain(finding.KnownCap!, json);
     }
 
     // The page and the assistant read the same findings: a benefit named as she wrote it, never by its

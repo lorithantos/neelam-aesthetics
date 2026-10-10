@@ -72,7 +72,8 @@ else if (_session is not null)
             @foreach (var item in items.Benefits)
             {
                 @* Each line has its own anchor, so a finding about its range can link straight here;
-                   arrive.js scrolls to it, marks it for a moment and puts focus in its boxes. *@
+                   arrive.js scrolls to it, marks it for a moment and puts focus in the box the
+                   link names (data-cap, FindingPlace.CapBox), or its first. *@
                 <li id="@FindingPlace.KnownLineAnchor(item.Id)" class="known-line" tabindex="-1">
                     @if (_session.Editing?.Id == item.Id && _session.EditBenefit is { } editing && _session.EditLimits is { } limits)
                     {
@@ -209,11 +210,11 @@ else if (_session is not null)
                     </span>
                     <span class="caps-box">
                         <label for="cap-lowest-@key">Lowest</label>
-                        <input id="cap-lowest-@key" inputmode="decimal" size="6" placeholder="no limit" @bind="amount.Lowest" @bind:event="oninput" />
+                        <input id="cap-lowest-@key" data-cap="@FindingPlace.CapBox(false, amount.Field.Name)" inputmode="decimal" size="6" placeholder="no limit" @bind="amount.Lowest" @bind:event="oninput" />
                     </span>
                     <span class="caps-box">
                         <label for="cap-highest-@key">Highest</label>
-                        <input id="cap-highest-@key" inputmode="decimal" size="6" placeholder="no limit" @bind="amount.Highest" @bind:event="oninput" />
+                        <input id="cap-highest-@key" data-cap="@FindingPlace.CapBox(true, amount.Field.Name)" inputmode="decimal" size="6" placeholder="no limit" @bind="amount.Highest" @bind:event="oninput" />
                     </span>
                 </div>
             }

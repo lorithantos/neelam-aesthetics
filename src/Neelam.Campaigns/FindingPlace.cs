@@ -35,12 +35,28 @@ public static class FindingPlace
     public static string KnownLineAnchor(string id) => $"known-line-{id}";
 
     /// <summary>
-    /// Where to change the limits a finding holds an amount to: the Known items page at that line
-    /// ("known-items#known-line-{id}", relative to the site's base, as the site's other links are).
-    /// Null for a finding that is not about one of her lines' limits.
+    /// The name of one of a line's limit boxes on the Known items page, the same on every line: which
+    /// end and which amount, such as "highest-percent". A name, never a value.
+    /// </summary>
+    public static string CapBox(bool highest, string field) =>
+        $"{(highest ? "highest" : "lowest")}-{field.ToLowerInvariant()}";
+
+    /// <summary>
+    /// The limit box an amount outside a line's limits leads to: Highest when it is above the highest,
+    /// Lowest when it is below the lowest.
+    /// </summary>
+    public static string CapBox(OutsideLimit outside) => CapBox(outside.AboveHighest, outside.Amount.Field.Name);
+
+    /// <summary>
+    /// Where to change the limits a finding holds an amount to: the Known items page at that line, with
+    /// the box to start in ("known-items?cap=highest-percent#known-line-{id}", relative to the site's
+    /// base, as the site's other links are). Null for a finding that is not about one of her lines'
+    /// limits.
     /// </summary>
     public static string? KnownLineLink(Finding finding) =>
-        finding.KnownLine is { Length: > 0 } id ? $"known-items#{KnownLineAnchor(id)}" : null;
+        finding.KnownLine is { Length: > 0 } id
+            ? $"known-items{(finding.KnownCap is { Length: > 0 } cap ? $"?cap={Uri.EscapeDataString(cap)}" : "")}#{KnownLineAnchor(id)}"
+            : null;
 
     // The label itself, or the label followed by a part of it (" › ...") or a paragraph (", ...").
     private static bool Names(string location, string label) =>

@@ -28,6 +28,13 @@ public sealed record Finding(
     public string? KnownLine { get; init; }
 
     /// <summary>
+    /// With <see cref="KnownLine"/>: the limit box the amount fell outside, as
+    /// <see cref="FindingPlace.CapBox(OutsideLimit)"/> names it ("highest-percent"), so the link puts
+    /// her in that box. A name only, never a value; null on every other finding, and never exported.
+    /// </summary>
+    public string? KnownCap { get; init; }
+
+    /// <summary>
     /// What says she has been shown this finding at export (owner, 2026-10-09): a hash of its rule,
     /// place and message, so the same finding has the same key on every visit and a changed one a new
     /// key. Only the hash is ever stored: never the finding's text.

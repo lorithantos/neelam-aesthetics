@@ -415,10 +415,14 @@ misses.
     "outside your usual range" finding carries the line's id (`Finding.KnownLine`, an id only, set
     by `CampaignReview` only for `OutsideLimits`, not part of `SeenKey`), and on the campaign page
     ("What the checks say") and in the export list it ends with **"Change this line's range"**, a link
-    to `known-items#known-line-{id}`; no other finding has one. The assistant JSON writes a finding as
-    its place and message only, so the id never reaches it (pinned by a test). Arriving, a small
+    to `known-items?cap={end}-{amount}#known-line-{id}`, the box named for the limit the amount fell
+    outside (`Finding.KnownCap`, `FindingPlace.CapBox`: `highest-percent` above the highest,
+    `lowest-percent` below the lowest; the boxes carry the same name as `data-cap`); no other finding
+    has one. The assistant JSON writes a finding as its place and message only, so neither the id nor
+    the box reaches it (pinned by a test). Arriving, a small
     script (`wwwroot/arrive.js`, loaded beside `copy.js` the same way, no interop) scrolls the line to
-    the middle, marks it for 2.5 seconds and puts focus in its first box, again if the page's turning
+    the middle, marks it for 2.5 seconds and puts focus in the box `?cap` names (its first box
+    without one), again if the page's turning
     interactive replaces the element in the first 10 seconds. **Untested in a circuit or browser:**
     the scroll, the mark and the focus, and the Save click itself (the session behind it is tested).
   - Activity events and logs are unchanged: ids only, never the line or its limits.

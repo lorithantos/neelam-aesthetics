@@ -1,0 +1,34 @@
+@* One finding, as both lists on the campaign page show it: how much it matters, where it is (a link
+   to its field when the list gives one), what it says, and, for an amount outside one of her lines'
+   range, the way to that range. Each part is its own element with a space between: Razor drops the
+   space beside an @if, which ran the export list's parts together ("Worth a lookOffer › ..."), so
+   the place's link or text is chosen inside its own span. *@
+<li class="finding @(Finding.Severity == Severity.Blocker ? "blocker" : "warning")">
+    <strong>@(Finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
+    <span class="muted">
+        @if (JumpTo is { } jump)
+        {
+            <a class="muted" href="@jump">@Finding.Location</a>
+        }
+        else
+        {
+            @Finding.Location
+        }
+    </span>
+    <span>@Finding.Message</span>
+    @* A finding about one of her known lines' limits leads to that line on the Known items page,
+       where its range is changed in place (owner, 2026-10-09: the caps "easy to find and update"). *@
+    @if (FindingPlace.KnownLineLink(Finding) is { } link)
+    {
+        <a class="caps-link" href="@link">Change this line's range</a>
+    }
+</li>
+
+@code {
+    [Parameter, EditorRequired]
+    public Finding Finding { get; set; } = null!;
+
+    /// <summary>Where on the page its field is, or null to name the place without a link.</summary>
+    [Parameter]
+    public string? JumpTo { get; set; }
+}

@@ -152,6 +152,9 @@ public sealed record AmountLimit(string Field, decimal? Min, decimal? Max)
 public sealed record OutsideLimit(BenefitAmount Amount, AmountLimit Limit)
 {
     public string Range => Limit.Range(Amount.Field);
+
+    /// <summary>Above the highest; otherwise it is below the lowest.</summary>
+    public bool AboveHighest => Limit.Max is { } hi && Amount.Value > hi;
 }
 
 /// <summary>How a campaign's benefit stands against her benefit lines and her known tiers' lines.</summary>

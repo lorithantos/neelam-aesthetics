@@ -554,7 +554,9 @@ public class KnownItemsTests
 
     // From the finding straight to the caps (owner, 2026-10-09: "make sure the editing of the caps is
     // easy to find and update"): outside a line's limits, the finding carries that line's id, never
-    // its text, and leads to that line's anchor on the Known items page.
+    // its text, and leads to that line's anchor on the Known items page, naming the box to start in:
+    // Highest for an amount above the highest, Lowest for one below the lowest. That the cursor lands
+    // there is arrive.js's, which no test here runs (no browser).
     [Fact]
     public void A_finding_outside_a_line_s_limits_leads_to_that_line()
     {
@@ -567,9 +569,18 @@ public class KnownItemsTests
         Assert.Equal(2, findings.Count);
         Assert.All(findings, f => Assert.Contains("outside your usual range", f.Message));
         Assert.Equal([FiveToTen.Id, credit.Id], findings.Select(f => f.KnownLine));
-        Assert.Equal($"known-items#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(findings[0]));
-        Assert.Equal($"known-items#known-line-{credit.Id}", FindingPlace.KnownLineLink(findings[1]));
+        Assert.Equal($"known-items?cap=highest-percent#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(findings[0]));
+        Assert.Equal($"known-items?cap=highest-amount#known-line-{credit.Id}", FindingPlace.KnownLineLink(findings[1]));
         Assert.Equal($"known-line-{credit.Id}", FindingPlace.KnownLineAnchor(credit.Id));
+    }
+
+    [Fact]
+    public void Below_the_lowest_leads_to_the_lowest_box()
+    {
+        var finding = Assert.Single(NearMisses(WithBenefit(new PercentOff(3, "any qualifying treatments")), Knowing(FiveToTen)));
+
+        Assert.Equal("lowest-percent", finding.KnownCap);
+        Assert.Equal($"known-items?cap=lowest-percent#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(finding));
     }
 
     // Only a line's limits lead there: a near miss of one of her lines (which names the line), a line
@@ -596,6 +607,7 @@ public class KnownItemsTests
         Assert.All(report.Findings, f =>
         {
             Assert.Null(f.KnownLine);
+            Assert.Null(f.KnownCap);
             Assert.Null(FindingPlace.KnownLineLink(f));
         });
     }
