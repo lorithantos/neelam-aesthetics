@@ -2,6 +2,7 @@
    is the client's data like its templates, so the access check decides whose. *@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
+@inject BlockCatalog Blocks
 
 @if (_client is not null && _inForce is not null)
 {
@@ -20,19 +21,19 @@
             <ol>
                 @foreach (var part in parts)
                 {
-                    <li>@BlockGuide.For(part).Name</li>
+                    <li>@Blocks.For(part).Label</li>
                 }
             </ol>
         }
 
         <details>
             <summary>Change it</summary>
-            @foreach (var guide in BlockGuide.All.Where(g => g.Type != BlockType.Spacer))
+            @foreach (var guide in Blocks.All.Where(g => g.Type != BlockType.Spacer))
             {
                 var type = guide.Type;
                 <label class="check">
                     <input type="checkbox" checked="@_chosen.Parts.Contains(type)" @onchange="e => Choose(type, e.Value is true)" />
-                    @guide.Name
+                    @guide.Label
                 </label>
             }
             @if (_chosen.Parts.Count > 0)
@@ -43,7 +44,7 @@
                     @for (var i = 0; i < _chosen.Parts.Count; i++)
                     {
                         var index = i;
-                        var name = BlockGuide.For(_chosen.Parts[index]).Name;
+                        var name = Blocks.For(_chosen.Parts[index]).Label;
                         <li>
                             <span>@name</span>
                             <span class="block-actions">

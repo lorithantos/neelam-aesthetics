@@ -1,0 +1,195 @@
+[
+  {
+    "type": "Header",
+    "label": "Header",
+    "description": "The top of the email: the business's name, over a photo from the library if you like.",
+    "checks": [
+      "A photo with no description is flagged: say what it shows, and put any offer or dates it holds in the text too.",
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "photo-described",
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "Heading",
+    "label": "Heading",
+    "description": "A line set large, such as the email's headline.",
+    "checks": [
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "Greeting",
+    "label": "Greeting",
+    "description": "How the email addresses the reader, such as \"Hi Beautiful\".",
+    "checks": [
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "Paragraphs",
+    "label": "Paragraphs",
+    "description": "Body text, one or more paragraphs.",
+    "checks": [
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "Offer",
+    "label": "Offer",
+    "description": "A tiered offer, such as a membership: its name, a summary, and tiers with prices and typed benefits. Always written for each campaign, never fixed.",
+    "checks": [
+      "It needs a button somewhere in the email, or the email is blocked.",
+      "Tiers must have different names and different benefits, and prices that run one way, lowest first or highest first.",
+      "Names that are the same apart from their numbers (\"Option 1 Platinum Member\", \"Option 2 Platinum Member\") are flagged strongly, but not blocked: \"Glow 50\" and \"Glow 100\" are fine.",
+      "Tier names are read on ladders such as Bronze, Silver, Gold, Platinum: two tiers on the same rung are flagged, and so is a higher rung that costs less.",
+      "Each benefit's value must make sense (a discount between 1% and 99%, at least one free item).",
+      "A recurring charge needs a link to its terms.",
+      "Tiers offering different kinds of benefit are flagged so they are checked side by side.",
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "cta-required",
+      "tier-names-unique",
+      "tier-names-numbered",
+      "tier-rung-repeated",
+      "tier-rung-order",
+      "tier-content-distinct",
+      "tier-price-positive",
+      "tier-prices-increase",
+      "benefit-value",
+      "terms-required",
+      "tiers-parallel",
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "Button",
+    "label": "Button",
+    "description": "What the reader should do next, and the web page it opens.",
+    "checks": [
+      "Its link must be a full https:// address.",
+      "An email with an offer needs one.",
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "cta-https",
+      "cta-required",
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "Image",
+    "label": "Image",
+    "description": "A photo from the client's image library.",
+    "checks": [
+      "A photo with no description is flagged: say what it shows, and put any offer or dates it holds in the text too.",
+      "Its description, what a reader gets when images do not load, gets the text checks."
+    ],
+    "rules": [
+      "photo-described",
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "SignOff",
+    "label": "Sign-off",
+    "description": "The closing: a valediction, who it is from, and a tagline if you like.",
+    "checks": [
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "FinePrint",
+    "label": "Fine print",
+    "description": "Terms, disclaimers and other small print.",
+    "checks": [
+      "Any text here counts as the disclaimer a medical term needs.",
+      "Words the client's policy restricts are flagged for sign-off.",
+      "The same run of words in two places is flagged as a likely paste error.",
+      "An emoji touching a word, and more emoji than the policy allows, are flagged.",
+      "A medical term needs a disclaimer in a fine-print block."
+    ],
+    "rules": [
+      "restricted-term",
+      "repeated-phrase",
+      "emoji-spacing",
+      "emoji-budget",
+      "medical-disclaimer"
+    ]
+  },
+  {
+    "type": "Spacer",
+    "label": "Spacer",
+    "description": "Space between blocks. It holds nothing.",
+    "checks": [],
+    "rules": []
+  }
+]

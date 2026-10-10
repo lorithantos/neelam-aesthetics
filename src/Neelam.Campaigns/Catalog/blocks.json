@@ -1,0 +1,80 @@
+{
+  "blocks": [
+    {
+      "type": "Header",
+      "label": "Header",
+      "description": "The top of the email: the business's name, over a photo from the library if you like.",
+      "rules": ["photo-described", "restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"]
+    },
+    {
+      "type": "Heading",
+      "label": "Heading",
+      "description": "A line set large, such as the email's headline.",
+      "rules": ["restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"]
+    },
+    {
+      "type": "Greeting",
+      "label": "Greeting",
+      "description": "How the email addresses the reader, such as \"Hi Beautiful\".",
+      "rules": ["restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"]
+    },
+    {
+      "type": "Paragraphs",
+      "label": "Paragraphs",
+      "description": "Body text, one or more paragraphs.",
+      "rules": ["restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"]
+    },
+    {
+      "type": "Offer",
+      "label": "Offer",
+      "description": "A tiered offer, such as a membership: its name, a summary, and tiers with prices and typed benefits. Always written for each campaign, never fixed.",
+      "rules": [
+        "cta-required", "tier-names-unique", "tier-names-numbered", "tier-rung-repeated", "tier-rung-order", "tier-content-distinct",
+        "tier-price-positive", "tier-prices-increase", "benefit-value", "terms-required", "tiers-parallel",
+        "restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"
+      ]
+    },
+    {
+      "type": "Button",
+      "label": "Button",
+      "description": "What the reader should do next, and the web page it opens.",
+      "rules": ["cta-https", "cta-required", "restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"],
+      "wording": [
+        { "rules": ["cta-required"], "says": "An email with an offer needs one." }
+      ]
+    },
+    {
+      "type": "Image",
+      "label": "Image",
+      "description": "A photo from the client's image library.",
+      "rules": ["photo-described", "restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"],
+      "wording": [
+        {
+          "rules": ["restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"],
+          "says": "Its description, what a reader gets when images do not load, gets the text checks."
+        }
+      ]
+    },
+    {
+      "type": "SignOff",
+      "label": "Sign-off",
+      "description": "The closing: a valediction, who it is from, and a tagline if you like.",
+      "rules": ["restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"]
+    },
+    {
+      "type": "FinePrint",
+      "label": "Fine print",
+      "description": "Terms, disclaimers and other small print.",
+      "rules": ["medical-disclaimer", "restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget"],
+      "wording": [
+        { "rules": ["medical-disclaimer"], "says": "Any text here counts as the disclaimer a medical term needs." }
+      ]
+    },
+    {
+      "type": "Spacer",
+      "label": "Spacer",
+      "description": "Space between blocks. It holds nothing.",
+      "rules": []
+    }
+  ]
+}

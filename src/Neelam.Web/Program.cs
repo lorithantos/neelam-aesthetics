@@ -55,6 +55,11 @@ builder.Services.AddSingleton(storageClients);
 // here, at startup.
 builder.Services.AddSingleton(new DefaultTimeZone(LocalTime.For(builder.Configuration[LocalTime.Setting])));
 
+// The block types the template editor offers, what each is for and what the checks look for in it:
+// data shipped with the app (Catalog/blocks.json and Catalog/rules.json), read and checked here, at
+// startup. When the files and the code disagree, the app stops here, saying every problem.
+builder.Services.AddSingleton(BlockCatalog.Shipped(AppContext.BaseDirectory));
+
 // Undo marks a save and the sweep deletes it once the grace period has passed (owner, 2026-10-09).
 // The period is a setting, Undo:GracePeriod, required: the app refuses to start without it.
 builder.Services.AddOptions<UndoOptions>()

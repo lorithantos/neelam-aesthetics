@@ -83,6 +83,31 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Matches(@"^Last saved 3 Oct 2026, 5:0\d AM PDT\.$", RenderedPage.Named(page, "last-saved"));
     }
 
+    // The guide under each block is the block catalog's (Catalog/blocks.json and rules.json): a
+    // fine-print block says its text is the disclaimer, and no longer asks for one in a fine-print block.
+    [Fact]
+    public async Task The_editor_s_guide_and_add_block_list_come_from_the_block_catalog()
+    {
+        var (_, page) = await Get($"/templates/{Membership}", [Features.Templates]);
+        var finePrint = DraftFixtures.Membership.Blocks.ToList().FindIndex(b => b.Type == BlockType.FinePrint);
+        Assert.True(finePrint >= 0, "The membership template has a fine-print block.");
+
+        var checks = RenderedPage.Named(page, $"block-checks-{finePrint}");
+        Assert.Equal(
+            "What the checks look for in this block " + string.Join(" ", Catalogs.Shipped.For(BlockType.FinePrint).Checks),
+            checks);
+        Assert.StartsWith("What the checks look for in this block Any text here counts as the disclaimer a medical term needs.", checks);
+        Assert.DoesNotContain("A medical term needs a disclaimer in a fine-print block.", checks);
+        // Every other text block still lists it.
+        var heading = DraftFixtures.Membership.Blocks.ToList().FindIndex(b => b.Type == BlockType.Heading);
+        Assert.Contains("A medical term needs a disclaimer in a fine-print block.", RenderedPage.Named(page, $"block-checks-{heading}"));
+
+        // Every block type, in the catalog's order.
+        Assert.Equal(
+            string.Join(" ", Catalogs.Shipped.All.Select(g => $"{g.Label} {g.Description}")),
+            RenderedPage.Named(page, "add-blocks"));
+    }
+
     [Fact]
     public async Task Copy_starts_a_new_template_from_another()
     {

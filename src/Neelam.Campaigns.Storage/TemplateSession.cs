@@ -35,22 +35,23 @@ public sealed class TemplateSession
     /// <summary>Until when <see cref="Restorable"/> can be restored.</summary>
     public DateTimeOffset? RestorableUntil => Restorable is null ? null : _store.RestorableUntil(Restorable);
 
-    public static TemplateSession New(CampaignStore store) => new(store, null, TemplateEditor.StartBlank(), null);
+    public static TemplateSession New(CampaignStore store, BlockCatalog catalog) =>
+        new(store, null, TemplateEditor.StartBlank(catalog), null);
 
     /// <summary>A new template starting with the baseline's parts; see <see cref="TemplateEditor.StartFrom"/>. Nothing is saved.</summary>
-    public static TemplateSession New(CampaignStore store, TemplateBaseline baseline) =>
-        new(store, null, TemplateEditor.StartFrom(baseline), null);
+    public static TemplateSession New(CampaignStore store, TemplateBaseline baseline, BlockCatalog catalog) =>
+        new(store, null, TemplateEditor.StartFrom(baseline, catalog), null);
 
     /// <summary>
     /// The newest version of a template, or null when it has none in use. A template whose every
     /// save was undone is null here; <see cref="RestorableAsync"/> says whether it can come back.
     /// </summary>
-    public static async Task<TemplateSession?> OpenAsync(CampaignStore store, Guid id, CancellationToken ct = default)
+    public static async Task<TemplateSession?> OpenAsync(CampaignStore store, Guid id, BlockCatalog catalog, CancellationToken ct = default)
     {
         var latest = (await store.HistoryAsync(DocumentKind.Template, id, ct)).FirstOrDefault();
         return latest is null
             ? null
-            : new TemplateSession(store, id, TemplateEditor.Open(await store.LoadTemplateAsync(latest, ct)), latest,
+            : new TemplateSession(store, id, TemplateEditor.Open(await store.LoadTemplateAsync(latest, ct), catalog), latest,
                 await store.RestorableAsync(DocumentKind.Template, id, ct));
     }
 
@@ -62,16 +63,16 @@ public sealed class TemplateSession
     /// Restores an undone version of a template with nothing else in use and opens it; null when
     /// its grace period has passed or it is gone.
     /// </summary>
-    public static async Task<TemplateSession?> RestoreAsync(CampaignStore store, SaveRef undone, CancellationToken ct = default) =>
-        await store.RestoreAsync(undone, ct) ? await OpenAsync(store, undone.Id, ct) : null;
+    public static async Task<TemplateSession?> RestoreAsync(CampaignStore store, SaveRef undone, BlockCatalog catalog, CancellationToken ct = default) =>
+        await store.RestoreAsync(undone, ct) ? await OpenAsync(store, undone.Id, catalog, ct) : null;
 
     /// <summary>A new, unsaved template copied from another's newest version, or null when that has no saves.</summary>
-    public static async Task<TemplateSession?> CopyAsync(CampaignStore store, Guid from, CancellationToken ct = default)
+    public static async Task<TemplateSession?> CopyAsync(CampaignStore store, Guid from, BlockCatalog catalog, CancellationToken ct = default)
     {
         var source = (await store.HistoryAsync(DocumentKind.Template, from, ct)).FirstOrDefault();
         return source is null
             ? null
-            : new TemplateSession(store, null, TemplateEditor.CopyOf(await store.LoadTemplateAsync(source, ct)), null);
+            : new TemplateSession(store, null, TemplateEditor.CopyOf(await store.LoadTemplateAsync(source, ct), catalog), null);
     }
 
     /// <summary>Saves the editor's template as a new version; refused while it has errors.</summary>
@@ -121,7 +122,7 @@ public sealed class TemplateSession
         Latest = (await _store.HistoryAsync(DocumentKind.Template, Id!.Value, ct)).FirstOrDefault();
         Restorable = await _store.RestorableAsync(DocumentKind.Template, Id.Value, ct);
         if (Latest is null) return false;
-        Editor = TemplateEditor.Open(await _store.LoadTemplateAsync(Latest, ct));
+        Editor = TemplateEditor.Open(await _store.LoadTemplateAsync(Latest, ct), Editor.Catalog);
         return true;
     }
 }

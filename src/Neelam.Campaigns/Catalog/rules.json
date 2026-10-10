@@ -1,0 +1,24 @@
+{
+  "rules": [
+    { "id": "photo-described", "description": "A photo with no description is flagged: say what it shows, and put any offer or dates it holds in the text too." },
+    { "id": "restricted-term", "description": "Words the client's policy restricts are flagged for sign-off." },
+    { "id": "repeated-phrase", "description": "The same run of words in two places is flagged as a likely paste error." },
+    { "id": "emoji-spacing", "description": "An emoji touching a word, and more emoji than the policy allows, are flagged." },
+    { "id": "emoji-budget", "describedWith": "emoji-spacing" },
+    { "id": "medical-disclaimer", "description": "A medical term needs a disclaimer in a fine-print block." },
+    { "id": "cta-required", "description": "It needs a button somewhere in the email, or the email is blocked." },
+    { "id": "cta-https", "description": "Its link must be a full https:// address." },
+    { "id": "tier-names-unique", "description": "Tiers must have different names and different benefits, and prices that run one way, lowest first or highest first." },
+    { "id": "tier-content-distinct", "describedWith": "tier-names-unique" },
+    { "id": "tier-price-positive", "describedWith": "tier-names-unique" },
+    { "id": "tier-prices-increase", "describedWith": "tier-names-unique" },
+    { "id": "tier-names-numbered", "description": "Names that are the same apart from their numbers (\"Option 1 Platinum Member\", \"Option 2 Platinum Member\") are flagged strongly, but not blocked: \"Glow 50\" and \"Glow 100\" are fine." },
+    { "id": "tier-rung-repeated", "description": "Tier names are read on ladders such as Bronze, Silver, Gold, Platinum: two tiers on the same rung are flagged, and so is a higher rung that costs less." },
+    { "id": "tier-rung-order", "describedWith": "tier-rung-repeated" },
+    { "id": "benefit-value", "description": "Each benefit's value must make sense (a discount between 1% and 99%, at least one free item)." },
+    { "id": "terms-required", "description": "A recurring charge needs a link to its terms." },
+    { "id": "tiers-parallel", "description": "Tiers offering different kinds of benefit are flagged so they are checked side by side." },
+    { "id": "known-item", "description": "Tier names, treatments and benefit lines are compared with the client's known items: one that is close but not the same, one that is not among them, a known tier at a different price, or an amount outside a line's usual range is flagged." },
+    { "id": "phone-registered", "description": "A phone number the business has not registered is flagged." }
+  ]
+}

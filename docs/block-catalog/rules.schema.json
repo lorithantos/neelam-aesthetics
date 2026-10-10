@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neelam-aesthetics.invalid/schemas/block-catalog/rules.schema.json",
+  "title": "Block catalog: rules.json",
+  "description": "One entry per rule id the checks report: the plain-language line shown under What the checks look for in a block that names the rule, or the rule whose line it shares. Read by Neelam.Campaigns.BlockCatalog at startup with System.Text.Json, which also checks what a schema cannot (every rule the checks report is here once, and nothing else is). This schema is checked by the tests only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["rules"],
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" }
+    }
+  },
+  "$defs": {
+    "ruleId": {
+      "type": "string",
+      "pattern": "^[a-z]+(-[a-z]+)+$"
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ruleId" },
+        "description": {
+          "description": "The line shown for this rule.",
+          "type": "string",
+          "minLength": 1
+        },
+        "describedWith": {
+          "description": "A rule whose line also covers this one, so the two show as one line.",
+          "$ref": "#/$defs/ruleId"
+        }
+      },
+      "oneOf": [
+        { "required": ["description"], "not": { "required": ["describedWith"] } },
+        { "required": ["describedWith"], "not": { "required": ["description"] } }
+      ]
+    }
+  }
+}

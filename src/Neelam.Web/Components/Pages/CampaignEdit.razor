@@ -22,6 +22,7 @@
 @inject ClientStores Stores
 @inject NavigationManager Navigation
 @inject SiteMode Site
+@inject BlockCatalog Blocks
 @inject IAuthorizationService Authorization
 @inject ActivityRecorder Recorder
 @inject ILogger<CampaignEdit> Log
@@ -100,7 +101,7 @@ else if (_session is not null)
                     <section class="card block-card" id="block-@index" aria-label="@block.Label">
                         <div class="block-card-head">
                             <h3>@block.Label</h3>
-                            <span class="muted">@BlockGuide.For(block.Type).Name@(block.IsFixed ? " · the same in every campaign" : block.Required ? "" : " · optional")</span>
+                            <span class="muted">@Blocks.For(block.Type).Label@(block.IsFixed ? " · the same in every campaign" : block.Required ? "" : " · optional")</span>
                         </div>
 
                         @if (block.IsFixed)
@@ -120,7 +121,7 @@ else if (_session is not null)
                                     break;
                                 case TextBlockEditor text:
                                     <div class="field">
-                                        <label for="text-@index">@BlockGuide.For(block.Type).Name</label>
+                                        <label for="text-@index">@Blocks.For(block.Type).Label</label>
                                         <input id="text-@index" @bind="text.Field.Text" @bind:event="oninput" />
                                     </div>
                                     break;

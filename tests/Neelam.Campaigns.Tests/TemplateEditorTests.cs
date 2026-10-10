@@ -11,7 +11,7 @@ public class TemplateEditorTests
     [Fact]
     public void A_blank_template_cannot_be_saved_until_it_has_a_name_and_a_block()
     {
-        var editor = TemplateEditor.StartBlank();
+        var editor = TemplateEditor.StartBlank(Catalogs.Shipped);
 
         Assert.Equal(["Give the template a name.", "Add at least one block."], editor.Errors().Select(e => e.Message));
         Assert.Throws<InvalidOperationException>(editor.Build);
@@ -25,7 +25,7 @@ public class TemplateEditorTests
     [Fact]
     public void New_blocks_are_labelled_by_type_and_numbered_when_the_label_is_taken()
     {
-        var editor = TemplateEditor.StartBlank();
+        var editor = TemplateEditor.StartBlank(Catalogs.Shipped);
 
         editor.Add(BlockType.Paragraphs);
         editor.Add(BlockType.SignOff);
@@ -38,7 +38,7 @@ public class TemplateEditorTests
     [Fact]
     public void Blocks_move_and_are_removed_and_moving_past_an_end_does_nothing()
     {
-        var editor = TemplateEditor.StartBlank();
+        var editor = TemplateEditor.StartBlank(Catalogs.Shipped);
         var heading = editor.Add(BlockType.Heading);
         var body = editor.Add(BlockType.Paragraphs);
         var button = editor.Add(BlockType.Button);
@@ -62,7 +62,7 @@ public class TemplateEditorTests
     [Fact]
     public void A_new_template_starts_with_the_standard_baseline_s_parts_in_the_order_her_sends_have()
     {
-        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard);
+        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard, Catalogs.Shipped);
 
         Assert.Equal([BlockType.Header, BlockType.Heading, BlockType.SignOff, BlockType.Image, BlockType.Button],
             editor.Blocks.Select(b => b.Type));
@@ -74,20 +74,20 @@ public class TemplateEditorTests
     [Fact]
     public void A_client_s_own_baseline_gives_its_parts_in_its_order_and_an_empty_one_a_blank_start()
     {
-        var own = TemplateEditor.StartFrom(new TemplateBaseline([BlockType.SignOff, BlockType.Greeting, BlockType.Offer]));
+        var own = TemplateEditor.StartFrom(new TemplateBaseline([BlockType.SignOff, BlockType.Greeting, BlockType.Offer]), Catalogs.Shipped);
         Assert.Equal([BlockType.SignOff, BlockType.Greeting, BlockType.Offer], own.Blocks.Select(b => b.Type));
 
-        var none = TemplateEditor.StartFrom(TemplateBaseline.None);
+        var none = TemplateEditor.StartFrom(TemplateBaseline.None, Catalogs.Shipped);
         Assert.Empty(none.Blocks);
         Assert.False(none.FromBaseline);
-        Assert.False(TemplateEditor.CopyOf(DraftFixtures.Membership).FromBaseline);
+        Assert.False(TemplateEditor.CopyOf(DraftFixtures.Membership, Catalogs.Shipped).FromBaseline);
     }
 
     // Each starting block is left to each campaign, and is moved and removed like any other.
     [Fact]
     public void The_starting_blocks_are_written_by_each_campaign_not_fixed()
     {
-        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard);
+        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard, Catalogs.Shipped);
 
         Assert.All(editor.Blocks, b => Assert.False(b.IsFixed));
         Assert.All(editor.Blocks, b => Assert.True(b.Required));
@@ -105,7 +105,7 @@ public class TemplateEditorTests
     [Fact]
     public void A_template_started_from_the_baseline_lacks_nothing_until_a_part_is_removed()
     {
-        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard);
+        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard, Catalogs.Shipped);
 
         Assert.Empty(editor.Missing(TemplateBaseline.Standard));
         editor.Remove(editor.Blocks.Single(b => b.Type == BlockType.Button));
@@ -118,7 +118,7 @@ public class TemplateEditorTests
     [Fact]
     public void A_template_opened_and_saved_unchanged_is_the_same_template()
     {
-        var rebuilt = TemplateEditor.Open(DraftFixtures.Membership).Build();
+        var rebuilt = TemplateEditor.Open(DraftFixtures.Membership, Catalogs.Shipped).Build();
 
         Assert.Equal(CampaignJson.SerializeTemplate(DraftFixtures.Membership), CampaignJson.SerializeTemplate(rebuilt));
     }
@@ -127,7 +127,7 @@ public class TemplateEditorTests
     public void A_copy_is_named_as_one_and_changing_it_leaves_the_original_alone()
     {
         var before = CampaignJson.SerializeTemplate(DraftFixtures.Membership);
-        var copy = TemplateEditor.CopyOf(DraftFixtures.Membership);
+        var copy = TemplateEditor.CopyOf(DraftFixtures.Membership, Catalogs.Shipped);
 
         Assert.Equal("Copy of Membership announcement", copy.Name);
         copy.Blocks.Single(b => b.Label == "Greeting").Text = "Hello there";
@@ -144,7 +144,7 @@ public class TemplateEditorTests
     [Fact]
     public void The_membership_template_built_from_blank_previews_like_the_fixture()
     {
-        var editor = TemplateEditor.StartBlank();
+        var editor = TemplateEditor.StartBlank(Catalogs.Shipped);
         editor.Name = "Membership announcement";
 
         var header = Target.Block<HeaderBlock>("Header");
@@ -343,23 +343,16 @@ public class TemplateEditorTests
     [Fact]
     public void Every_block_type_has_a_guide()
     {
-        Assert.Equal(Enum.GetValues<BlockType>().Order(), BlockGuide.All.Select(g => g.Type).Order());
-        Assert.All(BlockGuide.All, g => Assert.Equal(g.Name, TemplateEditor.StartBlank().Add(g.Type).Label));
+        Assert.Equal(Enum.GetValues<BlockType>().Order(), Catalogs.Shipped.All.Select(g => g.Type).Order());
+        Assert.All(Catalogs.Shipped.All, g => Assert.Equal(g.Label, TemplateEditor.StartBlank(Catalogs.Shipped).Add(g.Type).Label));
     }
 
-    // The guide describes what the checks do, so every rule it names must be one they report.
-    [Fact]
-    public void The_guide_names_only_rules_the_checks_report()
-    {
-        var review = File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Campaigns", "CampaignReview.cs"));
-        var reported = Regex.Matches(review, "\"([a-z]+(?:-[a-z]+)+)\"").Select(m => m.Groups[1].Value).ToHashSet();
-
-        Assert.All(BlockGuide.All.SelectMany(g => g.Rules), rule => Assert.Contains(rule, reported));
-    }
+    // That the guide names only rules the checks report is the catalog's own check at startup,
+    // against CheckRules.Reported: see BlockCatalogTests.
 
     private static TemplateEditor Named()
     {
-        var editor = TemplateEditor.StartBlank();
+        var editor = TemplateEditor.StartBlank(Catalogs.Shipped);
         editor.Name = "Test";
         return editor;
     }

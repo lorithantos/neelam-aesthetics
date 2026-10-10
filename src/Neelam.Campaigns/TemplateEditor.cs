@@ -18,17 +18,24 @@ public sealed class TemplateEditor
 {
     private readonly List<EditableBlock> _blocks;
 
-    private TemplateEditor(string name, IEnumerable<EditableBlock> blocks)
+    private TemplateEditor(BlockCatalog catalog, string name, IEnumerable<EditableBlock> blocks)
     {
+        Catalog = catalog;
         Name = name;
         _blocks = [.. blocks];
     }
+
+    /// <summary>
+    /// The block types this editor offers and what is said about them: the shipped catalog today,
+    /// and the seam for a client's own (see <see cref="BlockCatalog"/>).
+    /// </summary>
+    public BlockCatalog Catalog { get; }
 
     public string Name { get; set; }
 
     public IReadOnlyList<EditableBlock> Blocks => _blocks;
 
-    public static TemplateEditor StartBlank() => new("", []);
+    public static TemplateEditor StartBlank(BlockCatalog catalog) => new(catalog, "", []);
 
     /// <summary>
     /// A new template starting with one block of each part the baseline names (owner, 2026-10-09:
@@ -37,9 +44,9 @@ public sealed class TemplateEditor
     /// <see cref="Add"/> makes it: its usual label, written by each campaign, never fixed content.
     /// An empty baseline is a blank start.
     /// </summary>
-    public static TemplateEditor StartFrom(TemplateBaseline baseline)
+    public static TemplateEditor StartFrom(TemplateBaseline baseline, BlockCatalog catalog)
     {
-        var editor = StartBlank();
+        var editor = StartBlank(catalog);
         foreach (var part in baseline.Parts)
             editor.Add(part);
         editor.FromBaseline = editor._blocks.Count > 0;
@@ -50,20 +57,20 @@ public sealed class TemplateEditor
     public bool FromBaseline { get; private set; }
 
     /// <summary>An existing template, to change and save as its next version.</summary>
-    public static TemplateEditor Open(CampaignTemplate template) =>
-        new(template.Name, template.Blocks.Select(EditableBlock.Of));
+    public static TemplateEditor Open(CampaignTemplate template, BlockCatalog catalog) =>
+        new(catalog, template.Name, template.Blocks.Select(EditableBlock.Of));
 
     /// <summary>
     /// A new template starting from an existing one. Every block is copied, so changing the copy
     /// never touches the original.
     /// </summary>
-    public static TemplateEditor CopyOf(CampaignTemplate template) =>
-        new($"Copy of {template.Name}", template.Blocks.Select(EditableBlock.Of));
+    public static TemplateEditor CopyOf(CampaignTemplate template, BlockCatalog catalog) =>
+        new(catalog, $"Copy of {template.Name}", template.Blocks.Select(EditableBlock.Of));
 
     /// <summary>Adds a block of that type at the end, labelled by its type, numbered if that label is taken.</summary>
     public EditableBlock Add(BlockType type)
     {
-        var name = BlockGuide.For(type).Name;
+        var name = Catalog.For(type).Label;
         var label = name;
         for (var n = 2; _blocks.Any(b => Same(b.Label, label)); n++) label = $"{name} {n}";
         var block = new EditableBlock(type, label);
@@ -95,7 +102,7 @@ public sealed class TemplateEditor
         foreach (var block in _blocks)
         {
             if (string.IsNullOrWhiteSpace(block.Label))
-                errors.Add(new($"A {BlockGuide.For(block.Type).Name.ToLowerInvariant()} block", "Give the block a label."));
+                errors.Add(new($"A {Catalog.For(block.Type).Label.ToLowerInvariant()} block", "Give the block a label."));
             errors.AddRange(block.FixedContent().Errors.Select(e => new TemplateProblem(block.Label.Trim(), e)));
         }
         foreach (var repeated in _blocks.Where(b => !string.IsNullOrWhiteSpace(b.Label))
@@ -177,7 +184,7 @@ public sealed partial class EditableBlock : IPhotoChoice
         set
         {
             if (value && !CanBeFixed)
-                throw new InvalidOperationException($"A {BlockGuide.For(Type).Name.ToLowerInvariant()} block cannot be fixed.");
+                throw new InvalidOperationException($"A block of type {Type} cannot be fixed.");
             _isFixed = value;
         }
     }

@@ -118,6 +118,22 @@ The block types were derived from the one real email the tool has seen, the Beau
 announcement, read from both real sends as Square rendered them, and grow from the next real ones rather than from guesses ("data over dogma").
 The text checks (restricted terms, repetition, emoji) run over every block's text.
 
+**What a block is for, and what the checks look for in it, is data read at startup (owner,
+2026-10-09).** The template editor shows each block's name and what it is for, a "What the checks
+look for in this block" list under it, and an "Add a block" list of every type. All of that comes
+from two files shipped with the app, `src/Neelam.Campaigns/Catalog/blocks.json` (one entry per block
+type, in the order "Add a block" lists them: its type, label, description, the rule ids the checks
+bring to it, and any wording of its own for some of them) and `Catalog/rules.json` (one line per
+rule id the checks report, or the rule whose line it shares). `BlockCatalog` reads them once, with
+System.Text.Json, and the app does not start when they and the code disagree: a block type in code
+with no entry, an entry for a type the code lacks, a rule id no check reports (`CheckRules`, which a
+test holds to the ids `CampaignReview` writes), a reported rule with no description, or a duplicate.
+What a block type holds and guarantees stays code (`BlockType` and its block records); the catalog
+says only what is said about it, and it is free of any sending platform. Their published shapes are
+`docs/block-catalog/blocks.schema.json` and `rules.schema.json`, checked by the tests only. The
+catalog is registered in DI and handed to the editor (`TemplateEditor.Catalog`), so a client's own
+catalog can later be layered on as the baseline is.
+
 **A baseline says which parts every template should have**, as an ordered list of block types
 (`TemplateBaseline`), held as data. The operator keeps a standard baseline for every client;
 a client may save its own, which replaces it for that client, and saving an empty one turns the

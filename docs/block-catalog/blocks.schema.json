@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://neelam-aesthetics.invalid/schemas/block-catalog/blocks.schema.json",
+  "title": "Block catalog: blocks.json",
+  "description": "The block types the template editor offers, in the order its Add a block list shows them: what each is called and is for, and which rules the checks bring to it. Read by Neelam.Campaigns.BlockCatalog at startup with System.Text.Json, which also checks what a schema cannot (every block type in code has one entry, every rule named is one the checks report). This schema is checked by the tests only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["blocks"],
+  "properties": {
+    "blocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/block" }
+    }
+  },
+  "$defs": {
+    "ruleId": {
+      "type": "string",
+      "pattern": "^[a-z]+(-[a-z]+)+$"
+    },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "label", "description", "rules"],
+      "properties": {
+        "type": {
+          "description": "The block type in code (BlockType), by name, such as FinePrint.",
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z]*$"
+        },
+        "label": {
+          "description": "What the editor calls the type, also the usual label of a new block.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "description": "What the block is for, in plain language, under its name in the editor.",
+          "type": "string",
+          "minLength": 1
+        },
+        "rules": {
+          "description": "The rule ids the checks bring to this block, in the order their lines are shown under What the checks look for.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/ruleId" }
+        },
+        "wording": {
+          "description": "This block's own words for some of its rules, said once in place of their descriptions in rules.json.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rules", "says"],
+            "properties": {
+              "rules": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "$ref": "#/$defs/ruleId" }
+              },
+              "says": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

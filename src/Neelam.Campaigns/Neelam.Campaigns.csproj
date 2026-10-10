@@ -9,4 +9,11 @@
   <!-- No schema library here: the assistant export checks itself in code (AssistantExport.Problems),
        and docs/assistant-export.schema.json is the published contract the tests hold it to. -->
 
+  <ItemGroup>
+    <!-- The block catalog is data the app reads at startup (BlockCatalog.Shipped). Here, beside the
+         block types and checks it describes, it is copied into the output of every project that
+         references this one (the web app, its publish, and the tests), under Catalog/. -->
+    <Content Include="Catalog\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

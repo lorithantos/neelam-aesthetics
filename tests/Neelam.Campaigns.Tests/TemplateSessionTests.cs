@@ -15,7 +15,7 @@ public class TemplateSessionTests
 
     private TemplateSession NewWithOneBlock(string name)
     {
-        var session = TemplateSession.New(Store);
+        var session = TemplateSession.New(Store, Catalogs.Shipped);
         session.Editor.Name = name;
         session.Editor.Add(BlockType.Paragraphs);
         return session;
@@ -41,7 +41,7 @@ public class TemplateSessionTests
     [Fact]
     public async Task A_template_with_errors_is_not_saved()
     {
-        var session = TemplateSession.New(Store);
+        var session = TemplateSession.New(Store, Catalogs.Shipped);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => session.SaveAsync());
         Assert.Empty(_container.Blobs);
@@ -79,13 +79,13 @@ public class TemplateSessionTests
         Assert.False(await session.UndoLastSaveAsync());
         Assert.Null(session.Latest);
         Assert.Empty(await Store.LatestAsync(DocumentKind.Template));
-        Assert.Null(await TemplateSession.OpenAsync(Store, only.Id));
+        Assert.Null(await TemplateSession.OpenAsync(Store, only.Id, Catalogs.Shipped));
         await Assert.ThrowsAsync<InvalidOperationException>(() => session.UndoLastSaveAsync());
 
         // Back on the page later, within the period: it can come back.
         _clock.Now += TimeSpan.FromHours(23);
         var undone = await TemplateSession.RestorableAsync(Store, only.Id);
-        var restored = await TemplateSession.RestoreAsync(Store, undone!);
+        var restored = await TemplateSession.RestoreAsync(Store, undone!, Catalogs.Shipped);
         Assert.Equal("Only", restored!.Editor.Name);
         Assert.Equal(only, restored.Latest);
         Assert.Null(restored.Restorable);
@@ -111,7 +111,7 @@ public class TemplateSessionTests
         _clock.Now += TimeSpan.FromMinutes(1);
         await session.SaveAsync();
         Assert.Null(session.Restorable);
-        Assert.Null((await TemplateSession.OpenAsync(Store, session.Id!.Value))!.Restorable);
+        Assert.Null((await TemplateSession.OpenAsync(Store, session.Id!.Value, Catalogs.Shipped))!.Restorable);
     }
 
     [Fact]
@@ -120,11 +120,11 @@ public class TemplateSessionTests
         var id = Guid.NewGuid();
         await Store.SaveTemplateAsync(id, DraftFixtures.Membership);
 
-        var session = await TemplateSession.OpenAsync(Store, id);
+        var session = await TemplateSession.OpenAsync(Store, id, Catalogs.Shipped);
 
         Assert.Equal(id, session!.Id);
         Assert.Equal("Membership announcement", session.Editor.Name);
-        Assert.Null(await TemplateSession.OpenAsync(Store, Guid.NewGuid()));
+        Assert.Null(await TemplateSession.OpenAsync(Store, Guid.NewGuid(), Catalogs.Shipped));
     }
 
     [Fact]
@@ -133,7 +133,7 @@ public class TemplateSessionTests
         var source = Guid.NewGuid();
         await Store.SaveTemplateAsync(source, DraftFixtures.Membership);
 
-        var copy = (await TemplateSession.CopyAsync(Store, source))!;
+        var copy = (await TemplateSession.CopyAsync(Store, source, Catalogs.Shipped))!;
         Assert.Null(copy.Id);
         Assert.Equal("Copy of Membership announcement", copy.Editor.Name);
         await copy.SaveAsync();

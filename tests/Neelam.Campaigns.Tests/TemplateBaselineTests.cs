@@ -50,7 +50,7 @@ public class TemplateBaselineTests
         var reloaded = (await Stores.BaselineInForceAsync(Neelam)).Baseline;
 
         Assert.Equal(moved.Parts, reloaded.Parts);
-        Assert.Equal(moved.Parts, TemplateSession.New(Stores.Campaigns(Neelam, Actor.Demo), reloaded).Editor.Blocks.Select(b => b.Type));
+        Assert.Equal(moved.Parts, TemplateSession.New(Stores.Campaigns(Neelam, Actor.Demo), reloaded, Catalogs.Shipped).Editor.Blocks.Select(b => b.Type));
     }
 
     // A part she ticks goes last, and one she unticks leaves the rest in their order.
@@ -76,7 +76,7 @@ public class TemplateBaselineTests
 
         BlockType[] stored = [BlockType.Header, BlockType.Heading, BlockType.Image, BlockType.Button, BlockType.SignOff];
         Assert.Equal(stored, inForce.Baseline.Parts);
-        Assert.Equal(stored, TemplateEditor.StartFrom(inForce.Baseline).Blocks.Select(b => b.Type));
+        Assert.Equal(stored, TemplateEditor.StartFrom(inForce.Baseline, Catalogs.Shipped).Blocks.Select(b => b.Type));
     }
 
     // A part counts wherever it sits: the order says how a new template starts, never what is missing.
@@ -92,7 +92,7 @@ public class TemplateBaselineTests
 
         Assert.Empty(TemplateBaseline.Standard.MissingFrom(upsideDown));
         Assert.Empty(TemplateBaseline.Standard.Move(0, 4).MissingFrom(upsideDown));
-        Assert.Empty(TemplateEditor.Open(upsideDown).Missing(TemplateBaseline.Standard));
+        Assert.Empty(TemplateEditor.Open(upsideDown, Catalogs.Shipped).Missing(TemplateBaseline.Standard));
     }
 
     // The standard is data the operator can change, in operator settings, not in the code.
@@ -154,7 +154,7 @@ public class TemplateBaselineTests
     [Fact]
     public async Task A_template_missing_a_part_saves_and_warns()
     {
-        var session = TemplateSession.New(Stores.Campaigns(Neelam, Actor.Demo));
+        var session = TemplateSession.New(Stores.Campaigns(Neelam, Actor.Demo), Catalogs.Shipped);
         session.Editor.Name = "Closed Monday";
         session.Editor.Add(BlockType.Header);
         session.Editor.Add(BlockType.Heading);
@@ -182,7 +182,7 @@ public class TemplateBaselineTests
 
         Assert.Empty(TemplateBaseline.Standard.MissingFrom(template));
         // The editor, where the warnings show, counts it too.
-        Assert.Empty(TemplateEditor.Open(template).Missing(TemplateBaseline.Standard));
+        Assert.Empty(TemplateEditor.Open(template, Catalogs.Shipped).Missing(TemplateBaseline.Standard));
     }
 
     [Fact]
