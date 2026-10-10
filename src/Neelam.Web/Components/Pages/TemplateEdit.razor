@@ -47,6 +47,10 @@ else if (_session is not null)
             </div>
 
             <h2>Blocks, top to bottom</h2>
+            @if (editor.FromBaseline && _session.Id is null)
+            {
+                <p class="field-help">Started with the parts every template should have. <a href="templates#baseline-heading">Change that list on the Templates page.</a></p>
+            }
             @if (editor.Blocks.Count == 0)
             {
                 <p class="muted">No blocks yet. Add them below in the order the email shows them.</p>
@@ -286,13 +290,14 @@ else if (_session is not null)
         _times = await Workspace.TimesAsync(client);
         var actor = await Workspace.ActorAsync();
         var store = _store = Stores.Campaigns(client, actor);
+        _baseline = (await Stores.BaselineInForceAsync(client)).Baseline;
+        // A new template starts with the parts every template should have; a copy starts from its template.
         _session = Id is { } id ? await TemplateSession.OpenAsync(store, id)
             : From is { } from ? await TemplateSession.CopyAsync(store, from)
-            : TemplateSession.New(store);
+            : TemplateSession.New(store, _baseline);
         if (_session is null && Id is { } undoneId) _undone = await TemplateSession.RestorableAsync(store, undoneId);
         _missing = _session is null && _undone is null;
         _policy = await Stores.PolicyInForceAsync(client);
-        _baseline = (await Stores.BaselineInForceAsync(client)).Baseline;
         _photos = await Stores.Images(client, actor).ListAsync();
     }
 

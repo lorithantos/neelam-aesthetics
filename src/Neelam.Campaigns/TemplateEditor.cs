@@ -30,6 +30,25 @@ public sealed class TemplateEditor
 
     public static TemplateEditor StartBlank() => new("", []);
 
+    /// <summary>
+    /// A new template starting with one block of each part the baseline names (owner, 2026-10-09:
+    /// what every template should have is what you get when you say new). The blocks come in the
+    /// order an email reads, the order <see cref="BlockGuide.All"/> keeps, whatever order the
+    /// baseline lists them in. Each is a block as <see cref="Add"/> makes it: its usual label,
+    /// written by each campaign, never fixed content. An empty baseline is a blank start.
+    /// </summary>
+    public static TemplateEditor StartFrom(TemplateBaseline baseline)
+    {
+        var editor = StartBlank();
+        foreach (var guide in BlockGuide.All.Where(g => baseline.Parts.Contains(g.Type)))
+            editor.Add(guide.Type);
+        editor.FromBaseline = editor._blocks.Count > 0;
+        return editor;
+    }
+
+    /// <summary>Whether the blocks it started with came from the baseline, so the page can say so.</summary>
+    public bool FromBaseline { get; private set; }
+
     /// <summary>An existing template, to change and save as its next version.</summary>
     public static TemplateEditor Open(CampaignTemplate template) =>
         new(template.Name, template.Blocks.Select(EditableBlock.Of));

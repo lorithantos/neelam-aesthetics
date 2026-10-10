@@ -124,7 +124,9 @@ a client may save its own, which replaces it for that client, and saving an empt
 warnings off. The standard one is header, heading, sign-off, button and image, from Neelam's
 five sent emails. A template lacking a part still saves: the editor says, for example, "Your
 templates usually have a sign-off; this one doesn't." A block counts whether it is required or
-optional. Square adds the legal address and unsubscribe in its own footer, so templates never
+optional. A new template starts with one block of each part, in the order an email reads (the
+order `BlockGuide.All` keeps), each left for every campaign to write and removable like any
+block; a copy starts from the template it copies. Square adds the legal address and unsubscribe in its own footer, so templates never
 include them.
 
 Campaigns are written as a `CampaignDraft`, started from a template. Every value in a draft is

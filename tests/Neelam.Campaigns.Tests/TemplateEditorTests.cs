@@ -55,6 +55,62 @@ public class TemplateEditorTests
         Assert.Equal([button, body], editor.Blocks);
     }
 
+    // ---- Starting from the baseline (owner, 2026-10-09: what every template should have is what
+    // you get when you say new)
+
+    // The standard lists Header, Heading, Sign-off, Button, Image; the blocks come as an email reads.
+    [Fact]
+    public void A_new_template_starts_with_the_standard_baseline_s_parts_in_email_order()
+    {
+        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard);
+
+        Assert.Equal([BlockType.Header, BlockType.Heading, BlockType.Image, BlockType.Button, BlockType.SignOff],
+            editor.Blocks.Select(b => b.Type));
+        Assert.Equal(["Header", "Heading", "Image", "Button", "Sign-off"], editor.Blocks.Select(b => b.Label));
+        Assert.True(editor.FromBaseline);
+    }
+
+    [Fact]
+    public void A_client_s_own_baseline_gives_its_parts_and_an_empty_one_a_blank_start()
+    {
+        var own = TemplateEditor.StartFrom(new TemplateBaseline([BlockType.SignOff, BlockType.Greeting, BlockType.Offer]));
+        Assert.Equal([BlockType.Greeting, BlockType.Offer, BlockType.SignOff], own.Blocks.Select(b => b.Type));
+
+        var none = TemplateEditor.StartFrom(TemplateBaseline.None);
+        Assert.Empty(none.Blocks);
+        Assert.False(none.FromBaseline);
+        Assert.False(TemplateEditor.CopyOf(DraftFixtures.Membership).FromBaseline);
+    }
+
+    // Each starting block is left to each campaign, and is moved and removed like any other.
+    [Fact]
+    public void The_starting_blocks_are_written_by_each_campaign_not_fixed()
+    {
+        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard);
+
+        Assert.All(editor.Blocks, b => Assert.False(b.IsFixed));
+        Assert.All(editor.Blocks, b => Assert.True(b.Required));
+        // Only the name is wanting: an empty fixed block would ask to be filled in.
+        Assert.Equal(["Give the template a name."], editor.Errors().Select(e => e.Message));
+        editor.Name = "Spring news";
+        Assert.All(editor.Build().Blocks, b => Assert.Null(b.Fixed));
+
+        var image = editor.Blocks.Single(b => b.Type == BlockType.Image);
+        editor.MoveDown(image);
+        editor.Remove(editor.Blocks[0]);
+        Assert.Equal(["Heading", "Button", "Image", "Sign-off"], editor.Blocks.Select(b => b.Label));
+    }
+
+    [Fact]
+    public void A_template_started_from_the_baseline_lacks_nothing_until_a_part_is_removed()
+    {
+        var editor = TemplateEditor.StartFrom(TemplateBaseline.Standard);
+
+        Assert.Empty(editor.Missing(TemplateBaseline.Standard));
+        editor.Remove(editor.Blocks.Single(b => b.Type == BlockType.Button));
+        Assert.Equal([BlockType.Button], editor.Missing(TemplateBaseline.Standard).Select(g => g.Part));
+    }
+
     // ---- Opening and copying
 
     // Opening a template and saving it unchanged gives the same template, fixed content and all.

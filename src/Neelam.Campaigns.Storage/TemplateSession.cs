@@ -37,6 +37,10 @@ public sealed class TemplateSession
 
     public static TemplateSession New(CampaignStore store) => new(store, null, TemplateEditor.StartBlank(), null);
 
+    /// <summary>A new template starting with the baseline's parts; see <see cref="TemplateEditor.StartFrom"/>. Nothing is saved.</summary>
+    public static TemplateSession New(CampaignStore store, TemplateBaseline baseline) =>
+        new(store, null, TemplateEditor.StartFrom(baseline), null);
+
     /// <summary>
     /// The newest version of a template, or null when it has none in use. A template whose every
     /// save was undone is null here; <see cref="RestorableAsync"/> says whether it can come back.

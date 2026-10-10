@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.RegularExpressions;
 using Neelam.Campaigns.Storage;
 using Neelam.Web.Security;
 
@@ -85,9 +86,71 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     [Fact]
     public async Task Copy_starts_a_new_template_from_another()
     {
+        await app.Stores.UseStandardBaselineAsync(SalonOne.Name, Actor.Demo);
         var (_, page) = await Get($"/templates/new?from={Membership}", [Features.Templates]);
 
         Assert.Contains("value=\"Copy of Membership announcement\"", page);
+        // That template's blocks, not the baseline's.
+        Assert.Equal(DraftFixtures.Membership.Blocks.Select(b => b.Label), BlockLabels(page));
+        Assert.DoesNotContain(StartedWith, page);
+    }
+
+    // ---- A new template starts with the baseline (owner, 2026-10-09: what every template should
+    // have is what you get when you say new). Each test leaves the standard baseline in force.
+
+    private const string StartedWith = "Started with the parts every template should have.";
+
+    private static List<string> BlockLabels(string page) =>
+        Regex.Matches(page, "<section class=\"card block-card\" aria-label=\"([^\"]*)\"").Select(m => m.Groups[1].Value).ToList();
+
+    [Fact]
+    public async Task A_new_template_starts_with_the_standard_baseline_and_says_where_its_blocks_came_from()
+    {
+        await app.Stores.UseStandardBaselineAsync(SalonOne.Name, Actor.Demo);
+        var (status, page) = await Get("/templates/new", [Features.Templates]);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(["Header", "Heading", "Image", "Button", "Sign-off"], BlockLabels(page));
+        Assert.Contains(StartedWith + " <a href=\"templates#baseline-heading\">Change that list on the Templates page.</a>", page);
+        Assert.DoesNotContain("No blocks yet", page);
+        // Nothing in the baseline is missing from it.
+        Assert.DoesNotContain("Parts this template lacks", page);
+        Assert.DoesNotContain("Your templates usually have", page);
+    }
+
+    [Fact]
+    public async Task A_client_s_own_baseline_replaces_the_standard_one_at_the_start()
+    {
+        await app.Stores.Baseline(SalonOne.Name).SaveAsync(new TemplateBaseline([BlockType.Greeting, BlockType.Heading]));
+        try
+        {
+            var (_, page) = await Get("/templates/new", [Features.Templates]);
+
+            Assert.Equal(["Heading", "Greeting"], BlockLabels(page));
+            Assert.Contains(StartedWith, page);
+        }
+        finally
+        {
+            await app.Stores.UseStandardBaselineAsync(SalonOne.Name, Actor.Demo);
+        }
+    }
+
+    [Fact]
+    public async Task A_baseline_saved_empty_gives_a_blank_start()
+    {
+        await app.Stores.Baseline(SalonOne.Name).SaveAsync(TemplateBaseline.None);
+        try
+        {
+            var (_, page) = await Get("/templates/new", [Features.Templates]);
+
+            Assert.Empty(BlockLabels(page));
+            Assert.Contains("No blocks yet", page);
+            Assert.DoesNotContain(StartedWith, page);
+        }
+        finally
+        {
+            await app.Stores.UseStandardBaselineAsync(SalonOne.Name, Actor.Demo);
+        }
     }
 
     [Fact]
