@@ -246,7 +246,10 @@ for them. A client's people only sign in and work on their campaigns.
   from a campaign as a known item. Picked text is hers, as if typed. Benefits stay typed, so a known benefit is a
   typed benefit; it is a pattern (owner, 2026-10-09: "replacements with limits if needed"): its
   kind and words are the line, its amounts the usual ones, each with an optional lowest and
-  highest. Picking it fills in the usual amounts, which she changes as needed. A known tier
+  highest. Picking it fills in the usual amounts, which she changes as needed. Those caps sit
+  beside each line on her page as small boxes, "Usually", "Lowest" and "Highest" (empty is no
+  limit), saved in place (owner, 2026-10-09: "make sure the editing of the caps is easy to find
+  and update"). A known tier
   carries its own lines, word for word, rather than pointing at benefit items, so changing a
   benefit item never changes a tier. Something free is worded "complimentary" or "free", her
   choice (owner, 2026-10-09: "Complimentary is the same as free, so allow either"); the checks
@@ -378,7 +381,8 @@ warnings ("Worth a look"):
   is matched whole, so "Glow 50" is not taken for it at another price;
 - one of her benefit lines with an amount outside its limits (owner, 2026-10-09: "Outside of
   limits should be warnings"): "'15% off any qualifying treatments' is outside your usual range
-  for this line (5%–10%)." Within the limits, or with none set, nothing is said.
+  for this line (5%–10%)." with "Change this line's range", a link to that line's boxes on her
+  Known items page. Within the limits, or with none set, nothing is said.
 
 With no known items of a kind, nothing is said about that kind.
 

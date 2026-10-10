@@ -71,7 +71,9 @@ else if (_session is not null)
         <ul class="known-items">
             @foreach (var item in items.Benefits)
             {
-                <li>
+                @* Each line has its own anchor, so a finding about its range can link straight here;
+                   arrive.js scrolls to it, marks it for a moment and puts focus in its boxes. *@
+                <li id="@FindingPlace.KnownLineAnchor(item.Id)" class="known-line" tabindex="-1">
                     @if (_session.Editing?.Id == item.Id && _session.EditBenefit is { } editing && _session.EditLimits is { } limits)
                     {
                         <BenefitFields Benefit="editing" Id="edit" Label="Benefit" Changed="KindMayHaveChanged" />
@@ -81,6 +83,7 @@ else if (_session is not null)
                     else
                     {
                         <span>@item.Shown</span>
+                        @CapsFields(item)
                         @ItemActions(item)
                     }
                 </li>
@@ -183,6 +186,50 @@ else if (_session is not null)
             </div>
         }
     </div>;
+
+    // A line's caps in place (owner, 2026-10-09: "easy to find and update"): its usual amount and its
+    // lowest and highest, for each amount it has, saved through the same change as its Change form.
+    // An empty Lowest or Highest is no limit at that end.
+    private RenderFragment CapsFields(KnownBenefit line)
+    {
+        var caps = _session!.Caps(line);
+        var several = caps.Fields.Count > 1;
+        return @<div class="caps" role="group" aria-label="Usual amount and range for @line.Text">
+            @foreach (var amount in caps.Fields)
+            {
+                var key = $"{line.Id}-{amount.Field.Name.ToLowerInvariant()}";
+                <div class="caps-row">
+                    @if (several)
+                    {
+                        <span class="caps-what">@Capitalised(amount.Field.Label)</span>
+                    }
+                    <span class="caps-box">
+                        <label for="cap-usual-@key">Usually</label>
+                        <input id="cap-usual-@key" inputmode="decimal" size="6" @bind="amount.Usual" @bind:event="oninput" />
+                    </span>
+                    <span class="caps-box">
+                        <label for="cap-lowest-@key">Lowest</label>
+                        <input id="cap-lowest-@key" inputmode="decimal" size="6" placeholder="no limit" @bind="amount.Lowest" @bind:event="oninput" />
+                    </span>
+                    <span class="caps-box">
+                        <label for="cap-highest-@key">Highest</label>
+                        <input id="cap-highest-@key" inputmode="decimal" size="6" placeholder="no limit" @bind="amount.Highest" @bind:event="oninput" />
+                    </span>
+                </div>
+            }
+            <div class="caps-row">
+                <button class="button" aria-label="Save the range for @line.Text" @onclick="() => _session!.SaveCapsAsync(line)">Save</button>
+                @if (caps.Saved is { } saved)
+                {
+                    <span class="field-help" role="status">@saved</span>
+                }
+            </div>
+            <Problems Messages="caps.Errors" />
+            <span class="field-help">Leave Lowest or Highest empty for no limit. A campaign outside them is pointed out as worth a look.</span>
+        </div>;
+    }
+
+    private static string Capitalised(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     // A tier's name, price and lines: each line picked from her benefit lines or typed.
     private RenderFragment TierFields(KnownTierForm form, string id) => @<div>

@@ -472,6 +472,32 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Contains(">Export anyway</button>", panel);
     }
 
+    // A benefit outside her line's range is in the list with a link to that line's caps on the Known
+    // items page (owner, 2026-10-09: the caps "easy to find and update"); no other warning has one.
+    [Fact]
+    public async Task A_warning_outside_a_line_s_range_links_to_its_caps()
+    {
+        var line = new KnownBenefit(KnownItem.NewId(), new PercentOff(5, "any qualifying treatments"), [new AmountLimit("Percent", null, 5)]);
+        await app.KnownItems.AddAsync(DemoApp.Client, line);
+        try
+        {
+            var save = await Approved();
+
+            var panel = Panel(await Get($"/campaigns/{save.Id}"));
+
+            Assert.Contains("'10% off any qualifying treatments' is outside your usual range for this line (up to 5%).", panel);
+            var links = Regex.Matches(panel, "<a class=\"caps-link\" href=\"([^\"]*)\">Change this line's range</a>");
+            Assert.NotEmpty(links);
+            Assert.Equal(Regex.Matches(panel, "is outside your usual range for this line").Count, links.Count);
+            Assert.All(links, l => Assert.Equal($"known-items#known-line-{line.Id}", l.Groups[1].Value));
+        }
+        finally
+        {
+            // The other tests here read the demo client's warnings without known items.
+            await app.KnownItems.RemoveAsync(DemoApp.Client, line.Id);
+        }
+    }
+
     [Fact]
     public async Task A_label_only_save_keeps_the_export()
     {

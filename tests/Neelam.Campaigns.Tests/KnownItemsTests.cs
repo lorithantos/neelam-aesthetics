@@ -552,6 +552,54 @@ public class KnownItemsTests
         Assert.Equal("$75 birthday credit during your birth month — usually $75, at most $100", credit.Shown);
     }
 
+    // From the finding straight to the caps (owner, 2026-10-09: "make sure the editing of the caps is
+    // easy to find and update"): outside a line's limits, the finding carries that line's id, never
+    // its text, and leads to that line's anchor on the Known items page.
+    [Fact]
+    public void A_finding_outside_a_line_s_limits_leads_to_that_line()
+    {
+        var credit = Limited(new BirthdayCredit(75m), null, 100m);
+        var campaign = WithTier(new Tier("Platinum Member", 299m,
+            [new PercentOff(15, "any qualifying treatments"), new BirthdayCredit(150m)]));
+
+        var findings = NearMisses(campaign, Knowing(FiveToTen, credit));
+
+        Assert.Equal(2, findings.Count);
+        Assert.All(findings, f => Assert.Contains("outside your usual range", f.Message));
+        Assert.Equal([FiveToTen.Id, credit.Id], findings.Select(f => f.KnownLine));
+        Assert.Equal($"known-items#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(findings[0]));
+        Assert.Equal($"known-items#known-line-{credit.Id}", FindingPlace.KnownLineLink(findings[1]));
+        Assert.Equal($"known-line-{credit.Id}", FindingPlace.KnownLineAnchor(credit.Id));
+    }
+
+    // Only a line's limits lead there: a near miss of one of her lines (which names the line), a line
+    // she does not have, a treatment's near miss, a known tier at another price, and every other
+    // rule's finding carry no line and no link.
+    [Fact]
+    public void Findings_not_about_a_line_s_limits_carry_no_link()
+    {
+        var campaign = WithTier(new Tier("Platinum Member", 249m,
+        [
+            new PercentOff(10, "any qualifing treatments"),
+            new PercentOff(20, "any facial"),
+            new FreeItem(1, "Wellness Injecton", "per visit"),
+        ]));
+
+        var report = CampaignReview.Check(campaign, business: Knowing(FiveToTen, Platinum, Wellness));
+
+        var known = report.Findings.Where(f => f.Rule == "known-item").Select(f => f.Message).ToList();
+        Assert.Contains("Did you mean '10% off any qualifying treatments'? It's in your known items.", known);
+        Assert.Contains("'20% off any facial' isn't one of your known benefit lines.", known);
+        Assert.Contains("Did you mean 'Wellness injection'? It's in your known items.", known);
+        Assert.Contains("'Platinum Member' is $299 in your known items; here it is $249.", known);
+        Assert.Contains(report.Findings, f => f.Rule != "known-item");
+        Assert.All(report.Findings, f =>
+        {
+            Assert.Null(f.KnownLine);
+            Assert.Null(FindingPlace.KnownLineLink(f));
+        });
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(10)]

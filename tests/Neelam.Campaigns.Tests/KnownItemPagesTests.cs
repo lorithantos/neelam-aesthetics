@@ -275,6 +275,137 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             Assert.Single((await store.ForClientAsync(client)).Benefits).Shown);
     }
 
+    // ---- A line's caps, in place beside it (owner, 2026-10-09: "Let's add caps and let's make sure
+    // the editing of the caps is easy to find and update")
+
+    private static async Task<(InMemoryKnownItems Store, KnownBenefit Line)> FiveToTen()
+    {
+        var store = new InMemoryKnownItems();
+        var line = new KnownBenefit(KnownItem.NewId(), new PercentOff(10, "any qualifying treatments"), [new AmountLimit("Percent", 5, 10)]);
+        await store.AddAsync(SalonOne.Name, line);
+        return (store, line);
+    }
+
+    // Usually, Lowest and Highest are boxes beside the line, holding what is kept; saving them goes
+    // through the line's own change: held by the store, one event by the id, the list read again.
+    [Fact]
+    public async Task Saving_a_line_s_caps_in_place_changes_its_usual_amount_and_limits()
+    {
+        var ((store, line), records) = (await FiveToTen(), new TestRecords(TimeProvider.System));
+        var page = await Open(store, records);
+
+        var caps = page.Caps(page.Items.Benefits[0]);
+        var boxes = Assert.Single(caps.Fields);
+        Assert.Equal(PercentOff.PercentField, boxes.Field);
+        Assert.Equal(("10", "5", "10"), (boxes.Usual, boxes.Lowest, boxes.Highest));
+
+        (boxes.Usual, boxes.Lowest, boxes.Highest) = ("8", "6", "12");
+        Assert.True(await page.SaveCapsAsync(page.Items.Benefits[0]));
+
+        var kept = Assert.Single((await store.ForClientAsync(SalonOne.Name)).Benefits);
+        Assert.Equal(line.Id, kept.Id);
+        Assert.Equal("8% off any qualifying treatments — usually 8%, between 6% and 12%", kept.Shown);
+        Assert.Equal(kept.Shown, page.Items.Benefits[0].Shown);
+        Assert.Empty(page.Errors);
+        var again = page.Caps(page.Items.Benefits[0]);
+        Assert.Equal("Saved.", again.Saved);
+        Assert.Equal(("8", "6", "12"), (again.Fields[0].Usual, again.Fields[0].Lowest, again.Fields[0].Highest));
+        var change = Assert.Single(records.Activity.Events);
+        Assert.Equal((ActivityAction.KnownItemChanged, line.Id), (change.Action, change.EntityId));
+        Assert.DoesNotContain("qualifying", change.ToString());
+    }
+
+    // Lowest above highest, or the usual amount outside them, is refused as the line's form refuses
+    // it: said beside the boxes, with what she typed still in them, and nothing stored or recorded.
+    [Theory]
+    [InlineData("10", "10", "5", "The lowest percentage (10%) is above the highest (5%).")]
+    [InlineData("12", "5", "10", "The usual percentage (12%) is above the highest (10%).")]
+    [InlineData("", "5", "10", "Fill in the usual percentage.")]
+    [InlineData("10", "lots", "10", "\"lots\" is not a whole number")]
+    public async Task An_invalid_range_is_refused_beside_the_boxes_and_what_she_typed_is_kept(
+        string usual, string lowest, string highest, string problem)
+    {
+        var ((store, line), records) = (await FiveToTen(), new TestRecords(TimeProvider.System));
+        var page = await Open(store, records);
+        var boxes = page.Caps(page.Items.Benefits[0]).Fields[0];
+
+        (boxes.Usual, boxes.Lowest, boxes.Highest) = (usual, lowest, highest);
+        Assert.False(await page.SaveCapsAsync(page.Items.Benefits[0]));
+
+        var caps = page.Caps(page.Items.Benefits[0]);
+        Assert.StartsWith(problem, Assert.Single(caps.Errors));
+        Assert.Null(caps.Saved);
+        Assert.Empty(page.Errors);
+        Assert.Equal((usual, lowest, highest), (caps.Fields[0].Usual, caps.Fields[0].Lowest, caps.Fields[0].Highest));
+        Assert.Equal(line.Shown, Assert.Single((await store.ForClientAsync(SalonOne.Name)).Benefits).Shown);
+        Assert.Empty(records.Activity.Events);
+    }
+
+    // An empty box is no limit at that end; both empty, any amount.
+    [Fact]
+    public async Task An_empty_box_clears_that_limit()
+    {
+        var (store, _) = await FiveToTen();
+        var page = await Open(store);
+        var boxes = page.Caps(page.Items.Benefits[0]).Fields[0];
+
+        boxes.Highest = " ";
+        Assert.True(await page.SaveCapsAsync(page.Items.Benefits[0]));
+        Assert.Equal([new AmountLimit("Percent", 5, null)], Assert.Single((await store.ForClientAsync(SalonOne.Name)).Benefits).SetLimits);
+
+        page.Caps(page.Items.Benefits[0]).Fields[0].Lowest = "";
+        Assert.True(await page.SaveCapsAsync(page.Items.Benefits[0]));
+        var kept = Assert.Single((await store.ForClientAsync(SalonOne.Name)).Benefits);
+        Assert.Empty(kept.SetLimits);
+        Assert.Equal("10% off any qualifying treatments — usually 10%, any amount", kept.Shown);
+    }
+
+    // Each benefit line has its own anchor and its caps beside it, labelled plainly; a finding about
+    // its range links here.
+    [Fact]
+    public async Task The_page_gives_each_benefit_line_an_anchor_and_its_caps_beside_it()
+    {
+        var (_, page) = await Get("/known-items", [Features.Campaigns]);
+        var line = Assert.Single((await app.KnownItems.ForClientAsync(SalonOne.Name)).Benefits);
+
+        var item = Regex.Match(page, $"<li id=\"known-line-{line.Id}\" class=\"known-line\" tabindex=\"-1\">(.*?)</li>", RegexOptions.Singleline);
+        Assert.True(item.Success);
+        Assert.Contains("<span>$75 birthday credit during your birth month — usually $75, any amount</span>", item.Value);
+        var key = $"{line.Id}-amount";
+        Assert.Contains($"<label for=\"cap-usual-{key}\">Usually</label>", item.Value);
+        Assert.Contains($"<label for=\"cap-lowest-{key}\">Lowest</label>", item.Value);
+        Assert.Contains($"<label for=\"cap-highest-{key}\">Highest</label>", item.Value);
+        Assert.Matches($"<input id=\"cap-usual-{key}\"[^>]*value=\"75\"", item.Value);
+        Assert.Matches($"<input id=\"cap-highest-{key}\"[^>]*placeholder=\"no limit\"", item.Value);
+        Assert.Contains("Leave Lowest or Highest empty for no limit.", item.Value);
+        Assert.Contains(">Save</button>", item.Value);
+        // One anchor per line, and only for lines.
+        Assert.Single(Regex.Matches(page, "id=\"known-line-"));
+    }
+
+    // On the campaign page, a benefit outside her line's range links to that line's caps; nothing else
+    // there does. Salon three knows one line, up to 5% off, and the campaign's Platinum tier has 10%.
+    [Fact]
+    public async Task A_finding_outside_a_line_s_range_links_to_its_caps_on_the_campaign_page()
+    {
+        await Get("/known-items", [Features.Campaigns]);
+        var salonThree = new ClientRecord(new ClientName("test-salon-three"), Guid.Parse("33333333-3333-3333-3333-333333333333"), "Salon Three");
+        await app.Clients.AddAsync(salonThree);
+        var line = new KnownBenefit(KnownItem.NewId(), new PercentOff(5, "any qualifying treatments"), [new AmountLimit("Percent", null, 5)]);
+        await app.KnownItems.AddAsync(salonThree.Name, line);
+        var id = Guid.NewGuid();
+        await app.Stores.Campaigns(salonThree.Name, Actor.Demo).SaveDraftAsync(id, "Out of range", DraftFixtures.Finished());
+
+        var (status, page) = await Get($"/campaigns/{id}", [Features.Campaigns], [salonThree.GroupId]);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Contains("'10% off any qualifying treatments' is outside your usual range for this line (up to 5%).", page);
+        var links = Regex.Matches(page, "<a class=\"caps-link\" href=\"([^\"]*)\">Change this line's range</a>");
+        Assert.NotEmpty(links);
+        Assert.Equal(Regex.Matches(page, "is outside your usual range for this line").Count, links.Count);
+        Assert.All(links, l => Assert.Equal($"known-items#known-line-{line.Id}", l.Groups[1].Value));
+    }
+
     [Fact]
     public async Task The_page_builds_a_tier_from_picked_and_typed_lines_then_changes_and_removes_it()
     {

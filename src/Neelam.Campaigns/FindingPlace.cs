@@ -3,7 +3,8 @@ namespace Neelam.Campaigns;
 /// <summary>
 /// Which field a finding is about, read from its location, so the page can take her straight to it.
 /// A location starts with the block's label, as the checks write it ("Offer › Tier 2 › Benefit",
-/// "Opening, paragraph 2"), or names the subject line.
+/// "Opening, paragraph 2"), or names the subject line. A finding about one of her known benefit
+/// lines' limits also leads to that line on the Known items page (<see cref="KnownLineLink"/>).
 /// </summary>
 public static class FindingPlace
 {
@@ -26,6 +27,20 @@ public static class FindingPlace
         }
         return best;
     }
+
+    /// <summary>
+    /// The anchor of one of her benefit lines on the Known items page, by the line's id: where its
+    /// usual amount and limits are changed in place.
+    /// </summary>
+    public static string KnownLineAnchor(string id) => $"known-line-{id}";
+
+    /// <summary>
+    /// Where to change the limits a finding holds an amount to: the Known items page at that line
+    /// ("known-items#known-line-{id}", relative to the site's base, as the site's other links are).
+    /// Null for a finding that is not about one of her lines' limits.
+    /// </summary>
+    public static string? KnownLineLink(Finding finding) =>
+        finding.KnownLine is { Length: > 0 } id ? $"known-items#{KnownLineAnchor(id)}" : null;
 
     // The label itself, or the label followed by a part of it (" › ...") or a paragraph (", ...").
     private static bool Names(string location, string label) =>

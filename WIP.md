@@ -401,6 +401,26 @@ misses.
     (`AmountLimitsForm`); lowest above highest, or the usual amount outside them, is refused with "The
     lowest percentage (10%) is above the highest (5%)." / "The usual percentage (12%) is above the
     highest (10%)." (`KnownBenefit.LimitProblems`, held by the store through `KnownItemRules`).
+  - **Caps in place, and the way to them (owner, 2026-10-09: "Let's add caps and let's make sure the
+    editing of the caps is easy to find and update."; built the same day).** Each line on her page
+    has its caps beside it as small boxes per amount, **Usually**, **Lowest** and **Highest** (an
+    empty Lowest or Highest shows "no limit" and is none), with **Save**, "Saved." beside it after,
+    and no form to open; a line with two amounts (dollars off with a minimum) names each row by
+    its amount's label. Saving goes through the line's own change (`KnownItemsSession.SaveCapsAsync`
+    over `AmountCapsForm`, then the store, `KnownItemRules` and one `KnownItemChanged` event by id), so
+    the refusals are the same ("The lowest percentage (10%) is above the highest (5%).", "Fill in the
+    usual percentage."), shown beside the boxes with what she typed kept. The Change form still
+    changes the words and kind, with its own limit boxes. **Each line has an anchor**,
+    `known-line-{id}` (`FindingPlace.KnownLineAnchor`). **From the finding to the caps:** the
+    "outside your usual range" finding carries the line's id (`Finding.KnownLine`, an id only, set
+    by `CampaignReview` only for `OutsideLimits`, not part of `SeenKey`), and on the campaign page
+    ("What the checks say") and in the export list it ends with **"Change this line's range"**, a link
+    to `known-items#known-line-{id}`; no other finding has one. The assistant JSON writes a finding as
+    its place and message only, so the id never reaches it (pinned by a test). Arriving, a small
+    script (`wwwroot/arrive.js`, loaded beside `copy.js` the same way, no interop) scrolls the line to
+    the middle, marks it for 2.5 seconds and puts focus in its first box, again if the page's turning
+    interactive replaces the element in the first 10 seconds. **Untested in a circuit or browser:**
+    the scroll, the mark and the focus, and the Save click itself (the session behind it is tested).
   - Activity events and logs are unchanged: ids only, never the line or its limits.
   - **Note:** `benefit-value` already makes a percentage over 99 a Must fix ("110% off is not a
     discount; use 1–99."), whatever the limits; the owner's "110% off" is a block there, not only here.

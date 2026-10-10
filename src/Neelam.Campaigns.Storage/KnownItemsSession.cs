@@ -141,6 +141,48 @@ public sealed class KnownItemsSession
         return true;
     }
 
+    // ---- A benefit line's caps, in place ----
+
+    // Per line id, the caps boxes as she has them: kept while she types and after a refused save,
+    // dropped once the line changes, so they are built again from what is stored.
+    private readonly Dictionary<string, AmountCapsForm> _caps = [];
+
+    /// <summary>
+    /// The usual, lowest and highest boxes shown beside <paramref name="line"/> (owner, 2026-10-09:
+    /// the caps "easy to find and update"), holding what she typed, else what is kept.
+    /// </summary>
+    public AmountCapsForm Caps(KnownBenefit line)
+    {
+        if (!_caps.TryGetValue(line.Id, out var form)) _caps[line.Id] = form = AmountCapsForm.Of(line);
+        return form;
+    }
+
+    /// <summary>
+    /// Saves the caps typed beside <paramref name="line"/> through the same change as the line's own
+    /// form: held by the store, one <see cref="ActivityAction.KnownItemChanged"/> event by the id, and
+    /// the list read again. When refused, says why beside the boxes and keeps what she typed.
+    /// </summary>
+    public async Task<bool> SaveCapsAsync(KnownBenefit line, CancellationToken ct = default)
+    {
+        var form = Caps(line);
+        form.Saved = null;
+        var (changed, problems) = form.ToItem(line);
+        if (changed is null)
+        {
+            (Message, Errors, form.Errors) = (null, [], problems);
+            return false;
+        }
+        if (!await ChangeAsync(changed, adding: false, ct))
+        {
+            // Told beside the boxes, where she is looking, not at the top of the page.
+            (form.Errors, Errors) = (Errors, []);
+            return false;
+        }
+        // The boxes again from what was saved, with a word that it was.
+        Caps(changed).Saved = "Saved.";
+        return true;
+    }
+
     // ---- Removing ----
 
     public async Task RemoveAsync(KnownItem item, CancellationToken ct = default)
@@ -157,6 +199,7 @@ public sealed class KnownItemsSession
         }
         await _trail.RecordAsync(ActivityEntity.KnownItem, item.Id, null, ActivityAction.KnownItemRemoved, ct);
         if (Editing?.Id == item.Id) CancelEdit();
+        _caps.Remove(item.Id);
         Errors = [];
         Message = $"Removed \"{item.Text}\". Campaigns that used it keep their text.";
         await ReloadAsync(ct);
@@ -240,6 +283,7 @@ public sealed class KnownItemsSession
         }
         await _trail.RecordAsync(ActivityEntity.KnownItem, item.Id, null,
             adding ? ActivityAction.KnownItemAdded : ActivityAction.KnownItemChanged, ct);
+        _caps.Remove(item.Id);
         (Message, Errors) = ($"{(adding ? "Added" : "Changed")} \"{item.Text}\".", []);
         await ReloadAsync(ct);
         return true;

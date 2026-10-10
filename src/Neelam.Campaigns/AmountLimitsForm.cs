@@ -75,6 +75,89 @@ public sealed class AmountLimitsForm
     private static string Number(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 }
 
+/// <summary>
+/// A known benefit line's caps, changed in place beside the line on the Known items page (owner,
+/// 2026-10-09: "make sure the editing of the caps is easy to find and update"): for each amount the
+/// line has, its usual value and its lowest and highest, as boxes. The usual value is needed (the
+/// line's sentence carries it); a blank lowest or highest is no limit at that end. The line's kind
+/// and words are not here: changing those is the line's Change form. What she typed stays in the
+/// boxes, with <see cref="Errors"/> beside them, until it saves.
+/// </summary>
+public sealed class AmountCapsForm
+{
+    private AmountCapsForm(IReadOnlyList<AmountCapFields> fields) => Fields = fields;
+
+    /// <summary>The boxes for <paramref name="line"/>, holding its usual amounts and limits as kept.</summary>
+    public static AmountCapsForm Of(KnownBenefit line) =>
+        new(line.Benefit.Amounts.Select(a => new AmountCapFields(a.Field)
+        {
+            Usual = Number(a.Value),
+            Lowest = line.LimitOn(a.Field.Name)?.Min is { } lo ? Number(lo) : "",
+            Highest = line.LimitOn(a.Field.Name)?.Max is { } hi ? Number(hi) : "",
+        }).ToList());
+
+    /// <summary>One set of boxes per amount of the line, in the order the line has them.</summary>
+    public IReadOnlyList<AmountCapFields> Fields { get; }
+
+    /// <summary>Why the last save of these boxes was refused; empty when it was not.</summary>
+    public IReadOnlyList<string> Errors { get; set; } = [];
+
+    /// <summary>Said beside the boxes once they are saved; null otherwise.</summary>
+    public string? Saved { get; set; }
+
+    /// <returns>
+    /// <paramref name="line"/> with the usual amounts and limits typed, under its own id, its kind and
+    /// words unchanged. Null, with what is wrong, when a box is not an amount, the usual one is blank,
+    /// or the limits do not hold together (<see cref="KnownBenefit.LimitProblems"/>, as the store
+    /// holds every line to).
+    /// </returns>
+    public (KnownBenefit? Line, IReadOnlyList<string> Errors) ToItem(KnownBenefit line)
+    {
+        var errors = new List<string>();
+        var benefit = line.Benefit;
+        var limits = new List<AmountLimit>();
+        foreach (var fields in Fields)
+        {
+            var field = fields.Field;
+            var usual = Parse(fields.Usual, field, $"the usual {field.Label}", errors);
+            var lowest = Blank(fields.Lowest) ? null : Parse(fields.Lowest, field, $"the lowest {field.Label}", errors);
+            var highest = Blank(fields.Highest) ? null : Parse(fields.Highest, field, $"the highest {field.Label}", errors);
+            if (usual is { } value) benefit = benefit.WithAmount(field.Name, value);
+            if (lowest is not null || highest is not null) limits.Add(new AmountLimit(field.Name, lowest, highest));
+        }
+        if (errors.Count > 0) return (null, errors);
+        var changed = new KnownBenefit(line.Id, benefit, limits);
+        var problems = changed.LimitProblems();
+        return problems.Count == 0 ? (changed, []) : (null, problems);
+    }
+
+    private static bool Blank(string? text) => FormText.Clean(text ?? "").Length == 0;
+
+    // Blank is "Fill in ..." (only the usual amount is ever parsed blank); anything else must be an
+    // amount of the field's unit, as the line's own form takes it.
+    private static decimal? Parse(string? text, AmountField field, string what, List<string> errors) =>
+        field.Unit == AmountUnit.Dollars
+            ? FormText.Money(text ?? "", what, errors)
+            : FormText.Whole(text ?? "", what, errors);
+
+    private static string Number(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+}
+
+/// <summary>The usual, lowest and highest boxes for one amount of a known benefit line.</summary>
+public sealed class AmountCapFields(AmountField amount)
+{
+    public AmountField Field { get; } = amount;
+
+    /// <summary>The usual amount: the line's own, which picking it fills in.</summary>
+    public string Usual { get; set; } = "";
+
+    /// <summary>The lowest amount; blank is no limit.</summary>
+    public string Lowest { get; set; } = "";
+
+    /// <summary>The highest amount; blank is no limit.</summary>
+    public string Highest { get; set; } = "";
+}
+
 /// <summary>The lowest and highest boxes for one amount of a known benefit line; blank is no limit.</summary>
 public sealed class AmountLimitFields(AmountField amount)
 {

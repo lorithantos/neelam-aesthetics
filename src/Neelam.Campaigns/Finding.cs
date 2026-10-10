@@ -19,6 +19,15 @@ public sealed record Finding(
     public bool IsDismissable => Rule.StartsWith("ai-", StringComparison.Ordinal);
 
     /// <summary>
+    /// The id of her known benefit line this finding holds an amount to, when it is about that line's
+    /// limits (owner, 2026-10-09: the caps "easy to find and update"), so the page can link straight
+    /// to it (<see cref="FindingPlace.KnownLineLink"/>). An id only, never the line's content; null on
+    /// every other finding. Not part of <see cref="SeenKey"/>, and never exported: the assistant JSON
+    /// writes a finding as its place and message alone.
+    /// </summary>
+    public string? KnownLine { get; init; }
+
+    /// <summary>
     /// What says she has been shown this finding at export (owner, 2026-10-09): a hash of its rule,
     /// place and message, so the same finding has the same key on every visit and a changed one a new
     /// key. Only the hash is ever stored: never the finding's text.

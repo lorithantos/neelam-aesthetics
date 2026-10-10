@@ -207,10 +207,15 @@ public class AssistantExportTests
         var finding = Assert.Single(report.Findings, f => f.Rule == "known-item" && f.Location.StartsWith($"{offerLabel} › Tier 1,")
                                                           && f.Message.Contains("outside your usual range"));
         Assert.Equal(Severity.Warning, finding.Severity);
-        var worthALook = Parse(Exported(report, context: Context))["review"]!["worthALook"]!.AsArray()
+        // The page links the finding to her line by its id; the assistant's file never carries it.
+        Assert.Equal(line.Id, finding.KnownLine);
+        var json = Exported(report, context: Context);
+        var worthALook = Parse(json)["review"]!["worthALook"]!.AsArray()
             .Select(n => n!.GetValue<string>()).ToList();
         Assert.Contains($"{offerLabel} › Tier 1, benefit {benefits.IndexOf(written) + 1}: '{written.Describe()}' is outside your usual range for this line " +
                         $"(up to {amount.Field.Show(amount.Value - 1)}).", worthALook);
+        Assert.DoesNotContain(line.Id, json);
+        Assert.DoesNotContain("known-line", json);
     }
 
     // The page and the assistant read the same findings: a benefit named as she wrote it, never by its

@@ -142,7 +142,12 @@ public static class CampaignReview
             BenefitStanding.NotKnown => $"'{written}' isn't one of your known benefit lines.",
             _ => null,
         };
-        return message is null ? null : new(Severity.Warning, "known-item", where, message, Excerpt: written);
+        // Outside a line's limits, the finding carries that line's id (never its text), so the page can
+        // take her straight to the limits to change them.
+        return message is null ? null : new(Severity.Warning, "known-item", where, message, Excerpt: written)
+        {
+            KnownLine = check.Standing == BenefitStanding.OutsideLimits ? check.Line?.Id : null,
+        };
     }
 
     private static Finding? AgainstKnown(string where, string written, IReadOnlyList<string> known, string kinds)

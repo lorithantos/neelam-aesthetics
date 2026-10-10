@@ -253,6 +253,7 @@ else if (_session is not null)
                             <strong>@(finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
                             <span class="muted">@finding.Location</span>
                             <span>@finding.Message</span>
+                            @CapsLink(finding)
                         </li>
                     }
                 </ul>
@@ -402,6 +403,7 @@ else if (_session is not null)
                                     <span class="muted">@warning.Location</span>
                                 }
                                 <span>@warning.Message</span>
+                                @CapsLink(warning)
                             </li>
                         }
                     </ul>
@@ -680,6 +682,14 @@ else
                 : null;
         return anchor is null ? null : $"campaigns/{_session.Id}#{anchor}";
     }
+
+    // A finding about one of her known lines' limits leads to that line on the Known items page, where
+    // its range is changed in place (owner, 2026-10-09: the caps "easy to find and update"). Nothing
+    // for any other finding.
+    private static RenderFragment? CapsLink(Finding finding) =>
+        FindingPlace.KnownLineLink(finding) is { } link
+            ? @<a class="caps-link" href="@link">Change this line's range</a>
+            : null;
 
     // The JSON as a link to download, with no endpoint: an endpoint would be a second way out.
     private static string DataUrl(string json) =>
