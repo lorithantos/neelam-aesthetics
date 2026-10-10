@@ -282,7 +282,7 @@ else if (_session is not null)
                 @* The AI proofread, on the demo, on her click only (owner, 2026-10-10): never per keystroke
                    or by itself. Its result is the saved version's; any edit voids it. A refusal or a
                    failure is said plainly here and changes nothing else: the rules stand on their own. *@
-                <section class="card" aria-labelledby="proofread-title">
+                <section class="card" aria-labelledby="proofread-title" data-testid="proofread">
                     <h2 id="proofread-title">AI proofread</h2>
                     @if (proofread is not null)
                     {
@@ -550,7 +550,10 @@ else
         _proofreadMessage = null;
         try
         {
-            _proofreadMessage = (await _session!.ProofreadAsync(Proofreader, Allowance, Clock, _policy, Business)).Message;
+            var attempt = await _session!.ProofreadAsync(Proofreader, Allowance, Clock, _policy, Business);
+            // Done: the line above the button says what it found, with when, as it does on reopening.
+            // Said here as well, it read twice. Only a refusal or a failure is said here.
+            _proofreadMessage = attempt.Done ? null : attempt.Message;
         }
         catch (Exception ex)
         {
