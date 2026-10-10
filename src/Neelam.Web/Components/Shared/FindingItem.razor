@@ -4,7 +4,13 @@
    space beside an @if, which ran the export list's parts together ("Worth a lookOffer › ..."), so
    the place's link or text is chosen inside its own span. *@
 <li class="finding @(Finding.Severity == Severity.Blocker ? "blocker" : "warning")">
-    <strong>@(Finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")</strong>
+    @* What the AI proofread found says so beside how much it matters, "Worth a look · AI" (owner,
+       2026-10-10, option B: "letting them know probably won't hurt"); a rule's finding carries no tag.
+       Inside the label, so no space Razor drops beside the @if can run it into the place. *@
+    <strong>@(Finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")@if (Finding.IsAi)
+        {
+            @(" · ")<span data-testid="@($"{Named}-ai-{Finding.SeenKey}")">AI</span>
+        }</strong>
     <span class="muted">
         @if (JumpTo is { } jump)
         {
@@ -33,4 +39,12 @@
     /// <summary>Where on the page its field is, or null to name the place without a link.</summary>
     [Parameter]
     public string? JumpTo { get; set; }
+
+    /// <summary>
+    /// What the list calls its findings, for their names on the page (data-testid): an AI finding's
+    /// tag is <c>{Named}-ai-{key}</c>, by its <see cref="Finding.SeenKey"/>, so the same finding in
+    /// two lists on one page has two names.
+    /// </summary>
+    [Parameter]
+    public string Named { get; set; } = "finding";
 }

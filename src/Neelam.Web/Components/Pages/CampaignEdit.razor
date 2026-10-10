@@ -253,12 +253,13 @@ else if (_session is not null)
                 {
                     <p class="field-help">Checked so far: the parts filled in. The rest is checked as it is filled in.</p>
                 }
-                @if (status.Findings.Count == 0)
-                {
-                    <p>The rules find nothing to fix@(status.Missing.Count > 0 ? " so far" : "").</p>
-                }
-                <ul class="findings">
-                    @foreach (var finding in status.Findings.Concat(proofreadFindings).OrderByDescending(f => f.Severity))
+                @* One summary of everything listed, the rules' and the AI proofread's alike (owner,
+                   2026-10-10: "'The rules find nothing to fix.' this is confusing" beside the AI's
+                   findings); each AI finding says so beside how much it matters. *@
+                @{ var listed = status.Findings.Concat(proofreadFindings).OrderByDescending(f => f.Severity).ToList(); }
+                <p data-testid="checks-summary">@DraftSession.ChecksSummary(listed, soFar: status.Missing.Count > 0)</p>
+                <ul class="findings" data-testid="checks-findings">
+                    @foreach (var finding in listed)
                     {
                         <FindingItem Finding="finding" />
                     }
@@ -267,13 +268,9 @@ else if (_session is not null)
                 {
                     <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
                 }
-                else if (proofread is not null)
+                else if (proofread is null)
                 {
-                    <p class="muted" data-testid="checks-with-proofread">These are the instant rules, with what the AI proofread found in this saved version.</p>
-                }
-                else
-                {
-                    <p class="muted">These are the instant rules. The AI proofread reads a saved version when you ask it to, below.</p>
+                    <p class="muted" data-testid="checks-before-proofread">These are the instant rules. The AI proofread reads a saved version when you ask it to, below.</p>
                 }
             </section>
 
@@ -450,10 +447,10 @@ else if (_session is not null)
                 <section class="card export-warnings" role="dialog" aria-labelledby="export-warnings-title">
                     <h2 id="export-warnings-title">Before you copy it into Square</h2>
                     <p>@DraftSession.WarningsLead(warningsFirst.Count, ExportedBefore)</p>
-                    <ul class="findings">
+                    <ul class="findings" data-testid="export-warnings-list">
                         @foreach (var warning in warningsFirst)
                         {
-                            <FindingItem Finding="warning" JumpTo="@JumpTo(warning)" />
+                            <FindingItem Finding="warning" JumpTo="@JumpTo(warning)" Named="export-warning" />
                         }
                     </ul>
                     <p class="field-help">Fixing one changes the campaign: save it again and approve the new version.</p>

@@ -206,6 +206,32 @@ public sealed class DraftSession
     }
 
     /// <summary>
+    /// What "What the checks say" says first: every finding it lists, the rules' and the AI
+    /// proofread's alike, counted by how much it matters (owner, 2026-10-10, option B: "they don't
+    /// care too much about the source of the corrections", so one summary, each AI finding tagged in
+    /// the list). "Has to be fixed" is the list's "Must fix", "worth a look" its "Worth a look". With
+    /// parts still missing, nothing to fix is only so far.
+    /// </summary>
+    public static string ChecksSummary(IEnumerable<Finding> findings, bool soFar)
+    {
+        var list = findings.ToList();
+        var mustFix = list.Count(f => f.Severity == Severity.Blocker);
+        var worthALook = list.Count - mustFix;
+        var fix = mustFix switch
+        {
+            0 => soFar ? "Nothing has to be fixed so far." : "Nothing has to be fixed.",
+            1 => "1 thing has to be fixed.",
+            _ => $"{mustFix} things have to be fixed.",
+        };
+        return worthALook switch
+        {
+            0 => fix,
+            1 => $"{fix} 1 thing is worth a look.",
+            _ => $"{fix} {worthALook} things are worth a look.",
+        };
+    }
+
+    /// <summary>
     /// The demo's export report for the campaign as it stands, or null when it has none: approved
     /// and unchanged since (<see cref="CurrentApproval"/>, never <see cref="Latest"/>'s approval,
     /// which an unsaved edit leaves in place), built with no part missing, and passed by the rules

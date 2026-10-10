@@ -15,8 +15,11 @@ public enum Severity
 public sealed record Finding(
     Severity Severity, string Rule, string Location, string Message, string? Excerpt = null)
 {
+    /// <summary>Found by the AI proofread, not by a rule: the page tags it "AI" beside how much it matters.</summary>
+    public bool IsAi => Rule.StartsWith("ai-", StringComparison.Ordinal);
+
     /// <summary>Only AI findings can be dismissed by a person; rule-based blockers must be fixed.</summary>
-    public bool IsDismissable => Rule.StartsWith("ai-", StringComparison.Ordinal);
+    public bool IsDismissable => IsAi;
 
     /// <summary>
     /// The id of her known benefit line this finding holds an amount to, when it is about that line's

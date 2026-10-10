@@ -65,6 +65,20 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         return save;
     }
 
+    /// <summary>A short note the rules find nothing in: a headline and a paragraph, nothing missing.</summary>
+    internal static CampaignDraft Plain()
+    {
+        var d = new CampaignTemplate("Plain note",
+        [
+            new TemplateBlock("Headline", BlockType.Heading),
+            new TemplateBlock("Opening", BlockType.Paragraphs),
+        ]).Start();
+        d.Subject.Set("A note from the clinic");
+        d.Text("Headline").Set("Our new opening hours");
+        d.Paragraphs("Opening").Set(["We are open until seven on Thursdays."]);
+        return d;
+    }
+
     private async Task Proofread(SaveRef save, params Finding[] findings) =>
         await Store.SaveProofreadAsync(save, new ProofreadRecord(app.Clock.GetUtcNow(), findings,
             [new PhotoCheck("Principals toasting", "Couldn't check this photo: it is not a Square photo in your image library.", false)]));
@@ -90,8 +104,7 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 
         Assert.Equal(0, RenderedPage.Count(page, "proofread-button"));
         Assert.EndsWith("The AI proofread found 1 thing in this version, listed with the rules' findings.", RenderedPage.Named(page, "proofread-status"));
-        Assert.StartsWith("These are the instant rules, with what the AI proofread found", RenderedPage.Named(page, "checks-with-proofread"));
-        Assert.Contains(Unclear.Message, RenderedPage.Text(page));
+        Assert.Contains(Unclear.Message, RenderedPage.Named(page, "checks-findings"));
         Assert.Equal("Principals toasting Couldn't check this photo: it is not a Square photo in your image library.",
             RenderedPage.Named(page, "proofread-photos"));
     }
@@ -157,6 +170,111 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         Assert.DoesNotContain("Copy into Square", RenderedPage.Text(page));
     }
 
+    // "What the checks say" (owner, 2026-10-10, option B): one summary of everything listed, the rules'
+    // and the AI's alike, and each AI finding tagged beside how much it matters.
+
+    private static readonly Finding Misspelt = new(Severity.Blocker, "ai-spelling", "Opening", "Misspelt. Suggest: receive", "recieve");
+
+    // The rules' findings on the finished draft: three worth a look, none to fix.
+    private static IReadOnlyList<Finding> RulesOnFinished()
+    {
+        var findings = CampaignReview.Check(DraftFixtures.Finished().Build().Campaign!).Findings;
+        Assert.Equal(3, findings.Count);
+        Assert.All(findings, f => Assert.Equal(Severity.Warning, f.Severity));
+        return findings;
+    }
+
+    // The case the owner found confusing: the rules find nothing, the AI does. The summary counts the AI's.
+    [Fact]
+    public async Task Rules_finding_nothing_and_the_ai_something_the_summary_counts_what_the_ai_found()
+    {
+        var save = await Saved(Plain());
+        await Proofread(save, Unclear);
+
+        var page = await Get($"/campaigns/{save.Id}");
+
+        Assert.Equal("Nothing has to be fixed. 1 thing is worth a look.", RenderedPage.Named(page, "checks-summary"));
+        Assert.Equal("AI", RenderedPage.Named(page, $"finding-ai-{Unclear.SeenKey}"));
+        Assert.StartsWith("Worth a look · AI Offer Could read two ways.", RenderedPage.Named(page, "checks-findings"));
+        Assert.DoesNotContain("The rules find nothing", RenderedPage.Text(page));
+    }
+
+    [Fact]
+    public async Task Rules_finding_something_and_the_ai_nothing_the_summary_counts_the_rules_and_nothing_is_tagged()
+    {
+        var rules = RulesOnFinished();
+        var save = await Saved();
+        await Proofread(save);
+
+        var page = await Get($"/campaigns/{save.Id}");
+
+        Assert.Equal("Nothing has to be fixed. 3 things are worth a look.", RenderedPage.Named(page, "checks-summary"));
+        Assert.Empty(RenderedPage.NamesStartingWith(page, "finding-ai-"));
+        Assert.All(rules, r => Assert.Contains(r.Message, RenderedPage.Named(page, "checks-findings")));
+    }
+
+    // Both: every finding counted by how much it matters, and only the AI's tagged.
+    [Fact]
+    public async Task Both_finding_something_the_summary_counts_all_and_only_the_ai_findings_are_tagged()
+    {
+        var rules = RulesOnFinished();
+        var save = await Saved();
+        await Proofread(save, Unclear, Misspelt);
+
+        var page = await Get($"/campaigns/{save.Id}");
+
+        Assert.Equal("1 thing has to be fixed. 4 things are worth a look.", RenderedPage.Named(page, "checks-summary"));
+        Assert.Equal([Misspelt.SeenKey, Unclear.SeenKey], RenderedPage.NamesStartingWith(page, "finding-ai-"));
+        Assert.Equal("AI", RenderedPage.Named(page, $"finding-ai-{Misspelt.SeenKey}"));
+        Assert.All(rules, r => Assert.Equal(0, RenderedPage.Count(page, $"finding-ai-{r.SeenKey}")));
+        Assert.StartsWith("Must fix · AI Opening Misspelt.", RenderedPage.Named(page, "checks-findings"));
+    }
+
+    [Fact]
+    public async Task Neither_finding_anything_the_summary_says_nothing_has_to_be_fixed_and_no_closing_line()
+    {
+        var save = await Saved(Plain());
+        await Proofread(save);
+
+        var page = await Get($"/campaigns/{save.Id}");
+
+        Assert.Equal("Nothing has to be fixed.", RenderedPage.Named(page, "checks-summary"));
+        Assert.Equal("", RenderedPage.Named(page, "checks-findings"));
+        // The summary says what the closing line said, so neither line follows the list once proofread.
+        Assert.DoesNotContain("These are the instant rules", RenderedPage.Text(page));
+        Assert.Equal(0, RenderedPage.Count(page, "checks-before-proofread"));
+    }
+
+    // Before a proofread the list is the rules' alone, and the line under it still says so.
+    [Fact]
+    public async Task Before_a_proofread_the_summary_counts_the_rules_and_the_line_under_it_says_they_are_the_rules()
+    {
+        RulesOnFinished();
+        var save = await Saved();
+
+        var page = await Get($"/campaigns/{save.Id}");
+
+        Assert.Equal("Nothing has to be fixed. 3 things are worth a look.", RenderedPage.Named(page, "checks-summary"));
+        Assert.Equal("These are the instant rules. The AI proofread reads a saved version when you ask it to, below.",
+            RenderedPage.Named(page, "checks-before-proofread"));
+    }
+
+    // The pop-up before the export tags the AI's warning as the list above does, and only that one.
+    [Fact]
+    public async Task The_list_before_the_export_tags_the_ai_finding_alone()
+    {
+        RulesOnFinished();
+        var save = await Saved();
+        await Proofread(save, Unclear);
+        await Store.ApproveAsync(save, "Priya");
+
+        var page = await Get($"/campaigns/{save.Id}");
+
+        Assert.Equal([Unclear.SeenKey], RenderedPage.NamesStartingWith(page, "export-warning-ai-"));
+        Assert.Equal("AI", RenderedPage.Named(page, $"export-warning-ai-{Unclear.SeenKey}"));
+        Assert.Contains("Worth a look · AI Offer Could read two ways.", RenderedPage.Named(page, "export-warnings-list"));
+    }
+
     [Fact]
     public async Task With_the_proofread_on_the_banner_no_longer_says_it_is_off() =>
         Assert.Equal("This is a demo. What you save here is kept on a test system, not your own account.",
@@ -205,6 +323,23 @@ public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<Proofread
         Assert.EndsWith(FoundOne, RenderedPage.Named(reopened, "proofread-status"));
         Assert.Equal(0, RenderedPage.Count(reopened, "proofread-message"));
         Assert.Equal(1, Occurrences(RenderedPage.Named(reopened, "proofread"), FoundOne));
+    }
+
+    // The owner's case, as she has it right after the click: the rules found nothing, the AI one thing.
+    [Fact]
+    public async Task Just_proofread_with_the_rules_finding_nothing_the_summary_counts_the_ai_finding_and_tags_it()
+    {
+        var save = await app.Stores.Campaigns(DemoApp.Client, Actor.Demo).SaveDraftAsync(Guid.NewGuid(), "Hello", ProofreadPageTests.Plain());
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        await using var page = await OpenPage.OpenAsync(app, save.Id, new FakeProofreader(Unclear));
+        Assert.Equal("Nothing has to be fixed.", RenderedPage.Named(await page.HtmlAsync(), "checks-summary"));
+
+        await page.ClickAsync("proofread-button");
+
+        var html = await page.HtmlAsync();
+        Assert.Equal("Nothing has to be fixed. 1 thing is worth a look.", RenderedPage.Named(html, "checks-summary"));
+        Assert.Equal("AI", RenderedPage.Named(html, $"finding-ai-{Unclear.SeenKey}"));
+        Assert.Equal(0, RenderedPage.Count(html, "checks-before-proofread"));
     }
 
     // A failure is the click's alone to say: nothing was kept, so the line above still offers the proofread.
@@ -408,6 +543,32 @@ public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<Proofread
             : serviceType == typeof(IServiceProvider) ? this
             : services.GetService(serviceType);
     }
+}
+
+/// <summary>
+/// The summary over "What the checks say" (owner, 2026-10-10, option B): every finding listed, the
+/// rules' and the AI's alike, counted by how much it matters, each sentence agreeing with its count.
+/// </summary>
+public class ChecksSummaryTests
+{
+    // Must-fix and worth-a-look findings, alternating between a rule's and the AI's, so the count
+    // cannot depend on where a finding came from.
+    private static IEnumerable<Finding> Findings(int mustFix, int worthALook) =>
+        Enumerable.Range(0, mustFix).Select(i => new Finding(Severity.Blocker, i % 2 == 0 ? "ai-spelling" : "tier-names-unique", "Offer", $"Fix {i}"))
+            .Concat(Enumerable.Range(0, worthALook).Select(i => new Finding(Severity.Warning, i % 2 == 0 ? "tier-names" : "ai-clarity", "Offer", $"Look {i}")));
+
+    [Theory]
+    [InlineData(0, 0, false, "Nothing has to be fixed.")]
+    [InlineData(0, 0, true, "Nothing has to be fixed so far.")]
+    [InlineData(0, 1, false, "Nothing has to be fixed. 1 thing is worth a look.")]
+    [InlineData(0, 5, false, "Nothing has to be fixed. 5 things are worth a look.")]
+    [InlineData(0, 2, true, "Nothing has to be fixed so far. 2 things are worth a look.")]
+    [InlineData(1, 0, false, "1 thing has to be fixed.")]
+    [InlineData(2, 0, false, "2 things have to be fixed.")]
+    [InlineData(1, 2, false, "1 thing has to be fixed. 2 things are worth a look.")]
+    [InlineData(3, 1, true, "3 things have to be fixed. 1 thing is worth a look.")]
+    public void It_counts_every_finding_by_how_much_it_matters(int mustFix, int worthALook, bool soFar, string expected) =>
+        Assert.Equal(expected, DraftSession.ChecksSummary(Findings(mustFix, worthALook), soFar));
 }
 
 /// <summary>While the proofread is off, as on the demo until the key is set, nothing offers it.</summary>
