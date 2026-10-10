@@ -35,6 +35,21 @@ public sealed record BusinessContext(string Name, string? Description = null)
     public IReadOnlyCollection<string>? LibraryPhotos { get; init; }
 
     /// <summary>
+    /// Where Square holds the library's photos, by name (ignoring case), for the AI proofread to read
+    /// the pictures themselves (owner, 2026-10-09: "we will allow the LLM to read the image when it is
+    /// hooked up"). Only Square addresses; a photo with none is not read, and the proofread says so.
+    /// Null when the library was not read. Never checked by the rules.
+    /// </summary>
+    public IReadOnlyDictionary<string, Uri>? PhotoAddresses { get; init; }
+
+    /// <summary>
+    /// Where the AI's readings of her photos are kept, in her own container, so a photo it has read
+    /// before is given as its reading rather than sent again. Null when none are kept: then every
+    /// photo is sent. Never checked by the rules.
+    /// </summary>
+    public IPhotoReadings? PhotoReadings { get; init; }
+
+    /// <summary>
     /// Whether the library holds a photo by this name, matched as the library finds one: ignoring
     /// case and the spaces around it. True when the library was not read.
     /// </summary>
@@ -46,11 +61,12 @@ public sealed record BusinessContext(string Name, string? Description = null)
 public interface IProofreader
 {
     /// <summary>
-    /// Findings about the email as it will be sent. Throws when the proofread could not run;
-    /// the gate turns that into a blocker rather than letting the email through unread.
+    /// Findings about the email as it will be sent. Throws when the proofread could not run, a
+    /// <see cref="ProofreadUnavailableException"/> saying why in plain words; the gate turns that
+    /// into a blocker rather than letting the email through unread.
     /// </summary>
     /// <param name="business">Who is sending it, when known.</param>
-    Task<IReadOnlyList<Finding>> ProofreadAsync(
+    Task<ProofreadResult> ProofreadAsync(
         Campaign campaign, BusinessContext? business, CancellationToken cancellationToken = default);
 }
 
@@ -78,7 +94,7 @@ public static class CampaignGate
         IReadOnlyList<Finding> ai;
         try
         {
-            ai = await proofreader.ProofreadAsync(campaign, business, cancellationToken);
+            ai = (await proofreader.ProofreadAsync(campaign, business, cancellationToken)).Findings;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -102,12 +118,22 @@ public static class CampaignGate
     /// "Worth a look" findings were shown at export is the approval's
     /// (<see cref="Approval.WarningsSeen"/>), since both belong to the one save.
     /// </summary>
+    /// <param name="proofread">
+    /// The AI proofread of this exact save, when she asked for one (owner, 2026-10-10: on the demo it
+    /// runs on her click, for a saved version): its findings join the rules' and count as theirs do,
+    /// a Must fix stopping the export and each "Worth a look" shown before it, and the report says it
+    /// was proofread. Null when this version has not been proofread: then the report says it was not.
+    /// </param>
     public static ReviewReport DemoReview(
-        Campaign campaign, Approval approval, CampaignPolicy? policy = null, BusinessContext? business = null)
+        Campaign campaign, Approval approval, CampaignPolicy? policy = null, BusinessContext? business = null,
+        IReadOnlyList<Finding>? proofread = null)
     {
         ArgumentNullException.ThrowIfNull(approval);
-        return CampaignReview.Check(campaign, policy, business) with
+        var rules = CampaignReview.Check(campaign, policy, business);
+        return rules with
         {
+            Findings = proofread is null ? rules.Findings : [.. rules.Findings, .. proofread],
+            Proofread = proofread is not null,
             DemoApproval = approval,
             WarningsSeen = approval.WarningsSeen,
         };

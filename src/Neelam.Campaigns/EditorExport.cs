@@ -25,6 +25,11 @@ public enum BlockKind
 /// </summary>
 public sealed record EditorBlock(BlockKind Kind, string Text, Uri? Url = null, ImageRef? Image = null);
 
+/// <summary>One block of the email as Square shows it, named for the AI proofread.</summary>
+/// <param name="Id">Its place, "b1" first, as the assistant export numbers its blocks.</param>
+/// <param name="Labels">The labels of the campaign's blocks it is made from, in order: one, or several for run-on text.</param>
+public sealed record PreviewPart(string Id, EditorBlock Block, IReadOnlyList<string> Labels);
+
 public static class EditorExport
 {
     /// <summary>
@@ -54,28 +59,50 @@ public static class EditorExport
     /// </summary>
     public static IReadOnlyList<EditorBlock> PreviewBlocks(Campaign c) => Render(c.Blocks);
 
+    /// <summary>
+    /// <see cref="PreviewBlocks"/>, each with its id as the assistant export numbers it ("b1" first)
+    /// and the labels of the campaign's blocks it is made from, in order: for the AI proofread, which
+    /// reads the blocks she approves and says which one a finding is in. Ungated, never for pasting.
+    /// </summary>
+    public static IReadOnlyList<PreviewPart> PreviewParts(Campaign c) =>
+        RenderParts(c.Blocks).Select((p, i) => new PreviewPart($"b{i + 1}", p.Block, p.Labels)).ToList();
+
     // The template's blocks, in its order, as Square blocks; consecutive text becomes one block.
     // Shared with TemplatePreview, which passes placeholders for the blocks each campaign fills.
-    internal static List<EditorBlock> Render(IEnumerable<Block> source)
+    internal static List<EditorBlock> Render(IEnumerable<Block> source) =>
+        RenderParts(source).Select(p => p.Block).ToList();
+
+    // Render, each Square block with the labels of the blocks it came from.
+    private static List<(EditorBlock Block, List<string> Labels)> RenderParts(IEnumerable<Block> source)
     {
-        var blocks = new List<EditorBlock>();
+        var blocks = new List<(EditorBlock Block, List<string> Labels)>();
         var text = new List<string>();
+        var textLabels = new List<string>();
 
         void Flush()
         {
             if (text.Count == 0) return;
-            blocks.Add(new(BlockKind.Text, string.Join("\n\n", text)));
+            blocks.Add((new(BlockKind.Text, string.Join("\n\n", text)), [.. textLabels]));
             text.Clear();
-        }
-
-        void Add(EditorBlock block)
-        {
-            Flush();
-            blocks.Add(block);
+            textLabels.Clear();
         }
 
         foreach (var block in source)
         {
+            void Add(EditorBlock square)
+            {
+                Flush();
+                blocks.Add((square, [block.Label]));
+            }
+
+            // Text runs on into the next block's; each block it came from is named once.
+            void Text(IEnumerable<string> lines)
+            {
+                var before = text.Count;
+                text.AddRange(lines);
+                if (text.Count > before && (textLabels.Count == 0 || textLabels[^1] != block.Label)) textLabels.Add(block.Label);
+            }
+
             switch (block)
             {
                 case PlaceholderBlock p:
@@ -88,7 +115,7 @@ public static class EditorExport
                         case BlockType.Spacer: Add(new(BlockKind.Spacer, "")); break;
                         // An offer is its name as a heading, then text, so its placeholder is too.
                         case BlockType.Offer: Add(new(BlockKind.Heading, p.Text)); break;
-                        default: text.Add(p.Text); break;
+                        default: Text([p.Text]); break;
                     }
                     break;
                 case HeaderBlock h: Add(new(BlockKind.Header, h.Text, Image: h.Photo)); break;
@@ -96,17 +123,17 @@ public static class EditorExport
                 case ImageBlock i: Add(new(BlockKind.Image, i.Image.AltText ?? "", Image: i.Image)); break;
                 case ButtonBlock b: Add(new(BlockKind.Button, b.Action.Label, b.Action.Url)); break;
                 case SpacerBlock: Add(new(BlockKind.Spacer, "")); break;
-                case GreetingBlock g: text.Add(g.Text); break;
-                case ParagraphsBlock p: text.AddRange(p.Paragraphs); break;
-                case FinePrintBlock f: text.Add(f.Text); break;
+                case GreetingBlock g: Text([g.Text]); break;
+                case ParagraphsBlock p: Text(p.Paragraphs); break;
+                case FinePrintBlock f: Text([f.Text]); break;
                 case SignOffBlock s:
-                    text.Add(s.SignOff.Valediction);
-                    text.Add(s.SignOff.From);
-                    if (s.SignOff.Tagline is not null) text.Add(s.SignOff.Tagline);
+                    Text(s.SignOff.Tagline is null
+                        ? [s.SignOff.Valediction, s.SignOff.From]
+                        : [s.SignOff.Valediction, s.SignOff.From, s.SignOff.Tagline]);
                     break;
                 case OfferBlock o:
                     Add(new(BlockKind.Heading, o.Offer.Name));
-                    text.AddRange(OfferText(o.Offer, o.Marker));
+                    Text(OfferText(o.Offer, o.Marker));
                     break;
             }
         }
@@ -132,7 +159,7 @@ public static class EditorExport
         string.Join("\n", items.Select(i => $"{marker} {i}").Prepend($"{marker} {price}").Prepend($"{name}:"));
 
     // Dollars for a US audience whatever the server's culture: "$149.50", never "$149,50".
-    internal static string PriceText(decimal monthlyPrice, bool isRecurring) =>
+    public static string PriceText(decimal monthlyPrice, bool isRecurring) =>
         "$" + monthlyPrice.ToString(monthlyPrice % 1 == 0 ? "0" : "0.00", System.Globalization.CultureInfo.InvariantCulture)
             + (isRecurring ? "/month" : "");
 

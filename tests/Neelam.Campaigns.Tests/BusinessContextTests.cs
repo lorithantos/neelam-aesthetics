@@ -29,7 +29,7 @@ public class BusinessContextTests
     {
         var campaign = SampleCampaigns.Corrected();
 
-        var prompt = ClaudeProofreader.UserPrompt(campaign, EditorExport.Preview(campaign), Neelam.Business);
+        var prompt = ClaudeProofreader.Content(campaign, EditorExport.PreviewParts(campaign), Neelam.Business);
 
         var start = prompt.IndexOf("<business>", StringComparison.Ordinal);
         var end = prompt.IndexOf("</business>", StringComparison.Ordinal);
@@ -44,7 +44,7 @@ public class BusinessContextTests
     {
         var campaign = SampleCampaigns.Corrected();
 
-        Assert.DoesNotContain("<business>", ClaudeProofreader.UserPrompt(campaign, EditorExport.Preview(campaign), null));
+        Assert.DoesNotContain("<business>", ClaudeProofreader.Content(campaign, EditorExport.PreviewParts(campaign), null));
     }
 
     [Fact]

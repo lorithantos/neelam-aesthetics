@@ -57,10 +57,11 @@ public sealed record ReviewReport(Campaign Campaign, IReadOnlyList<Finding> Find
     public IEnumerable<Finding> Warnings => Findings.Where(f => f.Severity == Severity.Warning);
 
     /// <summary>
-    /// The demo site's exception, and only that: the approval that stands in for the AI proofread
-    /// while it is not switched on. Set by <see cref="CampaignGate.DemoReview"/> alone (it cannot be
-    /// set outside this library), and never together with <see cref="Proofread"/>, so a report it
-    /// unlocks still says plainly that nobody proofread the email. Null on every other report.
+    /// The demo site's exception, and only that: the approval that lets the demo export a version
+    /// without the AI proofread. Set by <see cref="CampaignGate.DemoReview"/> alone (it cannot be set
+    /// outside this library). With <see cref="Proofread"/> false, the report says plainly that nobody
+    /// proofread the email; with it true, she had the saved version proofread on the demo, and its
+    /// findings are among <see cref="Findings"/>. Null on every other report.
     /// </summary>
     public Approval? DemoApproval { get; internal init; }
 

@@ -8,6 +8,13 @@
 
   <ItemGroup>
     <PackageReference Include="Anthropic" Version="12.53.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- What the proofread is told is data the app reads at startup (ProofreadInstructions.Shipped),
+         copied into the output of every project that references this one, under Proofread/. -->
+    <Content Include="Proofread\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
