@@ -30,6 +30,8 @@ public sealed class StartLog
     private int _heldShown;
     private long _firstHeldTicks;
     private long _readyTicks;
+    private readonly TaskCompletionSource<DateTimeOffset?> _lastAliveBefore =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public StartLog(TimeProvider clock, IConfiguration configuration, WarmupState warmup)
     {
@@ -59,6 +61,21 @@ public sealed class StartLog
     internal ChannelReader<StartEvent> Events => _events.Reader;
 
     internal void SetCause(string cause) => Volatile.Write(ref _cause, cause);
+
+    /// <summary>
+    /// The last heartbeat before this start, once <see cref="Heartbeat"/> has read it, before its own
+    /// first beat: null when there was none or it could not be read.
+    /// </summary>
+    public Task<DateTimeOffset?> LastAliveBefore => _lastAliveBefore.Task;
+
+    /// <summary>Set once, by the heartbeat, before it first beats; later calls change nothing.</summary>
+    internal void SetLastAliveBefore(DateTimeOffset? at) => _lastAliveBefore.TrySetResult(at);
+
+    /// <summary>From the last heartbeat before this start to the start, never below zero; null while unknown.</summary>
+    public long? DownForMs =>
+        _lastAliveBefore.Task.IsCompletedSuccessfully && _lastAliveBefore.Task.Result is { } at
+            ? Math.Max(0, (long)(StartedAt - at).TotalMilliseconds)
+            : null;
 
     /// <summary>Takes this request as the first one, unless another already was. True for exactly one request per start.</summary>
     public bool TryRecordFirstRequest(FirstRequest request)
@@ -114,7 +131,8 @@ public sealed class StartLog
     /// <summary>The record as it stands, at the given version.</summary>
     public StartRecord Snapshot(int version) => new(
         Id, StartedAt, Build, Cause, version, Volatile.Read(ref _warmup), Volatile.Read(ref _first),
-        _visits.Values.OrderBy(v => v.At).ThenBy(v => v.Route, StringComparer.Ordinal).ToList(), Held());
+        _visits.Values.OrderBy(v => v.At).ThenBy(v => v.Route, StringComparer.Ordinal).ToList(), Held(),
+        DownForMs is null ? null : _lastAliveBefore.Task.Result, DownForMs);
 
     /// <summary>How long after the start this moment is.</summary>
     public long MsSinceStart(DateTimeOffset at) => (long)(at - StartedAt).TotalMilliseconds;
@@ -136,13 +154,24 @@ public static class StartCause
     /// <summary>The build stamp differs from the start before: a deploy.</summary>
     public const string NewBuild = "new build";
 
-    /// <summary>The same build as before, or nothing to compare: a restart, a setting changed or a platform recycle.</summary>
+    /// <summary>The same build, back within two minutes of the last heartbeat: a setting changed or a platform recycle.</summary>
+    public const string Restart = "restart";
+
+    /// <summary>The same build, two minutes or more after the last heartbeat: the app was not running.</summary>
+    public const string Down = "down";
+
+    /// <summary>The same build, or nothing to compare, and no heartbeat to go by.</summary>
     public const string Unknown = "unknown";
 
-    /// <summary>"new build" when both starts carry a stamp and they differ, else "unknown".</summary>
-    public static string From(string? build, StartRecord? before) =>
-        build is not null && before?.Build is { } earlier && !string.Equals(build, earlier, StringComparison.Ordinal)
-            ? NewBuild : Unknown;
+    /// <summary>
+    /// "new build" when both starts carry a stamp and they differ; otherwise from the gap since the last
+    /// heartbeat: "restart" under <see cref="StartRecord.RestartMs"/>, "down" from it, "unknown" with no gap.
+    /// </summary>
+    public static string From(string? build, StartRecord? before, long? downForMs) =>
+        build is not null && before?.Build is { } earlier && !string.Equals(build, earlier, StringComparison.Ordinal) ? NewBuild
+        : downForMs is not { } gap ? Unknown
+        : gap < StartRecord.RestartMs ? Restart
+        : Down;
 }
 
 internal abstract record StartEvent;
@@ -244,6 +273,9 @@ public sealed class StartRecordOptions
 public sealed class StartRecordWriter(
     StartLog start, IStartRecords store, IOptions<StartRecordOptions> options, ILogger<StartRecordWriter> log) : BackgroundService
 {
+    /// <summary>How long the writer waits for the heartbeat to have read the last one before this start.</summary>
+    internal static readonly TimeSpan LastAliveWait = TimeSpan.FromSeconds(30);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await Task.Yield();
@@ -259,7 +291,10 @@ public sealed class StartRecordWriter(
                 {
                     start.SetCause(await CauseAsync(stoppingToken));
                     causeKnown = true;
-                    log.LogInformation("Start {StartId}: cause {Cause}.", start.Id, start.Cause);
+                    var gap = start.Snapshot(0);
+                    log.LogInformation("Start {StartId}: cause {Cause}; last heartbeat before it {DownFrom}, {DownForMs} ms before the start.",
+                        start.Id, start.Cause,
+                        gap.DownFrom?.UtcDateTime.ToString("o", CultureInfo.InvariantCulture) ?? "none", gap.DownForMs?.ToString(CultureInfo.InvariantCulture) ?? "unknown");
                 }
                 version++;
                 try
@@ -279,10 +314,19 @@ public sealed class StartRecordWriter(
 
     private async Task<string> CauseAsync(CancellationToken ct)
     {
+        // The heartbeat reads the last one before this start before it first beats; give it a while.
+        try
+        {
+            await start.LastAliveBefore.WaitAsync(LastAliveWait, ct);
+        }
+        catch (TimeoutException)
+        {
+            log.LogWarning("Start {StartId}: the last heartbeat before it was not read in time; the gap is not known.", start.Id);
+        }
         try
         {
             var before = (await store.RecentAsync(2, ct)).FirstOrDefault(r => r.Id != start.Id);
-            return StartCause.From(start.Build, before);
+            return StartCause.From(start.Build, before, start.DownForMs);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {

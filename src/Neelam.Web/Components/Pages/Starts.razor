@@ -24,8 +24,9 @@ else
     <p class="muted">
         Each time the site starts (a deploy, a setting changed, or Azure restarting it), it warms its pages
         before anyone needs them; anyone who arrives sooner is shown a "Getting ready" page that refreshes
-        itself. This is how the last @Shown starts went, newest first. Times are UTC. A first visit of a
-        second or more is marked.
+        itself. While it runs it notes the time about once a minute, so each start can say how long the site
+        was down before it. This is how the last @Shown starts went, newest first. Times are UTC. Down for
+        five minutes or more is marked as an outage, and a first visit of a second or more is marked.
     </p>
 
     @if (_unreadable is not null)
@@ -46,6 +47,7 @@ else
                         <th scope="col">Started (UTC)</th>
                         <th scope="col">Build</th>
                         <th scope="col">Why</th>
+                        <th scope="col">Down for</th>
                         <th scope="col">Warm-up</th>
                         <th scope="col">Asked to wait</th>
                         <th scope="col">First request</th>
@@ -59,7 +61,14 @@ else
                         <tr data-testid="start-@start.Id">
                             <td data-testid="start-when-@start.Id">@StartsView.When(start.StartedAt)@(start.Id == Current.Id ? " (this one)" : "")</td>
                             <td data-testid="start-build-@start.Id">@StartsView.Build(start.Build)</td>
-                            <td data-testid="start-cause-@start.Id">@StartsView.Cause(start.Cause)</td>
+                            <td data-testid="start-cause-@start.Id">@StartsView.Why(start)</td>
+                            <td data-testid="start-down-@start.Id">
+                                @StartsView.DownFor(start)
+                                @if (start.Outage)
+                                {
+                                    <span class="outage" data-testid="start-outage-@start.Id">Outage</span>
+                                }
+                            </td>
                             <td data-testid="start-warmup-@start.Id">@StartsView.Warmup(start.Warmup)</td>
                             <td data-testid="start-held-@start.Id">@StartsView.Held(start.Held)</td>
                             <td data-testid="start-first-request-@start.Id">@StartsView.FirstRequest(start)</td>

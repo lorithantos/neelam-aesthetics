@@ -831,6 +831,17 @@ label.check {
     white-space: nowrap;
 }
 
+.outage {
+    display: inline-block;
+    padding: 0 0.35rem;
+    border: 1px solid var(--error-border);
+    border-radius: var(--radius);
+    background: var(--error-bg);
+    color: var(--error-text);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 /* Read by a screen reader, not shown. */
 .visually-hidden {
     position: absolute;

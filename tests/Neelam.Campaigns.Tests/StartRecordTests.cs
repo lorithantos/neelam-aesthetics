@@ -59,7 +59,7 @@ public class StartRecordTests
         Assert.Contains(lines, l => l.StartsWith($"Start {start.Id} at ", StringComparison.Ordinal) && l.EndsWith($"build {Stamp}.", StringComparison.Ordinal));
         Assert.Contains(lines, l => l.StartsWith($"Start {start.Id}: first request /healthz answered 200 in ", StringComparison.Ordinal));
         Assert.Contains(lines, l => l.StartsWith($"Start {start.Id}: first visit /templates answered 200 in ", StringComparison.Ordinal));
-        Assert.Contains($"Start {start.Id}: cause unknown.", lines);
+        Assert.Contains($"Start {start.Id}: cause unknown; last heartbeat before it none, unknown ms before the start.", lines);
     }
 
     // A page's address carries an id; the record keeps the route as declared, never the address.
@@ -89,16 +89,23 @@ public class StartRecordTests
         Assert.Equal(StartCause.NewBuild, record.Cause);
     }
 
+    // A new build first; otherwise the gap since the last heartbeat: under two minutes a restart, from
+    // two minutes down, and no heartbeat to go by unknown.
     [Theory]
-    [InlineData("Build 7", "Build 6", StartCause.NewBuild)]
-    [InlineData("Build 7", "Build 7", StartCause.Unknown)]
-    [InlineData(null, "Build 7", StartCause.Unknown)]
-    [InlineData("Build 7", null, StartCause.Unknown)]
-    public void What_started_it(string? now, string? before, string expected) =>
-        Assert.Equal(expected, StartCause.From(now, Earlier("20261003T110000000Z-0001", before)));
+    [InlineData("Build 7", "Build 6", null, StartCause.NewBuild)]
+    [InlineData("Build 7", "Build 6", 3_600_000L, StartCause.NewBuild)]
+    [InlineData("Build 7", "Build 7", null, StartCause.Unknown)]
+    [InlineData(null, "Build 7", null, StartCause.Unknown)]
+    [InlineData("Build 7", null, null, StartCause.Unknown)]
+    [InlineData("Build 7", "Build 7", 0L, StartCause.Restart)]
+    [InlineData("Build 7", "Build 7", 119_999L, StartCause.Restart)]
+    [InlineData("Build 7", "Build 7", 120_000L, StartCause.Down)]
+    [InlineData(null, null, 420_000L, StartCause.Down)]
+    public void What_started_it(string? now, string? before, long? downForMs, string expected) =>
+        Assert.Equal(expected, StartCause.From(now, Earlier("20261003T110000000Z-0001", before), downForMs));
 
     [Fact]
-    public void Nothing_before_is_unknown() => Assert.Equal(StartCause.Unknown, StartCause.From("Build 7", null));
+    public void Nothing_before_is_unknown() => Assert.Equal(StartCause.Unknown, StartCause.From("Build 7", null, null));
 
     // ---- The first request, once ----
 
@@ -369,13 +376,55 @@ internal sealed class InMemoryStartRecords : IStartRecords
             return Task.FromResult<IReadOnlyList<StartRecord>>(
                 _starts.Values.OrderByDescending(s => s.Id, StringComparer.Ordinal).Take(count).ToList());
     }
+
+    private readonly List<(DateTimeOffset At, string StartId)> _beats = [];
+
+    /// <summary>Every heartbeat, in order.</summary>
+    public IReadOnlyList<(DateTimeOffset At, string StartId)> Beats
+    {
+        get { lock (_beats) return _beats.ToList(); }
+    }
+
+    /// <summary>Every read of the last heartbeat and every beat, in order, as "read" or "beat".</summary>
+    public IReadOnlyList<string> Calls
+    {
+        get { lock (_calls) return _calls.ToList(); }
+    }
+
+    private readonly List<string> _calls = [];
+
+    public Task<DateTimeOffset?> LastAliveAsync(CancellationToken ct = default)
+    {
+        lock (_calls) _calls.Add("read");
+        lock (_beats) return Task.FromResult<DateTimeOffset?>(_beats.Count == 0 ? null : _beats[^1].At);
+    }
+
+    public Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default)
+    {
+        lock (_calls) _calls.Add("beat");
+        lock (_beats) _beats.Add((at, startId));
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class FailingStartRecords : IStartRecords
 {
+    private int _beats;
+
+    /// <summary>How many beats were tried.</summary>
+    public int BeatsTried => Volatile.Read(ref _beats);
+
     public Task SaveAsync(StartRecord record, CancellationToken ct = default) => throw StorageFailure.Busy();
 
     public Task<IReadOnlyList<StartRecord>> RecentAsync(int count, CancellationToken ct = default) => throw StorageFailure.Busy();
+
+    public Task<DateTimeOffset?> LastAliveAsync(CancellationToken ct = default) => throw StorageFailure.Busy();
+
+    public Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _beats);
+        throw StorageFailure.Busy();
+    }
 }
 
 internal sealed class HangingStartRecords : IStartRecords
@@ -394,6 +443,19 @@ internal sealed class HangingStartRecords : IStartRecords
         await Task.Delay(Timeout.Infinite, ct);
         return [];
     }
+
+    public async Task<DateTimeOffset?> LastAliveAsync(CancellationToken ct = default)
+    {
+        Reached.TrySetResult();
+        await Task.Delay(Timeout.Infinite, ct);
+        return null;
+    }
+
+    public async Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default)
+    {
+        Reached.TrySetResult();
+        await Task.Delay(Timeout.Infinite, ct);
+    }
 }
 
 /// <summary>
@@ -405,18 +467,24 @@ public class StartsPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 {
     private const string Quick = "20261003T100000000Z-0a0a";
     private const string Slow = "20261003T110000000Z-0b0b";
+    private const string Away = "20261003T090000000Z-0c0c";
 
     private async Task<(HttpStatusCode Status, string Page)> Get(params string[] roles)
     {
         var at = new DateTimeOffset(2026, 10, 3, 10, 0, 0, TimeSpan.Zero);
-        await app.StartRecords.SaveAsync(new StartRecord(Quick, at, StartRecordTests.Stamp, StartCause.Unknown, 3,
+        await app.StartRecords.SaveAsync(new StartRecord(Quick, at, StartRecordTests.Stamp, StartCause.Restart, 3,
             new WarmupOutcome(5400, 13, 13, "GET /campaigns", 1600),
             new FirstRequest(at.AddSeconds(2), "/warmup", 9000, 200),
             [new PageVisit("/", at.AddSeconds(20), 175, 200), new PageVisit("/campaigns", at.AddSeconds(25), 999, 200)],
-            new HeldRequests(2, at.AddSeconds(3), 9100)));
+            new HeldRequests(2, at.AddSeconds(3), 9100), at.AddSeconds(-45), 45_000));
+        // A new build after five minutes down: an outage, whatever started it.
         await app.StartRecords.SaveAsync(new StartRecord(Slow, at.AddHours(1), "Build 8 (local) | Commit 89abcdef01234567 | Branch main | x",
             StartCause.NewBuild, 2, null, null,
-            [new PageVisit("/campaigns", at.AddHours(1).AddSeconds(9), 450, 200), new PageVisit("/campaigns/{Id:guid}", at.AddHours(1).AddSeconds(12), 1000, 200)]));
+            [new PageVisit("/campaigns", at.AddHours(1).AddSeconds(9), 450, 200), new PageVisit("/campaigns/{Id:guid}", at.AddHours(1).AddSeconds(12), 1000, 200)],
+            null, at.AddHours(1).AddMinutes(-5), StartRecord.OutageMs));
+        // Down just under five minutes: said, not marked.
+        await app.StartRecords.SaveAsync(new StartRecord(Away, at.AddHours(-1), StartRecordTests.Stamp, StartCause.Down, 1, null, null, [],
+            null, at.AddHours(-1).AddMilliseconds(-299_999), 299_999));
 
         var client = app.CreateClient(new() { AllowAutoRedirect = false });
         if (roles.Length > 0) client.SignedIn(roles);
@@ -440,13 +508,14 @@ public class StartsPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         var current = app.Services.GetRequiredService<StartLog>().Id;
         var rows = RenderedPage.NamesStartingWith(page, "start-when-");
-        Assert.Equal([current, Slow, Quick], rows.ToArray());
+        Assert.Equal([current, Slow, Quick, Away], rows.ToArray());
         Assert.EndsWith("(this one)", RenderedPage.Named(page, $"start-when-{current}"));
 
         Assert.Equal("3 Oct 2026, 10:00:00", RenderedPage.Named(page, $"start-when-{Quick}"));
         Assert.Equal("Build 7 · 0123456", RenderedPage.Named(page, $"start-build-{Quick}"));
-        Assert.Equal("Restart (cause not known)", RenderedPage.Named(page, $"start-cause-{Quick}"));
+        Assert.Equal("Restart", RenderedPage.Named(page, $"start-cause-{Quick}"));
         Assert.Equal("New build", RenderedPage.Named(page, $"start-cause-{Slow}"));
+        Assert.Equal("Down for 4 min", RenderedPage.Named(page, $"start-cause-{Away}"));
         Assert.Equal("5.4 s, 13 of 13 answered; slowest GET /campaigns, 1.6 s", RenderedPage.Named(page, $"start-warmup-{Quick}"));
         Assert.Equal("Not finished", RenderedPage.Named(page, $"start-warmup-{Slow}"));
         Assert.Equal("/warmup, 200, 9.0 s (2.0 s after the start)", RenderedPage.Named(page, $"start-first-request-{Quick}"));
@@ -469,6 +538,33 @@ public class StartsPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal("/campaigns, 999 ms", RenderedPage.Named(page, $"start-slowest-{Quick}"));
         Assert.Equal(0, RenderedPage.Count(page, $"start-sluggish-{Quick}"));
     }
+
+    // How long the site was down before each start, from the last heartbeat before it: five minutes or
+    // more is marked as an outage; under it is said, not marked; no heartbeat before is "Not known".
+    [Fact]
+    public async Task Down_for_five_minutes_or_more_is_marked_as_an_outage()
+    {
+        var (_, page) = await Get(Features.Operator);
+
+        Assert.Equal("5 min Outage", RenderedPage.Named(page, $"start-down-{Slow}"));
+        Assert.Equal("Outage", RenderedPage.Named(page, $"start-outage-{Slow}"));
+        Assert.Equal("4 min", RenderedPage.Named(page, $"start-down-{Away}"));
+        Assert.Equal(0, RenderedPage.Count(page, $"start-outage-{Away}"));
+        Assert.Equal("45 s", RenderedPage.Named(page, $"start-down-{Quick}"));
+        Assert.Equal(0, RenderedPage.Count(page, $"start-outage-{Quick}"));
+        var current = app.Services.GetRequiredService<StartLog>().Id;
+        Assert.Equal("Not known", RenderedPage.Named(page, $"start-down-{current}"));
+    }
+
+    [Theory]
+    [InlineData(0, "0 s")]
+    [InlineData(45_000, "45 s")]
+    [InlineData(119_999, "119 s")]
+    [InlineData(120_000, "2 min")]
+    [InlineData(7_199_999, "119 min")]
+    [InlineData(7_200_000, "2 h 0 min")]
+    [InlineData(11_100_000, "3 h 5 min")]
+    public void Gaps_read_in_seconds_minutes_or_hours(long ms, string expected) => Assert.Equal(expected, StartsView.Gap(ms));
 
     [Fact]
     public async Task The_admin_header_links_to_it()

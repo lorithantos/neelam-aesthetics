@@ -9,12 +9,14 @@ namespace Neelam.Campaigns.Storage;
 /// </summary>
 /// <param name="Id">Sortable by start time: <c>yyyyMMddTHHmmssfffZ</c> and a short random tail, so two instances started in the same millisecond never share one.</param>
 /// <param name="Build">The deploy's build stamp (LATEST_BUILD_INFO), or null where there is none, as in a local run.</param>
-/// <param name="Cause">"new build" when the build stamp differs from the start before; otherwise "unknown" (a restart, a setting changed, a platform recycle: the app cannot tell them apart).</param>
+/// <param name="Cause">"new build" when the build stamp differs from the start before; otherwise, from the gap since the last heartbeat, "restart" (under two minutes: a setting changed, a platform recycle) or "down" (two minutes or more), or "unknown" with no heartbeat to go by.</param>
 /// <param name="Version">How many times this start's record has been written; the newest is the one kept.</param>
 /// <param name="Warmup">How the warm-up went, once it has finished.</param>
 /// <param name="FirstRequest">The first request after the start that was not the warm-up's own.</param>
 /// <param name="FirstVisits">Each page's first visit after the start, in the order they came.</param>
 /// <param name="Held">Requests shown the getting-ready page while the warm-up ran; null when none were.</param>
+/// <param name="DownFrom">The last heartbeat before this start: when the app was last known to be running. Null when there was none, or it could not be read.</param>
+/// <param name="DownForMs">From that heartbeat to this start: how long the app was not running, give or take one heartbeat. Null when <paramref name="DownFrom"/> is.</param>
 public sealed record StartRecord(
     string Id,
     DateTimeOffset StartedAt,
@@ -24,10 +26,21 @@ public sealed record StartRecord(
     WarmupOutcome? Warmup,
     FirstRequest? FirstRequest,
     IReadOnlyList<PageVisit> FirstVisits,
-    HeldRequests? Held = null)
+    HeldRequests? Held = null,
+    DateTimeOffset? DownFrom = null,
+    long? DownForMs = null)
 {
     /// <summary>What the owner calls sluggish: "a second or more feels sluggish and unprofessional".</summary>
     public const long SluggishMs = 1000;
+
+    /// <summary>A gap before a start shorter than this is a restart (a deploy, a setting changed, a recycle): two minutes.</summary>
+    public const long RestartMs = 2 * 60 * 1000;
+
+    /// <summary>A gap before a start of this or more is an outage: five minutes.</summary>
+    public const long OutageMs = 5 * 60 * 1000;
+
+    /// <summary>Whether the app was not running for five minutes or more before this start.</summary>
+    public bool Outage => DownForMs >= OutageMs;
 
     /// <summary>The slowest first visit to a page, or null before any.</summary>
     public PageVisit? SlowestVisit => FirstVisits.OrderByDescending(v => v.Ms).FirstOrDefault();
@@ -61,6 +74,12 @@ public interface IStartRecords
 
     /// <summary>The newest <paramref name="count"/> starts, newest first. A record that cannot be read is left out.</summary>
     Task<IReadOnlyList<StartRecord>> RecentAsync(int count, CancellationToken ct = default);
+
+    /// <summary>The last heartbeat: when the app was last known to be running. Null when there has been none.</summary>
+    Task<DateTimeOffset?> LastAliveAsync(CancellationToken ct = default);
+
+    /// <summary>Records that the app, in the start <paramref name="startId"/>, is running at <paramref name="at"/>, in place of the heartbeat before.</summary>
+    Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -128,6 +147,42 @@ public sealed class StartRecordStore : IStartRecords
             }
         }
         return records;
+    }
+
+    /// <summary>
+    /// The heartbeat: one blob beside the starts, whose metadata says when the app was last running
+    /// (<c>alive</c>, ISO 8601 UTC) and in which start (<c>start</c>). Blobs are never overwritten, but
+    /// their metadata may be replaced, so each beat is one metadata write. Its two segments keep it out
+    /// of the starts' listing.
+    /// </summary>
+    internal const string HeartbeatBlob = Prefix + "/heartbeat.json";
+
+    private const string AliveKey = "alive";
+    private const string StartKey = "start";
+
+    public async Task<DateTimeOffset?> LastAliveAsync(CancellationToken ct = default)
+    {
+        await foreach (var entry in _settings.ListAsync(HeartbeatBlob, ct))
+        {
+            if (entry.Name == HeartbeatBlob && entry.Metadata.TryGetValue(AliveKey, out var alive)
+                && DateTimeOffset.TryParse(alive, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.RoundtripKind, out var at))
+                return at.ToUniversalTime();
+        }
+        return null;
+    }
+
+    public async Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default)
+    {
+        var metadata = new Dictionary<string, string>
+        {
+            [AliveKey] = at.UtcDateTime.ToString("o", System.Globalization.CultureInfo.InvariantCulture),
+            [StartKey] = startId,
+        };
+        if (await _settings.SetMetadataAsync(HeartbeatBlob, metadata, ct)) return;
+        // The first beat ever: make the blob, or, if another beat made it in between, mark it.
+        if (!await _settings.TryCreateTextAsync(HeartbeatBlob, "{}", metadata, ct))
+            await _settings.SetMetadataAsync(HeartbeatBlob, metadata, ct);
     }
 
     private async Task<List<string>> ListAsync(CancellationToken ct)

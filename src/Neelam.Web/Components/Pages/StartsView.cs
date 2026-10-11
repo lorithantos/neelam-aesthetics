@@ -33,11 +33,27 @@ public static class StartsView
         };
     }
 
-    public static string Cause(string cause) => cause switch
+    /// <summary>Why the start happened: "New build", "Restart", "Down for 7 min", or "Unknown" with no heartbeat to go by.</summary>
+    public static string Why(StartRecord start) => start.Cause switch
     {
         StartCause.NewBuild => "New build",
-        _ => "Restart (cause not known)",
+        StartCause.Restart => "Restart",
+        StartCause.Down when start.DownForMs is { } gap => "Down for " + Gap(gap),
+        _ => "Unknown",
     };
+
+    /// <summary>How long the app was not running before the start, or "Not known" with no heartbeat before it.</summary>
+    public static string DownFor(StartRecord start) => start.DownForMs is { } gap ? Gap(gap) : "Not known";
+
+    /// <summary>"40 s" under two minutes, "7 min" under two hours, "3 h 5 min" from there.</summary>
+    public static string Gap(long ms)
+    {
+        var seconds = ms / 1000;
+        if (seconds < 120) return seconds.ToString(CultureInfo.InvariantCulture) + " s";
+        var minutes = seconds / 60;
+        if (minutes < 120) return minutes.ToString(CultureInfo.InvariantCulture) + " min";
+        return $"{(minutes / 60).ToString(CultureInfo.InvariantCulture)} h {(minutes % 60).ToString(CultureInfo.InvariantCulture)} min";
+    }
 
     public static string Warmup(WarmupOutcome? warmup) => warmup switch
     {

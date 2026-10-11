@@ -137,6 +137,16 @@ builder.Services.AddSingleton<StartLog>();
 builder.Services.AddSingleton<IStartRecords>(services => services.GetRequiredService<ClientStores>()
     .Starts(services.GetRequiredService<IOptions<StartRecordOptions>>().Value.Keep));
 builder.Services.AddHostedService<StartRecordWriter>();
+
+// The heartbeat (owner, 2026-10-10: "yes, heartbeat in and drop the paid test"): about once a minute the
+// app notes it is running, in one blob beside the starts; each start first reads the last one, so its
+// record says how long the app was down before it.
+builder.Services.AddOptions<HeartbeatOptions>()
+    .Bind(builder.Configuration.GetSection(HeartbeatOptions.Section))
+    .Validate(beat => beat.Interval >= TimeSpan.FromSeconds(1) && beat.Interval <= TimeSpan.FromHours(1),
+        "Heartbeat:Interval must lie between a second and an hour, such as 00:01:00.")
+    .ValidateOnStart();
+builder.Services.AddHostedService<Heartbeat>();
 builder.Services.AddSingleton<IKnownItemStore>(services =>
     new KnownItemTable(storageClients, services.GetRequiredService<ILogger<KnownItemTable>>()));
 
