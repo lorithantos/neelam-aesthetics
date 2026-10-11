@@ -672,6 +672,26 @@ public class AssistantExportTests
         if (schemaRefusesToo) Assert.NotEmpty(ExportSchema.Problems(json));
     }
 
+    // The test classes share the one schema and run in parallel, so it gives the same answer
+    // however many evaluations are under way at once (2026-10-10: unguarded, a quarter of these
+    // broken exports passed).
+    [Fact]
+    public void The_schema_gives_the_same_answer_under_concurrent_evaluation()
+    {
+        var good = AssistantExport.Build(Demo(BeautyBankEmail.Corrected()), context: Context);
+        var goodJson = AssistantExport.Serialize(good);
+        var brokenJson = AssistantExport.Serialize(Broken(good, "image-name"));
+
+        var wrong = new System.Collections.Concurrent.ConcurrentBag<string>();
+        Parallel.For(0, 200, i =>
+        {
+            if (i % 2 == 0) { if (ExportSchema.Problems(brokenJson).Count == 0) wrong.Add("broken passed"); }
+            else if (ExportSchema.Problems(goodJson) is { Count: > 0 } p) wrong.Add("good refused: " + p[0]);
+        });
+
+        Assert.Empty(wrong);
+    }
+
     // The copy blocks name each kind from the same table.
     [Fact]
     public void Every_block_kind_has_a_square_widget() =>
@@ -777,16 +797,25 @@ internal static class ExportSchema
 
     private static readonly Lazy<JsonSchema> Schema = new(() => JsonSchema.FromText(File.ReadAllText(FilePath)));
 
+    // JsonSchema.Net 7.4 caches each evaluation's constraint tree on the schema object itself, and
+    // Evaluate clears that cache, unlocked, whenever it is handed options it was not handed last
+    // time -- every call here. One evaluation then reads a subschema whose constraints another has
+    // just cleared or not yet filled, and passes what it should refuse. The test classes run in
+    // parallel, so one evaluation at a time.
+    private static readonly Lock Evaluating = new();
+
     public static JsonNode Document => JsonNode.Parse(File.ReadAllText(FilePath))!;
 
     /// <summary>Where a document breaks the schema, one line each; empty when it is valid.</summary>
     public static IReadOnlyList<string> Problems(string json)
     {
-        var results = Schema.Value.Evaluate(JsonNode.Parse(json), new EvaluationOptions
-        {
-            OutputFormat = OutputFormat.List,
-            RequireFormatValidation = true,
-        });
+        EvaluationResults results;
+        lock (Evaluating)
+            results = Schema.Value.Evaluate(JsonNode.Parse(json), new EvaluationOptions
+            {
+                OutputFormat = OutputFormat.List,
+                RequireFormatValidation = true,
+            });
         if (results.IsValid) return [];
         var problems = (results.Details ?? [])
             .Where(d => d.Errors is { Count: > 0 })
