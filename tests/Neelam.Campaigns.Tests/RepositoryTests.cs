@@ -67,9 +67,10 @@ public class RepositoryTests
         Assert.Contains("src/Neelam.Web/Properties/launchSettings.json", files);
     }
 
-    // No personal email address reaches GitHub (2026-10-10, with the outage alert, whose address the
-    // deployment passes as an override). The example domains reserved for documentation are allowed, as
-    // the tests use them; a URL's user part (https://user@host) is not an address.
+    // No personal email address reaches GitHub (added 2026-10-10 with an outage alert whose address was
+    // to be a deploy-time override; the alert was dropped the same day, the guard kept). The example
+    // domains reserved for documentation are allowed, as the tests use them; a URL's user part
+    // (https://user@host) is not an address.
     [Fact]
     public void Nothing_git_would_commit_holds_an_email_address()
     {
@@ -95,7 +96,7 @@ public class RepositoryTests
     }
 
     /// <summary>The email addresses in a text, leaving out the documentation domains and a URL's user part.</summary>
-    internal static IEnumerable<string> Addresses(string text) =>
+    private static IEnumerable<string> Addresses(string text) =>
         Regex.Matches(text, @"(?<![\w./:%+-])[A-Za-z0-9._%+-]+@(?<domain>[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})\b")
             .Where(m => !Regex.IsMatch(m.Groups["domain"].Value, @"(^|\.)example\.(com|org|net)$"))
             .Select(m => m.Value);
