@@ -119,8 +119,23 @@ builder.Services.AddOptions<WarmupOptions>()
     .Validate(warmup => warmup.Budget > TimeSpan.Zero, "Warmup:Budget must be a positive time span, such as 00:01:00.")
     .ValidateOnStart();
 builder.Services.AddSingleton<WarmupState>();
+builder.Services.AddSingleton<WarmupMarker>();
 builder.Services.AddSingleton<ISelfRequests, LoopbackRequests>();
 builder.Services.AddHostedService<Warmup>();
+
+// A record of each start and its first visits, and the same as log lines (owner, 2026-10-10: "We can
+// add the measurement to help make certain there are no outages"): operator data in the settings
+// container, the last Starts:Keep starts, written off the request path. Routes as declared, times and
+// status codes only, never a client's data. The operator reads it at /admin/starts.
+builder.Services.AddOptions<StartRecordOptions>()
+    .Bind(builder.Configuration.GetSection(StartRecordOptions.Section))
+    .Validate(starts => starts.Keep >= 1 && starts.Coalesce >= TimeSpan.Zero,
+        "Starts:Keep must be at least 1, and Starts:Coalesce a time span of zero or more, such as 00:00:02.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<StartLog>();
+builder.Services.AddSingleton<IStartRecords>(services => services.GetRequiredService<ClientStores>()
+    .Starts(services.GetRequiredService<IOptions<StartRecordOptions>>().Value.Keep));
+builder.Services.AddHostedService<StartRecordWriter>();
 builder.Services.AddSingleton<IKnownItemStore>(services =>
     new KnownItemTable(storageClients, services.GetRequiredService<ILogger<KnownItemTable>>()));
 
@@ -136,6 +151,13 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 var app = builder.Build();
+
+// The start is taken now, as the app is built, rather than at its first use.
+app.Services.GetRequiredService<StartLog>();
+
+// First, so its time is the whole request: notes this start's first request and each page's first
+// visit, leaving out the warm-up's own (StartRecording).
+app.UseStartRecording();
 
 // Why the proofread is off, when it is: the setting's name and state, never a value.
 if (!proofread.Switch.IsOn) app.Logger.LogInformation("The AI proofread is off: {Why}", proofread.Switch.Why);

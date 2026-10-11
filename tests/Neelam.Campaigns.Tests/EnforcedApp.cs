@@ -57,6 +57,7 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
     internal InMemoryApprovals Approvals { get; } = new();
     internal InMemoryActivityLog Activity { get; } = new();
     internal InMemoryKnownItems KnownItems { get; } = new();
+    internal InMemoryStartRecords StartRecords { get; } = new();
     internal ManualClock Clock { get; } = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
     /// <summary>The app's own stores, over <see cref="Containers"/>.</summary>
@@ -71,6 +72,8 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
         builder.UseSetting("Storage:TableServiceUri", "https://test.table.core.windows.net/");
         // The warm-up would request pages and read the stores while a test does; WarmupTests turn it on.
         builder.UseSetting($"{WarmupOptions.Section}:{nameof(WarmupOptions.Enabled)}", "false");
+        // The record of starts writes as soon as something happens, so a test need not wait for it.
+        builder.UseSetting($"{StartRecordOptions.Section}:{nameof(StartRecordOptions.Coalesce)}", "00:00:00");
         builder.ConfigureTestServices(services =>
         {
             ConfigureAccess(services);
@@ -85,6 +88,9 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
             services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(Clients);
             services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(Grants);
             services.RemoveAll<IKnownItemStore>().AddSingleton<IKnownItemStore>(KnownItems);
+            // Apart from Containers: the record of starts is written in the background while a test's
+            // pages read the settings container, which the in-memory container does not lock for.
+            services.RemoveAll<IStartRecords>().AddSingleton<IStartRecords>(StartRecords);
         });
     }
 }

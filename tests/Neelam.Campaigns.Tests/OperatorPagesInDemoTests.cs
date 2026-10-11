@@ -18,12 +18,13 @@ public class OperatorPagesInDemoTests(DemoApp app) : IClassFixture<DemoApp>
         Endpoints.Where(OperatorPagesInDemo.IsOperatorOnly).Select(e => "/" + e.RoutePattern.RawText!.TrimStart('/'))
             .Distinct().Order(StringComparer.Ordinal).ToList();
 
-    // What the gate covers is found from each endpoint's policy. Today that is the Clients page; every
-    // page under /admin is among them, so none can slip out from under the gate by its address.
+    // What the gate covers is found from each endpoint's policy. Today that is the Clients page and
+    // the Starts page (2026-10-10); every page under /admin is among them, so none can slip out from
+    // under the gate by its address.
     [Fact]
     public void Every_admin_page_is_an_operator_page()
     {
-        Assert.Equal(["/admin/clients"], OperatorRoutes);
+        Assert.Equal(["/admin/clients", "/admin/starts"], OperatorRoutes);
         var admin = Endpoints.Where(e => (e.RoutePattern.RawText ?? "").TrimStart('/').StartsWith("admin", StringComparison.OrdinalIgnoreCase));
         Assert.NotEmpty(admin);
         Assert.All(admin, e => Assert.True(OperatorPagesInDemo.IsOperatorOnly(e), e.RoutePattern.RawText));

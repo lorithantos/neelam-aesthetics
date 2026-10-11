@@ -307,8 +307,7 @@ public sealed class WarmupApp : InMemoryApp
             services.RemoveAll<ClientStores>().AddSingleton(provider => new ClientStores(
                 container => new ReadOnlyBlobs(Containers.For(container), container, Writes, Broken), Clock,
                 TimeSpan.FromDays(1), approvals, provider.GetRequiredService<ActivityRecorder>()));
-            services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(new ReadOnlyClients(Clients, Writes, Gate, Broken));
-            services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(new ReadOnlyGrants(Grants, Writes));
+            services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(new ReadOnlyClients(Clients, Writes, Gate, Broken));            services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(new ReadOnlyGrants(Grants, Writes));
             services.RemoveAll<IKnownItemStore>().AddSingleton<IKnownItemStore>(new ReadOnlyKnownItems(KnownItems, Writes));
 
             // The proofread on, as the test site will have it, and refusing: the warm-up must never reach it.

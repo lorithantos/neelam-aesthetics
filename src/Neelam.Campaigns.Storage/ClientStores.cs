@@ -14,7 +14,8 @@ namespace Neelam.Campaigns.Storage;
 /// ladders (<c>ladders/</c>): all the client's own data. Its look lives apart, in the <c>settings</c>
 /// container at <c>settings/{client}/</c>, so working on a look never needs access to the client's
 /// data; the operator's standard baseline and ladders are there too, at
-/// <c>settings/_standard-baseline/</c> and <c>settings/_standard-ladders/</c>.
+/// <c>settings/_standard-baseline/</c> and <c>settings/_standard-ladders/</c>, and the record of the
+/// app's own starts at <c>settings/_starts/</c>.
 /// </remarks>
 public sealed class ClientStores
 {
@@ -268,6 +269,12 @@ public sealed class ClientStores
 
     /// <summary>The operator's standard tier-name ladders, for every client without its own. Operator settings, not client data.</summary>
     public DocumentStore<TierLadders> StandardLadders() => StandardLaddersIn(_container(SettingsContainer), _clock);
+
+    /// <summary>
+    /// The record of the app's recent starts, at <c>settings/_starts/</c>: operator data, beside the
+    /// standard baseline and ladders, and no client's.
+    /// </summary>
+    public IStartRecords Starts(int keep = StartRecordStore.DefaultKeep) => new StartRecordStore(_container(SettingsContainer), keep);
 
     /// <summary>
     /// The tier-name ladders the checks read this client's tier names with: its own once it has saved

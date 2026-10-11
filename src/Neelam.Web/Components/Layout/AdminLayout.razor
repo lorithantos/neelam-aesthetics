@@ -1,5 +1,5 @@
 @inherits LayoutComponentBase
-@* The operator's pages: managing clients, which belongs to no one client. Kept apart from the
+@* The operator's pages: managing clients and the site's own starts, which belong to no one client. Kept apart from the
    client-facing layout so a client's people never see admin links, and an admin page always says
    it is one. *@
 
@@ -8,6 +8,7 @@
         <a class="site-name" href="admin/clients" data-testid="site-name">Campaign safety · Admin</a>
         <nav class="site-nav" aria-label="Admin">
             <NavLink href="admin/clients">Clients</NavLink>
+            <NavLink href="admin/starts">Starts</NavLink>
             <a href="/">Client view</a>
         </nav>
     </div>

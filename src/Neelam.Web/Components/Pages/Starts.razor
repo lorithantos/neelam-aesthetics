@@ -1,0 +1,111 @@
+@page "/admin/starts"
+@* The record of the app's own starts: the operator's, and no client's. Every restart (a deploy, a
+   setting changed, a platform recycle) is the cold path, so each start says how its warm-up went and
+   how quick each page was the first time after it (owner, 2026-10-10: "a second or more feels sluggish
+   and unprofessional"). Static: nothing here changes while it is read. Like every operator page it is
+   a 404 on the demo (OperatorPagesInDemo). *@
+@layout Neelam.Web.Components.Layout.AdminLayout
+@attribute [Authorize(Policy = Features.Operator)]
+@inject IStartRecords Records
+@inject StartLog Current
+@inject ICallerSource Callers
+@inject TimeProvider Clock
+
+<PageTitle>Starts</PageTitle>
+
+<h1>Starts</h1>
+
+@if (_denied is not null)
+{
+    <p>@_denied</p>
+}
+else
+{
+    <p class="muted">
+        Each time the site starts (a deploy, a setting changed, or Azure restarting it), it warms its pages
+        before anyone needs them. This is how the last @Shown starts went, newest first. Times are UTC.
+        A first visit of a second or more is marked.
+    </p>
+
+    @if (_unreadable is not null)
+    {
+        <p class="problem" data-testid="starts-unreadable">@_unreadable</p>
+    }
+
+    @if (_starts.Count == 0)
+    {
+        <p data-testid="starts-none">No starts recorded yet.</p>
+    }
+    else
+    {
+        <div class="starts-scroll">
+            <table class="starts" data-testid="starts">
+                <thead>
+                    <tr>
+                        <th scope="col">Started (UTC)</th>
+                        <th scope="col">Build</th>
+                        <th scope="col">Why</th>
+                        <th scope="col">Warm-up</th>
+                        <th scope="col">First request</th>
+                        <th scope="col">First page visited</th>
+                        <th scope="col">Slowest first visit</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var start in _starts)
+                    {
+                        <tr data-testid="start-@start.Id">
+                            <td data-testid="start-when-@start.Id">@StartsView.When(start.StartedAt)@(start.Id == Current.Id ? " (this one)" : "")</td>
+                            <td data-testid="start-build-@start.Id">@StartsView.Build(start.Build)</td>
+                            <td data-testid="start-cause-@start.Id">@StartsView.Cause(start.Cause)</td>
+                            <td data-testid="start-warmup-@start.Id">@StartsView.Warmup(start.Warmup)</td>
+                            <td data-testid="start-first-request-@start.Id">@StartsView.FirstRequest(start)</td>
+                            <td data-testid="start-first-visit-@start.Id">@StartsView.Visit(start.FirstVisits.FirstOrDefault())</td>
+                            <td data-testid="start-slowest-@start.Id">
+                                @StartsView.Visit(start.SlowestVisit)
+                                @if (start.Sluggish)
+                                {
+                                    <span class="sluggish" data-testid="start-sluggish-@start.Id">Over 1 second</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    /// <summary>How many starts the page shows.</summary>
+    public const int Shown = 10;
+
+    private string? _denied;
+    private string? _unreadable;
+    private IReadOnlyList<StartRecord> _starts = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var (caller, reason) = await Callers.CurrentAsync();
+        var decision = caller is null
+            ? AccessDecision.Deny(reason)
+            : AccessCheck.Decide(caller, Area.Administration, null, [], Clock.GetUtcNow());
+        if (!decision.Allowed)
+        {
+            _denied = $"You cannot see the site's starts: {decision.Reason}.";
+            return;
+        }
+
+        IReadOnlyList<StartRecord> stored = [];
+        try
+        {
+            stored = await Records.RecentAsync(Shown);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _unreadable = "The record of earlier starts could not be read just now; this start is shown as it stands.";
+        }
+        // This start as it stands, which may be ahead of what has been written.
+        _starts = StartsView.WithCurrent(stored, Current.Snapshot(0), Shown);
+    }
+}

@@ -41,7 +41,7 @@ namespace Neelam.Web;
 /// </para>
 /// </remarks>
 public sealed class Warmup(
-    IClientDirectory clients, ClientStores stores, ISelfRequests self, WarmupState state,
+    IClientDirectory clients, ClientStores stores, ISelfRequests self, WarmupMarker marker, WarmupState state,
     IHostApplicationLifetime lifetime, IOptions<WarmupOptions> options, ILogger<Warmup> log) : BackgroundService
 {
     /// <summary>
@@ -101,7 +101,7 @@ public sealed class Warmup(
         }
         finally
         {
-            state.Finish();
+            state.Finish(total.ElapsedMilliseconds);
         }
     }
 
@@ -132,6 +132,9 @@ public sealed class Warmup(
             log.LogWarning("Warm-up skipped the pages: the server has no local address to request them at.");
             return;
         }
+        // Its own requests say so, with this process's marker, so the record of starts never takes one
+        // for a visitor's (StartRecording).
+        http.DefaultRequestHeaders.Add(WarmupMarker.Header, marker.Value);
         var bodies = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var page in Pages)
         {
@@ -223,6 +226,7 @@ public sealed class WarmupState
 {
     private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly System.Collections.Concurrent.ConcurrentQueue<WarmStep> _steps = new();
+    private long _totalMs = -1;
 
     /// <summary>Completes when the warm-up has finished, however it finished. Never faults.</summary>
     public Task Completion => _done.Task;
@@ -231,9 +235,37 @@ public sealed class WarmupState
 
     public IReadOnlyList<WarmStep> Steps => _steps.ToArray();
 
+    /// <summary>How long the warm-up ran in all, once it has finished; null when it was off or has not finished.</summary>
+    public long? TotalMs => Interlocked.Read(ref _totalMs) is var ms and >= 0 ? ms : null;
+
     internal void Add(WarmStep step) => _steps.Enqueue(step);
 
-    internal void Finish() => _done.TrySetResult();
+    /// <summary>Marks the warm-up finished, with how long it ran when it ran at all. Only the first call counts.</summary>
+    internal void Finish(long? totalMs = null)
+    {
+        if (totalMs is { } ms) Interlocked.CompareExchange(ref _totalMs, ms, -1);
+        _done.TrySetResult();
+    }
+}
+
+/// <summary>
+/// How the app knows the warm-up's own requests: a header carrying a value drawn at random when the
+/// process starts, known only to the process, never logged or stored. The warm-up sends it; the record
+/// of starts leaves those requests out, so a visitor's first request is never the app's own. A request
+/// from outside cannot carry it by chance, and one that guessed the header's name without the value is
+/// counted as a visitor's.
+/// </summary>
+public sealed class WarmupMarker
+{
+    public const string Header = "X-Neelam-Warmup";
+
+    public string Value { get; } = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+
+    /// <summary>Whether the request carries this process's marker, compared in constant time.</summary>
+    public bool IsOn(HttpRequest request) =>
+        request.Headers.TryGetValue(Header, out var values) && values.Count == 1 && values[0] is { } value
+        && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.ASCII.GetBytes(value), System.Text.Encoding.ASCII.GetBytes(Value));
 }
 
 /// <summary>Settings for the warm-up, section <c>Warmup</c>.</summary>

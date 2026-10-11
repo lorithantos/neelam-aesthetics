@@ -801,6 +801,36 @@ label.check {
     border-radius: 4px;
 }
 
+/* The operator's record of starts: a compact table that scrolls on its own on a phone, never the page. */
+.starts-scroll {
+    overflow-x: auto;
+}
+
+.starts {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.9rem;
+}
+
+.starts th,
+.starts td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.sluggish {
+    display: inline-block;
+    padding: 0 0.35rem;
+    border: 1px solid var(--advice-border);
+    border-radius: var(--radius);
+    background: var(--advice-bg);
+    color: var(--advice-text);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 /* Read by a screen reader, not shown. */
 .visually-hidden {
     position: absolute;

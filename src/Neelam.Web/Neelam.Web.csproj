@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Neelam.Campaigns.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Neelam.Campaigns.Storage\Neelam.Campaigns.Storage.csproj" />
     <ProjectReference Include="..\Neelam.Campaigns.Claude\Neelam.Campaigns.Claude.csproj" />
   </ItemGroup>
