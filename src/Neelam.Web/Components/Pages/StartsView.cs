@@ -51,6 +51,14 @@ public static class StartsView
         ? $"{r.Route}, {r.Status}, {Duration(r.Ms)} ({Duration(Math.Max(0, (long)(r.At - start.StartedAt).TotalMilliseconds))} after the start)"
         : "None yet";
 
+    /// <summary>How often the getting-ready page was shown, and the longest anyone can have waited.</summary>
+    public static string Held(HeldRequests? held) => held switch
+    {
+        null => "No one",
+        { Shown: 1 } h => $"Once; waited up to {Duration(h.LongestWaitMs)}",
+        { } h => $"{h.Shown} times; longest wait up to {Duration(h.LongestWaitMs)}",
+    };
+
     public static string Visit(PageVisit? visit) => visit is { } v ? $"{v.Route}, {Duration(v.Ms)}" : "None yet";
 
     /// <summary>"420 ms" under a second, "1.4 s" from a second.</summary>

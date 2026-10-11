@@ -14,6 +14,7 @@ namespace Neelam.Campaigns.Storage;
 /// <param name="Warmup">How the warm-up went, once it has finished.</param>
 /// <param name="FirstRequest">The first request after the start that was not the warm-up's own.</param>
 /// <param name="FirstVisits">Each page's first visit after the start, in the order they came.</param>
+/// <param name="Held">Requests shown the getting-ready page while the warm-up ran; null when none were.</param>
 public sealed record StartRecord(
     string Id,
     DateTimeOffset StartedAt,
@@ -22,7 +23,8 @@ public sealed record StartRecord(
     int Version,
     WarmupOutcome? Warmup,
     FirstRequest? FirstRequest,
-    IReadOnlyList<PageVisit> FirstVisits)
+    IReadOnlyList<PageVisit> FirstVisits,
+    HeldRequests? Held = null)
 {
     /// <summary>What the owner calls sluggish: "a second or more feels sluggish and unprofessional".</summary>
     public const long SluggishMs = 1000;
@@ -42,6 +44,14 @@ public sealed record FirstRequest(DateTimeOffset At, string Route, long Ms, int 
 
 /// <summary>A page's first visit after a start: its route as declared, when, how long, and its status.</summary>
 public sealed record PageVisit(string Route, DateTimeOffset At, long Ms, int Status);
+
+/// <summary>
+/// How many times the getting-ready page was shown after a start, when the first request it held
+/// arrived, and the longest anyone can have waited: from that arrival until the warm-up finished (or
+/// until now, while it still runs). Without a cookie two visitors cannot be told apart, so this is the
+/// earliest held request's wait, which no one's exceeds.
+/// </summary>
+public sealed record HeldRequests(int Shown, DateTimeOffset FirstAt, long LongestWaitMs);
 
 /// <summary>The record of the app's recent starts, kept for the operator.</summary>
 public interface IStartRecords

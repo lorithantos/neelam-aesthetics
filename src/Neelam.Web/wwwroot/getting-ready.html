@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<!-- Shown by the warm-up gate (WarmupGate) while the site warms itself after a start, with 503 and
+     Retry-After. It refreshes itself with no script; {{SECONDS}} is filled in each time it is served.
+     The standard look only: the client's own look is in storage, which may not be ready yet. -->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="3" />
+    <title>Getting ready</title>
+    <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+    <header class="site-header">
+        <div class="site-header-inner">
+            <span class="site-name" data-testid="site-name">Campaign safety</span>
+        </div>
+    </header>
+    <main class="site-main">
+        <h1 data-testid="getting-ready">Getting ready&hellip;</h1>
+        <p>The site has just started and is warming up. This page will refresh by itself in a moment.</p>
+        <p class="muted" data-testid="getting-ready-elapsed">Started {{SECONDS}} ago.</p>
+    </main>
+</body>
+</html>

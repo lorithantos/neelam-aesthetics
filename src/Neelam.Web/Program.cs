@@ -116,7 +116,8 @@ builder.Services.AddHostedService<UndoSweep>();
 // timings and outcomes only. /warmup answers once it has finished, for App Service to wait on.
 builder.Services.AddOptions<WarmupOptions>()
     .Bind(builder.Configuration.GetSection(WarmupOptions.Section))
-    .Validate(warmup => warmup.Budget > TimeSpan.Zero, "Warmup:Budget must be a positive time span, such as 00:01:00.")
+    .Validate(warmup => warmup.Budget > TimeSpan.Zero && warmup.GateWait >= TimeSpan.Zero && warmup.GateWait <= warmup.Budget,
+        "Warmup:Budget must be a positive time span, such as 00:01:00, and Warmup:GateWait one of zero or more, at most the budget, such as 00:00:02.")
     .ValidateOnStart();
 builder.Services.AddSingleton<WarmupState>();
 builder.Services.AddSingleton<WarmupMarker>();
@@ -171,6 +172,12 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Until the warm-up has finished, a visitor gets the getting-ready page rather than a cold one (owner,
+// 2026-10-10); the warm-up's own requests, /healthz, /warmup, static files and Blazor's addresses go
+// through. Before routing, so nothing half-started runs for a held request. Open for good once warm.
+app.UseMiddleware<WarmupGate>();
+app.UseRouting();
 
 // On the demo the operator's pages answer 404, as if they did not exist (owner, 2026-10-09).
 app.UseOperatorPagesHiddenInDemo();

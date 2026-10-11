@@ -27,6 +27,9 @@ public sealed class StartLog
     private FirstRequest? _first;
     private WarmupOutcome? _warmup;
     private string? _cause;
+    private int _heldShown;
+    private long _firstHeldTicks;
+    private long _readyTicks;
 
     public StartLog(TimeProvider clock, IConfiguration configuration, WarmupState warmup)
     {
@@ -36,8 +39,11 @@ public sealed class StartLog
             + "-" + Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(2)).ToLowerInvariant();
         Build = configuration[BuildStamp.Setting] is { } stamp && !string.IsNullOrWhiteSpace(stamp) ? stamp.Trim() : null;
         _events.Writer.TryWrite(new StartBegan());
-        warmup.Completion.ContinueWith(_ => RecordWarmup(Outcome(warmup)), CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        warmup.Completion.ContinueWith(_ =>
+            {
+                Interlocked.CompareExchange(ref _readyTicks, clock.GetUtcNow().UtcTicks, 0);
+                RecordWarmup(Outcome(warmup));
+            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
     }
 
     public string Id { get; }
@@ -70,6 +76,35 @@ public sealed class StartLog
         return true;
     }
 
+    /// <summary>
+    /// Notes a request the getting-ready page answered (<see cref="WarmupGate"/>), with when it arrived:
+    /// the count by <see cref="Interlocked.Increment(ref int)"/>, the earliest arrival by a compare-and-swap loop.
+    /// </summary>
+    public void HeldBack(DateTimeOffset arrived)
+    {
+        var ticks = arrived.UtcTicks;
+        long seen;
+        do
+        {
+            seen = Interlocked.Read(ref _firstHeldTicks);
+            if (seen != 0 && seen <= ticks) break;
+        }
+        while (Interlocked.CompareExchange(ref _firstHeldTicks, ticks, seen) != seen);
+        var shown = Interlocked.Increment(ref _heldShown);
+        _events.Writer.TryWrite(new GettingReadyShown(shown, arrived));
+    }
+
+    /// <summary>The held requests so far: how many, the earliest, and its wait until the warm-up finished (or until now).</summary>
+    private HeldRequests? Held()
+    {
+        var shown = Volatile.Read(ref _heldShown);
+        if (shown == 0) return null;
+        var first = new DateTimeOffset(Interlocked.Read(ref _firstHeldTicks), TimeSpan.Zero);
+        var ready = Interlocked.Read(ref _readyTicks);
+        var until = ready != 0 ? new DateTimeOffset(ready, TimeSpan.Zero) : _clock.GetUtcNow();
+        return new HeldRequests(shown, first, Math.Max(0, (long)(until - first).TotalMilliseconds));
+    }
+
     internal void RecordWarmup(WarmupOutcome outcome)
     {
         if (Interlocked.CompareExchange(ref _warmup, outcome, null) is null)
@@ -79,7 +114,7 @@ public sealed class StartLog
     /// <summary>The record as it stands, at the given version.</summary>
     public StartRecord Snapshot(int version) => new(
         Id, StartedAt, Build, Cause, version, Volatile.Read(ref _warmup), Volatile.Read(ref _first),
-        _visits.Values.OrderBy(v => v.At).ThenBy(v => v.Route, StringComparer.Ordinal).ToList());
+        _visits.Values.OrderBy(v => v.At).ThenBy(v => v.Route, StringComparer.Ordinal).ToList(), Held());
 
     /// <summary>How long after the start this moment is.</summary>
     public long MsSinceStart(DateTimeOffset at) => (long)(at - StartedAt).TotalMilliseconds;
@@ -119,6 +154,8 @@ internal sealed record WarmupEnded(WarmupOutcome Outcome) : StartEvent;
 internal sealed record FirstRequestSeen(FirstRequest Request) : StartEvent;
 
 internal sealed record FirstVisitSeen(PageVisit Visit) : StartEvent;
+
+internal sealed record GettingReadyShown(int Shown, DateTimeOffset At) : StartEvent;
 
 /// <summary>
 /// Notes every request that is not the warm-up's own (<see cref="WarmupMarker"/>) against this start:
@@ -277,6 +314,10 @@ public sealed class StartRecordWriter(
                 else
                     log.LogInformation("Start {StartId}: first visit {Route} answered {Status} in {Ms} ms.",
                         start.Id, v.Route, v.Status, v.Ms);
+                break;
+            case GettingReadyShown { Shown: var shown, At: var at }:
+                log.LogInformation("Start {StartId}: the getting-ready page was shown ({Shown} so far), {AfterStartMs} ms after the start.",
+                    start.Id, shown, start.MsSinceStart(at));
                 break;
         }
     }

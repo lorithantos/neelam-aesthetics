@@ -227,6 +227,7 @@ public sealed class WarmupState
     private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly System.Collections.Concurrent.ConcurrentQueue<WarmStep> _steps = new();
     private long _totalMs = -1;
+    private string? _failure;
 
     /// <summary>Completes when the warm-up has finished, however it finished. Never faults.</summary>
     public Task Completion => _done.Task;
@@ -237,6 +238,19 @@ public sealed class WarmupState
 
     /// <summary>How long the warm-up ran in all, once it has finished; null when it was off or has not finished.</summary>
     public long? TotalMs => Interlocked.Read(ref _totalMs) is var ms and >= 0 ? ms : null;
+
+    /// <summary>
+    /// Why the app cannot serve, after a real startup failure; null otherwise, which is always so today.
+    /// A warm-up step failing is not a startup failure.
+    /// </summary>
+    public string? FailureReason => Volatile.Read(ref _failure);
+
+    /// <summary>
+    /// Marks a real startup failure, with a short reason a visitor may read (no internals): the warm-up
+    /// gate then shows the startup-failed page. The first reason stands. Nothing calls it yet: every real
+    /// startup check stops the process before it listens.
+    /// </summary>
+    internal void Fail(string reason) => Interlocked.CompareExchange(ref _failure, reason, null);
 
     internal void Add(WarmStep step) => _steps.Enqueue(step);
 
@@ -278,6 +292,9 @@ public sealed class WarmupOptions
 
     /// <summary>How long the warm-up may take in all before it gives up, so it always finishes.</summary>
     public TimeSpan Budget { get; set; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>How long a visitor's request waits for the warm-up before it is shown the getting-ready page (<see cref="WarmupGate"/>).</summary>
+    public TimeSpan GateWait { get; set; } = TimeSpan.FromSeconds(2);
 }
 
 /// <summary>An HTTP client for the app's own pages, or null when there is no address to reach them at.</summary>

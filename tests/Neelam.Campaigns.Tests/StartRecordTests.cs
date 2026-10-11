@@ -412,7 +412,8 @@ public class StartsPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         await app.StartRecords.SaveAsync(new StartRecord(Quick, at, StartRecordTests.Stamp, StartCause.Unknown, 3,
             new WarmupOutcome(5400, 13, 13, "GET /campaigns", 1600),
             new FirstRequest(at.AddSeconds(2), "/warmup", 9000, 200),
-            [new PageVisit("/", at.AddSeconds(20), 175, 200), new PageVisit("/campaigns", at.AddSeconds(25), 999, 200)]));
+            [new PageVisit("/", at.AddSeconds(20), 175, 200), new PageVisit("/campaigns", at.AddSeconds(25), 999, 200)],
+            new HeldRequests(2, at.AddSeconds(3), 9100)));
         await app.StartRecords.SaveAsync(new StartRecord(Slow, at.AddHours(1), "Build 8 (local) | Commit 89abcdef01234567 | Branch main | x",
             StartCause.NewBuild, 2, null, null,
             [new PageVisit("/campaigns", at.AddHours(1).AddSeconds(9), 450, 200), new PageVisit("/campaigns/{Id:guid}", at.AddHours(1).AddSeconds(12), 1000, 200)]));
@@ -451,6 +452,8 @@ public class StartsPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal("/warmup, 200, 9.0 s (2.0 s after the start)", RenderedPage.Named(page, $"start-first-request-{Quick}"));
         Assert.Equal("None yet", RenderedPage.Named(page, $"start-first-request-{Slow}"));
         Assert.Equal("/, 175 ms", RenderedPage.Named(page, $"start-first-visit-{Quick}"));
+        Assert.Equal("2 times; longest wait up to 9.1 s", RenderedPage.Named(page, $"start-held-{Quick}"));
+        Assert.Equal("No one", RenderedPage.Named(page, $"start-held-{Slow}"));
         Assert.Equal("/campaigns, 450 ms", RenderedPage.Named(page, $"start-first-visit-{Slow}"));
     }
 

@@ -117,16 +117,19 @@ public class WarmupTests
 
     // ---- Never in the way ----
 
+    // Since the warm-up gate (2026-10-10) the answer while it warms is the getting-ready page, at once
+    // after the gate's short wait, never a request left hanging (WarmupGateTests).
     [Fact]
     public async Task It_holds_up_neither_the_start_nor_a_request()
     {
-        await using var app = new WarmupApp { Gate = new() };
+        await using var app = new WarmupApp { Gate = new(), GateWait = TimeSpan.FromMilliseconds(100) };
         await WarmupApp.SeedAsync(app);
 
         // The host starts, and answers, while the warm-up waits on the clients table.
         var started = await Task.Run(() => app.CreateClient(new() { AllowAutoRedirect = false })).WaitAsync(Patience);
         var page = await started.GetAsync("/how-it-works").WaitAsync(Patience);
-        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, page.StatusCode);
+        Assert.Equal("Getting ready…", RenderedPage.Named(await page.Content.ReadAsStringAsync(), "getting-ready"));
         var state = app.Services.GetRequiredService<WarmupState>();
         Assert.False(state.IsDone);
         Assert.Empty(state.Steps);
@@ -134,6 +137,7 @@ public class WarmupTests
         app.Gate.SetResult();
         await state.Completion.WaitAsync(Patience);
         Assert.Contains(state.Steps, s => s.Name == "GET /campaigns" && s.Outcome == "200");
+        Assert.Equal(HttpStatusCode.OK, (await started.GetAsync("/how-it-works").WaitAsync(Patience)).StatusCode);
     }
 
     // App Service waits on /warmup before sending her to a new start (WEBSITE_WARMUP_PATH): it answers
@@ -274,6 +278,12 @@ public sealed class WarmupApp : InMemoryApp
     /// <summary>Storage fails and every request the warm-up makes fails.</summary>
     internal bool Broken { get; init; }
 
+    /// <summary>The warm-up gate's wait (Warmup:GateWait), when a test needs it other than the shipped two seconds.</summary>
+    internal TimeSpan? GateWait { get; init; }
+
+    /// <summary>The warm-up's budget (Warmup:Budget), when a test needs it other than the shipped minute.</summary>
+    internal TimeSpan? Budget { get; init; }
+
     /// <summary>Her data, put straight into storage before the app starts: a template, a campaign, a photo, a known item, a look.</summary>
     internal static async Task SeedAsync(WarmupApp app)
     {
@@ -293,6 +303,10 @@ public sealed class WarmupApp : InMemoryApp
         builder.UseSetting(PrototypeCallerSource.ClientSetting, DemoApp.Client.ToString());
         base.ConfigureWebHost(builder);
         builder.UseSetting($"{WarmupOptions.Section}:{nameof(WarmupOptions.Enabled)}", "true");
+        if (GateWait is { } wait)
+            builder.UseSetting($"{WarmupOptions.Section}:{nameof(WarmupOptions.GateWait)}", wait.ToString("c", System.Globalization.CultureInfo.InvariantCulture));
+        if (Budget is { } budget)
+            builder.UseSetting($"{WarmupOptions.Section}:{nameof(WarmupOptions.Budget)}", budget.ToString("c", System.Globalization.CultureInfo.InvariantCulture));
         builder.ConfigureTestServices(services =>
         {
             // The warm-up alone: the undo sweep, which may delete at start, is tested on its own.

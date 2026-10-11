@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<!-- Shown by the warm-up gate (WarmupGate) after a real startup failure, with 503 and Retry-After.
+     {{REASON}} is a short reason, HTML-encoded, never internals. It refreshes itself with no script. -->
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="refresh" content="30" />
+    <title>Not available</title>
+    <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+    <header class="site-header">
+        <div class="site-header-inner">
+            <span class="site-name" data-testid="site-name">Campaign safety</span>
+        </div>
+    </header>
+    <main class="site-main">
+        <h1 data-testid="startup-failed">The site couldn't start</h1>
+        <p data-testid="startup-failed-reason">{{REASON}}</p>
+        <p>This page tries again by itself every 30 seconds. If it keeps showing, please let us know.</p>
+    </main>
+</body>
+</html>
