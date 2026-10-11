@@ -200,7 +200,7 @@ public class ActivityTests
         var library = Stores.Images(Salon, Asha);
         await library.AddFromSquareAsync(Photo, PhotoAddress);
         await library.AddAsync("Front desk", new BinaryData(new byte[] { 1 }), "image/png");
-        await library.DeleteAsync(Photo);
+        await library.DeleteListedAsync(Photo);
         await Registry.AddAsync(Registration, Asha);
         await Registry.UpdateAsync(Registration with { DisplayName = "Neelam" }, Asha);
         await Registry.UpdateAsync(Registration with { TimeZone = "America/New_York" }, Asha);
@@ -221,7 +221,9 @@ public class ActivityTests
         Assert.All(events, e => Assert.Equal((Salon, "Asha Patel"), (e.Client, e.Actor)));
         Assert.Equal(["baseline", "baseline"], events.Take(2).Select(e => e.EntityId));
         Assert.Matches("^[0-9]{8}T[0-9]{6}\\.[0-9]{7}Z$", events[0].SaveStamp);
-        Assert.Null(events[1].SaveStamp);
+        // Going back to the standard is a version of its own since 2026-10-11, named by its stamp.
+        Assert.Matches("^[0-9]{8}T[0-9]{6}\\.[0-9]{7}Z$", events[1].SaveStamp);
+        Assert.NotEqual(events[0].SaveStamp, events[1].SaveStamp);
         // An entry is named by its own random id, the same on adding and removing, never by its name.
         Assert.Matches("^[0-9a-f]{32}$", events[2].EntityId);
         Assert.Equal(events[2].EntityId, events[4].EntityId);
@@ -280,14 +282,14 @@ public class ActivityTests
         await Stores.UseStandardBaselineAsync(Salon, Asha);
         var library = Stores.Images(Salon, Asha);
         await library.AddFromSquareAsync(Photo, PhotoAddress);
-        Assert.True(await library.DeleteAsync(Photo));
+        Assert.True(await library.DeleteListedAsync(Photo));
         await Registry.AddAsync(Registration, Asha);
         await Registry.UpdateAsync(Registration, Asha);
 
         // Every action happened.
         Assert.NotNull(approved.Approval);
         Assert.Empty(await store.HistoryAsync(DocumentKind.Draft, id));
-        Assert.Null(await Stores.Baseline(Salon).CurrentAsync());
+        Assert.False((await Stores.BaselineInForceAsync(Salon)).IsOwn);
         Assert.Empty(await library.ListAsync());
         Assert.Single(await Directory.ListAsync());
         // Nothing reached the trail, and each of the 13 failures was logged as an error.
@@ -375,11 +377,11 @@ public class ActivityTests
         await Stores.UseStandardLookAsync(Salon, Asha);
         _clock.Now += TimeSpan.FromMinutes(1);
         await Stores.UseLookAgainAsync(Salon, ownLook, Asha);
-        var undoneLook = await Stores.UndoLastLookSaveAsync(Salon, Asha);
+        var undoneLook = await Stores.UndoLastLookSaveAsync(await Stores.HoldLookAsync(Salon), Asha);
         await Stores.RestoreLookAsync(Salon, undoneLook!, Asha);
         var library = Stores.Images(Salon, Asha);
         await library.AddFromSquareAsync(Photo, PhotoAddress);
-        await library.DeleteAsync(Photo);
+        await library.DeleteListedAsync(Photo);
         var known = await KnownItemsSession.OpenAsync(new InMemoryKnownItems(), Records.Recorder.For(Salon, Asha));
         known.NewTreatment = KnownTreatment;
         await known.AddTreatmentAsync();

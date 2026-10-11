@@ -15,6 +15,12 @@ public sealed record SaveRef(
     DocumentKind Kind, Guid Id, DateTimeOffset SavedAt, string Title, string BlobName, DateTimeOffset? UndoneAt = null,
     Approval? Approval = null);
 
+/// <summary>What came of an undo allowed only on the newest version in use.</summary>
+/// <param name="Done">True when it was undone; false when the version was not the newest in use at the click.</param>
+/// <param name="Newest">The newest version in use as storage had it after the attempt; null when none is.</param>
+/// <param name="Undone">The version undone, with its mark; null when refused.</param>
+public sealed record NewestOnly<T>(bool Done, T? Newest, T? Undone = null) where T : class;
+
 /// <summary>
 /// Saves drafts and templates as date/time-stamped blobs:
 /// <c>drafts/{id}/{yyyyMMddTHHmmss.fffffffZ}.json</c>. Every save is a new blob and nothing is
@@ -125,6 +131,31 @@ public sealed class CampaignStore(
             throw new InvalidOperationException("That save is already gone.");
         await RecordAsync(save, ActivityAction.Undone, ct);
         return save with { UndoneAt = at, Approval = null };
+    }
+
+    /// <summary>
+    /// Undoes <paramref name="save"/> only while it is the newest save in use of its campaign or template,
+    /// as storage has it at this moment (2026-10-11). Undoing a save with a newer one above it would put
+    /// it out of reach: Restore offers only an undone save above the newest in use, so the sweep would
+    /// delete it for good. A page out of date (another tab saved or undid since) is refused, and so is a
+    /// save that lands between this read and the mark: the newest is read again after marking, and if one
+    /// came in meanwhile the mark is taken back (that save's approval, if any, stays withdrawn, which
+    /// fails safe) and the undo is refused.
+    /// </summary>
+    /// <returns>Whether it was undone, and the newest save in use as storage then had it: the one before it when undone, the newer one when refused, null when none is in use.</returns>
+    /// <exception cref="InvalidOperationException">The save is already gone.</exception>
+    public async Task<NewestOnly<SaveRef>> UndoIfNewestAsync(SaveRef save, CancellationToken ct = default)
+    {
+        var newest = await NewestAsync(save.Kind, save.Id, ct);
+        if (newest?.BlobName != save.BlobName) return new(false, newest);
+        var undone = await MarkUndoneAsync(save, ct);
+        var after = await NewestAsync(save.Kind, save.Id, ct);
+        if (after is not null && after.SavedAt > save.SavedAt)
+        {
+            await RestoreAsync(undone, ct);
+            return new(false, after);
+        }
+        return new(true, after, undone);
     }
 
     /// <summary>

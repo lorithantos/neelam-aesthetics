@@ -13,9 +13,14 @@ namespace Neelam.Campaigns.Storage;
 /// <see cref="ImageLibrary.SquareHosts"/>. It is listed so it can be deleted, and its name stays taken,
 /// but its address is never handed out, so nothing ever loads an image from it.
 /// </param>
+/// <param name="ETag">
+/// The entry's blob as listed: which photo of that name this is. Deleting goes by it, so a photo
+/// removed and added again under the same name, in another tab, is never deleted in its place. Null
+/// for an entry just added, which has not been listed yet.
+/// </param>
 public sealed record LibraryImage(
     string Name, string ContentType, string? AltText, DateTimeOffset AddedAt, string BlobName, Uri? SquareUrl = null,
-    bool NotASquareAddress = false)
+    bool NotASquareAddress = false, string? ETag = null)
 {
     /// <summary>Square holds the image; the library holds only its name and address.</summary>
     public bool IsOnSquare => SquareUrl is not null;
@@ -171,7 +176,7 @@ public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider cloc
                 try { square = SquareAddress(Uri.UnescapeDataString(s)); }
                 catch (ArgumentException) { notOnSquare = true; }
             }
-            images.Add(new LibraryImage(Uri.UnescapeDataString(name), "", alt, added, blob.Name, square, notOnSquare));
+            images.Add(new LibraryImage(Uri.UnescapeDataString(name), "", alt, added, blob.Name, square, notOnSquare, blob.ETag));
         }
         return images.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -193,18 +198,24 @@ public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider cloc
         clientContainer.ReadAsync(BlobName(name.Trim()), ct);
 
     /// <summary>
-    /// Permanently deletes a photo. Blocks that named it will no longer find it. For a photo on
-    /// Square, only the reference here goes; the image at Square is not touched.
+    /// Permanently deletes the photo the page showed, as <see cref="ListAsync"/> listed it. Blocks that
+    /// named it will no longer find it. For a photo on Square, only the reference here goes; the image at
+    /// Square is not touched. Only that photo (2026-10-11): the delete holds only while the entry's blob is
+    /// still the one listed (its ETag, If-Match), so when another tab removed it and added a different
+    /// photo under the same name, the new one is left alone. Deleting by name alone used to remove it.
     /// </summary>
-    public async Task<bool> DeleteAsync(string name, CancellationToken ct = default)
+    /// <returns>True when it was deleted; false when it is gone, or is no longer the photo shown.</returns>
+    /// <exception cref="ArgumentException">The photo was not listed, so which one it is cannot be told.</exception>
+    public async Task<bool> DeleteAsync(LibraryImage shown, CancellationToken ct = default)
     {
-        var blobName = BlobName(name.Trim());
+        if (string.IsNullOrEmpty(shown.ETag))
+            throw new ArgumentException("Delete a photo as the library lists it.", nameof(shown));
         string? entry = null;
-        await foreach (var blob in clientContainer.ListAsync(blobName, ct))
+        await foreach (var blob in clientContainer.ListAsync(shown.BlobName, ct))
         {
-            if (blob.Name == blobName) entry = EntryId(blob.Metadata);
+            if (blob.Name == shown.BlobName && blob.ETag == shown.ETag) entry = EntryId(blob.Metadata);
         }
-        if (!await clientContainer.DeleteAsync(blobName, ct)) return false;
+        if (!await clientContainer.DeleteIfUnchangedAsync(shown.BlobName, shown.ETag, ct)) return false;
         await activity.RecordAsync(ActivityEntity.ImageEntry, entry ?? UnidentifiedEntry, null, ActivityAction.ImageEntryRemoved, ct);
         return true;
     }

@@ -75,6 +75,32 @@ public sealed class DocumentStore<T> where T : class
         return version with { UndoneAt = at };
     }
 
+    /// <summary>The newest version in use, as storage has it now; null when none is. One listing.</summary>
+    public async Task<DocumentVersion?> NewestAsync(CancellationToken ct = default) =>
+        (await HistoryAsync(ct)).FirstOrDefault();
+
+    /// <summary>
+    /// Undoes <paramref name="version"/> only while it is the newest in use, as storage has it at this
+    /// moment, as <see cref="CampaignStore.UndoIfNewestAsync"/> does for saves: a page out of date is
+    /// refused, and a version saved between the read and the mark has the mark taken back.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The version is already gone.</exception>
+    public async Task<NewestOnly<DocumentVersion>> UndoIfNewestAsync(DocumentVersion version, CancellationToken ct = default)
+    {
+        var newest = await NewestAsync(ct);
+        if (newest?.BlobName != version.BlobName) return new(false, newest);
+        var undone = await MarkUndoneAsync(version, ct);
+        var after = await NewestAsync(ct);
+        if (after is not null && after.SavedAt > version.SavedAt)
+        {
+            // Marked a moment ago, so its own mark is taken back whatever the grace period.
+            if (await FindAsync(version.BlobName, ct) is { } blob)
+                await _blobs.SetMetadataAsync(blob.Name, UndoMark.Without(blob.Metadata), ct);
+            return new(false, after);
+        }
+        return new(true, after, undone);
+    }
+
     /// <summary>
     /// The undone version Restore would bring back: the one just above the newest in use (the last one
     /// undone), while its grace period lasts. Null when there is none, so a version undone and then

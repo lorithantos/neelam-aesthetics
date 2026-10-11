@@ -114,7 +114,7 @@ public class LookHistoryTests
         var second = await Saved(ClientLookTests.Blush);
         _clock.Now += TimeSpan.FromMinutes(1);
 
-        var undone = await _stores.UndoLastLookSaveAsync(Salon, Actor.Demo);
+        var undone = await _stores.UndoLastLookSaveAsync(await _stores.HoldLookAsync(Salon), Actor.Demo);
 
         Assert.Equal(second.BlobName, undone!.BlobName);
         Assert.Equal(_clock.Now, undone.UndoneAt);
@@ -137,11 +137,11 @@ public class LookHistoryTests
     {
         var only = await Saved(ClientLookTests.Blush);
 
-        await _stores.UndoLastLookSaveAsync(Salon, Actor.Demo);
+        await _stores.UndoLastLookSaveAsync(await _stores.HoldLookAsync(Salon), Actor.Demo);
 
         Assert.Null(await InForce());
         Assert.Equal(only.BlobName, (await _stores.LookHistoryAsync(Salon)).Restorable!.BlobName);
-        Assert.Null(await _stores.UndoLastLookSaveAsync(Salon, Actor.Demo));
+        Assert.Null(await _stores.UndoLastLookSaveAsync(await _stores.HoldLookAsync(Salon), Actor.Demo));
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public class LookHistoryTests
     {
         await Saved(Green);
         await Saved(ClientLookTests.Blush);
-        var undone = await _stores.UndoLastLookSaveAsync(Salon, Actor.Demo);
+        var undone = await _stores.UndoLastLookSaveAsync(await _stores.HoldLookAsync(Salon), Actor.Demo);
 
         _clock.Now += Grace;
 
@@ -164,7 +164,7 @@ public class LookHistoryTests
     {
         await Saved(Green);
         await Saved(ClientLookTests.Blush);
-        await _stores.UndoLastLookSaveAsync(Salon, Actor.Demo);
+        await _stores.UndoLastLookSaveAsync(await _stores.HoldLookAsync(Salon), Actor.Demo);
 
         await Saved(Green);
 
@@ -180,7 +180,7 @@ public class LookHistoryTests
         var standard = await _stores.UseStandardLookAsync(Salon, Actor.Demo);
         _clock.Now += TimeSpan.FromMinutes(1);
         var again = await _stores.UseLookAgainAsync(Salon, first, Actor.Demo);
-        var undone = await _stores.UndoLastLookSaveAsync(Salon, Actor.Demo);
+        var undone = await _stores.UndoLastLookSaveAsync(await _stores.HoldLookAsync(Salon), Actor.Demo);
         await _stores.RestoreLookAsync(Salon, undone!, Actor.Demo);
 
         var events = _records.Activity.Events.Where(e => e.Client == Salon).ToList();

@@ -22,15 +22,17 @@ else if (_images is not null)
 
     @if (_message is not null)
     {
-        <p role="status" class="library-status">@_message</p>
+        <p role="status" class="library-status" data-testid="library-status">@_message</p>
     }
 
     @if (_images.Count == 0)
     {
         <p>No photos yet. Add one from Square below.</p>
     }
-    @foreach (var image in _images)
+    @for (var i = 0; i < _images.Count; i++)
     {
+        var index = i;
+        var image = _images[index];
         <section class="card" aria-label="@image.Name">
             @* Delete sits beside the name, away from the image, and its confirmation opens right
                under the name, above the image, so it is in view where the click was. *@
@@ -38,7 +40,7 @@ else if (_images is not null)
                 <h2>@image.Name</h2>
                 @if (_confirming != image.Name)
                 {
-                    <button class="button" @onclick="() => _confirming = image.Name">Delete</button>
+                    <button class="button" data-testid="library-delete-@index" @onclick="() => _confirming = image.Name">Delete</button>
                 }
             </div>
             @if (_confirming == image.Name)
@@ -47,7 +49,7 @@ else if (_images is not null)
                     <p>@(image.IsOnSquare || image.NotASquareAddress
                         ? "Delete this photo from the library? Only the reference here goes; nothing at Square is touched. Blocks that name it will no longer find it."
                         : "Delete this photo? It is deleted for good. Blocks that name it will no longer find it.")</p>
-                    <button class="button danger" @onclick="() => DeleteAsync(image)">Delete it</button>
+                    <button class="button danger" data-testid="library-delete-confirm-@index" @onclick="() => DeleteAsync(image)">Delete it</button>
                     <button class="button" @onclick="() => _confirming = null">Keep it</button>
                 </div>
             }
@@ -148,14 +150,24 @@ else if (_images is not null)
         _images = await _library.ListAsync();
     }
 
+    // Deletes the photo this page showed, and only it (2026-10-11): one removed and added again under
+    // the same name in another tab since is a different photo, and is left alone.
     private async Task DeleteAsync(LibraryImage image)
     {
         _confirming = null;
         _added = null;
-        await _library!.DeleteAsync(image.Name);
-        _message = image.IsOnSquare ? $"\"{image.Name}\" is out of the library. The image is still in your Square library."
-            : image.NotASquareAddress ? $"\"{image.Name}\" is out of the library."
-            : $"\"{image.Name}\" is deleted.";
+        if (await _library!.DeleteAsync(image))
+        {
+            _message = image.IsOnSquare ? $"\"{image.Name}\" is out of the library. The image is still in your Square library."
+                : image.NotASquareAddress ? $"\"{image.Name}\" is out of the library."
+                : $"\"{image.Name}\" is deleted.";
+            _images = await _library.ListAsync();
+            return;
+        }
         _images = await _library.ListAsync();
+        _message = ImageLibrary.Find(_images, image.Name) is null
+            ? $"\"{image.Name}\" was already removed, in another tab or by someone else."
+            : $"Not deleted: \"{image.Name}\" was replaced by another photo of the same name since this page opened, " +
+              "in another tab or by someone else. It is shown below as it is now; delete it again if you still want it gone.";
     }
 }

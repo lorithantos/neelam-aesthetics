@@ -238,19 +238,52 @@ public class TierLadderStoreTests
         Assert.Equal(ActivityAction.LaddersSaved, Records.Activity.Events[^1].Action);
     }
 
-    // Every version goes, so an older own set never comes back.
+    // Going back to the standard is a version saying so (2026-10-11): it used to delete every version of
+    // hers, one saved in another tab she never saw included. Now nothing is deleted, and an older own
+    // set still never comes back, since the newest says the standard applies.
     [Fact]
-    public async Task Using_the_standard_ladders_deletes_hers_and_the_standard_applies_again()
+    public async Task Using_the_standard_ladders_keeps_hers_and_the_standard_applies_again()
+    {
+        var mine = await Stores.SaveLaddersAsync(Neelam, Mine, Actor.Demo);
+        _clock.Now += TimeSpan.FromMinutes(1);
+        var none = await Stores.SaveLaddersAsync(Neelam, TierLadders.None, Actor.Demo);
+        _clock.Now += TimeSpan.FromMinutes(1);
+
+        var standard = await Stores.UseStandardLaddersAsync(Neelam, Actor.Demo);
+
+        var inForce = await Stores.LaddersInForceAsync(Neelam);
+        Assert.False(inForce.IsOwn);
+        Assert.Same(TierLadders.Standard, inForce.Ladders);
+        Assert.Equal(standard, inForce.Version);
+        Assert.Equal([standard, none, mine], await Stores.Ladders(Neelam).HistoryAsync());
+        Assert.True((await Stores.Ladders(Neelam).LoadAsync(standard)).FollowsStandard);
+        Assert.Equal(ActivityAction.LaddersResetToStandard, Records.Activity.Events[^1].Action);
+    }
+
+    // Two tabs on her ladders: the one that has not seen the other's save is refused, saves nothing, and
+    // with Keep mine saves hers over it, the other staying stored.
+    [Fact]
+    public async Task A_save_from_a_page_that_has_not_seen_the_newest_is_refused_until_she_keeps_hers()
     {
         await Stores.SaveLaddersAsync(Neelam, Mine, Actor.Demo);
+        var inA = await Stores.LaddersInForceAsync(Neelam);
+        var a = Stores.HoldLadders(Neelam, inA.Version);
         _clock.Now += TimeSpan.FromMinutes(1);
-        await Stores.SaveLaddersAsync(Neelam, TierLadders.None, Actor.Demo);
+        var theirs = await Stores.SaveLaddersAsync(Stores.HoldLadders(Neelam, inA.Version), TierLadders.None, Actor.Demo);
+        _clock.Now += TimeSpan.FromMinutes(1);
 
-        await Stores.UseStandardLaddersAsync(Neelam, Actor.Demo);
+        var refused = await Assert.ThrowsAsync<CampaignChangedException>(() => Stores.UseStandardLaddersAsync(a, Actor.Demo));
+        Assert.Equal("Not saved: your tier name ladders were changed since you opened this page.", refused.Message);
+        await Assert.ThrowsAsync<CampaignChangedException>(() => Stores.SaveLaddersAsync(a, Mine, Actor.Demo));
+        Assert.Equal(theirs, (await Stores.LaddersInForceAsync(Neelam)).Version);
+        Assert.Equal(2, (await Stores.Ladders(Neelam).HistoryAsync()).Count);
 
+        var kept = await Stores.UseStandardLaddersAsync(a, Actor.Demo, keepMine: true);
+
+        Assert.Equal(kept, a.Held);
         Assert.False((await Stores.LaddersInForceAsync(Neelam)).IsOwn);
-        Assert.Empty(_containers.For(Neelam.Value).Blobs);
-        Assert.Equal(ActivityAction.LaddersResetToStandard, Records.Activity.Events[^1].Action);
+        Assert.Contains(theirs, await Stores.Ladders(Neelam).HistoryAsync());
+        Assert.Equal(CampaignChange.None, a.ChangeSince(await a.NewestAsync()));
     }
 }
 
@@ -270,15 +303,23 @@ public class TierLadderPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         return WebUtility.HtmlDecode(await response.Content.ReadAsStringAsync());
     }
 
+    // Each ladders change a second after the last, as a person's would be: since 2026-10-11 going back to
+    // the standard is a version of its own, and this app's clock stands still otherwise.
+    private ClientStores Later()
+    {
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        return app.Stores;
+    }
+
     [Fact]
     public async Task The_known_items_page_shows_the_ladders_in_force_and_whose_they_are()
     {
-        await app.Stores.UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
+        await Later().UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
         var standard = await Page("/known-items");
-        await app.Stores.SaveLaddersAsync(SalonOne.Name,
+        await Later().SaveLaddersAsync(SalonOne.Name,
             new TierLadders([new TierLadder("Glow", ["Glow", "Radiance", "Luminous"], ordered: true)]), Actor.Demo);
         var own = await Page("/known-items");
-        await app.Stores.UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
+        await Later().UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
 
         Assert.Contains("Tier name ladders", standard);
         Assert.Contains("The standard ladders.", standard);
@@ -301,12 +342,12 @@ public class TierLadderPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         await app.Stores.Campaigns(SalonOne.Name, Actor.Demo).SaveDraftAsync(id, "Celebrate", DraftFixtures.Finished());
         const string Note = "'Platinum Member' is $299/month but 'Gold Member' is $149/month; Gold usually costs more than Platinum.";
 
-        await app.Stores.UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
+        await Later().UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
         var standard = await Page($"/campaigns/{id}");
         var metals = TierLadders.Standard.Ladders[0];
-        await app.Stores.SaveLaddersAsync(SalonOne.Name, TierLadders.Standard.Replace(0, metals.Move(3, -1)), Actor.Demo);
+        await Later().SaveLaddersAsync(SalonOne.Name, TierLadders.Standard.Replace(0, metals.Move(3, -1)), Actor.Demo);
         var reordered = await Page($"/campaigns/{id}");
-        await app.Stores.UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
+        await Later().UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
 
         // As booleans, so a failure does not print the whole page.
         Assert.False(standard.Contains(Note), "The standard ladders flagged Gold below Platinum.");

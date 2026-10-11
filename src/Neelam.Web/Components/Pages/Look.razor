@@ -6,12 +6,19 @@
    earlier looks stay listed to use again (owner, 2026-10-09: "We should allow it to be restored after
    a set of edits, no?"). "Undo last save" marks the newest undone, restorable for the grace period, as
    the editors do. The access check decides whose look, on top of the policy; the look is not client
-   data, so the operator needs no grant for it. *@
+   data, so the operator needs no grant for it. Another tab or person may change her look while this
+   page is open (2026-10-11, phase 2): PageWatch tells the page, and Undo takes back only the look this
+   page shows as the newest, read again at the click. Save is not checked yet (phase 3). *@
 @attribute [Authorize(Policy = Features.Look)]
 @rendermode InteractiveServer
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
+@inject CampaignSignals Signals
+@inject TimeProvider Clock
+@inject Microsoft.Extensions.Options.IOptions<CampaignWatchOptions> WatchOptions
+@inject ILogger<Look> Log
+@implements IDisposable
 
 <PageTitle>Look</PageTitle>
 
@@ -31,6 +38,17 @@ else if (_fields is not null)
     @if (SavedMessage() is { } saved)
     {
         <p role="status" data-testid="look-saved">@saved</p>
+    }
+
+    @if ((_watch?.Change ?? CampaignChange.None) is var change and not CampaignChange.None)
+    {
+        @* The owner's "modified" (2026-10-11), as on the campaign page. The colours she chose here stay
+           until she loads the latest. *@
+        <section class="card" role="alert" data-testid="modified-notice">
+            <p data-testid="modified-what">@HeldDocument.ChangedNotice(WatchSubject.Look, change)</p>
+            <p class="field-help" data-testid="modified-unsaved">Loading the latest replaces any colours you changed here and have not saved.</p>
+            <button class="button primary" data-testid="load-latest" @onclick="LoadLatest">Load the latest</button>
+        </section>
     }
 
     <div class="workspace">
@@ -95,7 +113,7 @@ else if (_fields is not null)
                 @if (_confirmingUndo)
                 {
                     <p>Undo the last save? Your pages go back to the look before it. The undone look can be restored for @TimeWords.Period(_history.UndoGracePeriod), then it is deleted for good.</p>
-                    <button class="button danger" @onclick="UndoAsync">Undo it</button>
+                    <button class="button danger" data-testid="look-undo-confirm" @onclick="UndoAsync">Undo it</button>
                     <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
                 }
                 else
@@ -222,6 +240,11 @@ else if (_fields is not null)
         }
         _times = await Workspace.TimesAsync(_client);
         _history = await Stores.LookHistoryAsync(_client);
+        // The newest look this page shows (her newest, readable or not), which Undo acts on and the
+        // watch tells a change from; listening and the timer start once the page is live.
+        _held = Stores.HoldLook(_client, _history.Versions.FirstOrDefault()?.Version);
+        _watch = new PageWatch<DocumentVersion>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
+        _watch.Watch(_held);
         // The look in force: hers, the standard one she went back to, or none (the standard's).
         var look = _history.InForce ?? ClientLook.Default;
         var standard = LookPalette.Standard;
@@ -257,7 +280,41 @@ else if (_fields is not null)
         _message = null;
     }
 
-    private async Task SaveAsync()
+    // Her look as this page shows it, and the page's look at storage for changes to it: at once on this
+    // instance (CampaignSignals), every CampaignWatch:Interval from anywhere.
+    private HeldDocument? _held;
+    private PageWatch<DocumentVersion>? _watch;
+
+    // The watch's news, on this page's circuit, and the page drawn again with it.
+    private Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
+    {
+        await work();
+        StateHasChanged();
+    });
+
+    protected override void OnAfterRender(bool firstRender) => _watch?.Start();
+
+    // One of the page's own changes: what storage says meanwhile is not news. A change that is made loads
+    // the page again (the look is drawn in each page's head); one refused leaves it, read again.
+    private async Task ActingAsync(Func<Task<string?>> action)
+    {
+        _watch?.Begin();
+        string? loadAgain = null;
+        try
+        {
+            loadAgain = await action();
+        }
+        finally
+        {
+            if (loadAgain is null && _watch is not null) await _watch.EndAsync();
+        }
+        if (loadAgain is not null) Navigation.NavigateTo(loadAgain, forceLoad: true);
+    }
+
+    // "Load the latest": the page as it would open now. Only ever on her click.
+    private void LoadLatest() => Navigation.NavigateTo("look", forceLoad: true);
+
+    private Task SaveAsync() => ActingAsync(async () =>
     {
         try
         {
@@ -266,20 +323,20 @@ else if (_fields is not null)
         catch (ArgumentException ex)
         {
             _message = ex.Message;
-            return;
+            return null;
         }
         // The look is in each page's head, drawn when the page loads, so this one loads again to show it.
-        Navigation.NavigateTo("look?saved=own", forceLoad: true);
-    }
+        return "look?saved=own";
+    });
 
-    private async Task UseStandardAsync()
+    private Task UseStandardAsync() => ActingAsync(async () =>
     {
         await Stores.UseStandardLookAsync(_client!, await Workspace.ActorAsync());
-        Navigation.NavigateTo("look?saved=standard", forceLoad: true);
-    }
+        return "look?saved=standard";
+    });
 
     // A copy, saved as the newest version; the earlier one stays as it was.
-    private async Task UseAgainAsync(LookVersion earlier)
+    private Task UseAgainAsync(LookVersion earlier) => ActingAsync(async () =>
     {
         try
         {
@@ -288,26 +345,36 @@ else if (_fields is not null)
         catch (Exception ex) when (ex is ArgumentException or InvalidDataException)
         {
             _message = ex.Message;
-            return;
+            return null;
         }
-        Navigation.NavigateTo("look?saved=again", forceLoad: true);
-    }
+        return "look?saved=again";
+    });
 
-    // Undo marks the newest version for deletion; nothing is deleted here, or by leaving the page.
-    private async Task UndoAsync()
+    // Undo marks the newest version for deletion; nothing is deleted here, or by leaving the page. Only
+    // the look this page shows as the newest, while storage still has it so: otherwise nothing is undone.
+    private Task UndoAsync() => ActingAsync(async () =>
     {
         _confirmingUndo = false;
-        await Stores.UndoLastLookSaveAsync(_client!, await Workspace.ActorAsync());
-        Navigation.NavigateTo("look?saved=undone", forceLoad: true);
-    }
+        try
+        {
+            await Stores.UndoLastLookSaveAsync(_held!, await Workspace.ActorAsync());
+        }
+        catch (CampaignChangedException ex)
+        {
+            _message = ex.Message;
+            return null;
+        }
+        return "look?saved=undone";
+    });
 
-    private async Task RestoreAsync()
+    private Task RestoreAsync() => ActingAsync(async () =>
     {
         if (await Stores.RestoreLookAsync(_client!, _history!.Restorable!, await Workspace.ActorAsync()))
-        {
-            Navigation.NavigateTo("look?saved=restored", forceLoad: true);
-            return;
-        }
+            return "look?saved=restored";
         _message = "That look can no longer be restored.";
-    }
+        return null;
+    });
+
+    // With the circuit: the timer stops and the page stops listening.
+    public void Dispose() => _watch?.Dispose();
 }

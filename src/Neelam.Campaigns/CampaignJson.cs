@@ -162,27 +162,53 @@ public static class CampaignJson
             : throw new InvalidDataException("The standard look holds no colours of its own.");
     }
 
+    /// <summary>
+    /// A baseline as saved. <see cref="TemplateBaseline.FollowStandard"/> is <c>"standard": true</c> with no
+    /// parts, the way the look's standard version is written.
+    /// </summary>
     public static string SerializeBaseline(TemplateBaseline b) =>
-        JsonSerializer.Serialize(new BaselineDocument(SchemaVersion, b.Parts), Options);
+        JsonSerializer.Serialize(
+            b.FollowsStandard ? new BaselineDocument(SchemaVersion, null, true) : new BaselineDocument(SchemaVersion, b.Parts),
+            Options);
 
+    /// <summary>
+    /// A baseline as saved; <c>"standard": true</c> is <see cref="TemplateBaseline.FollowStandard"/>, and one
+    /// that also lists parts is refused (<see cref="InvalidDataException"/>), as is one with neither.
+    /// </summary>
     public static TemplateBaseline DeserializeBaseline(string json)
     {
         var doc = JsonSerializer.Deserialize<BaselineDocument>(json, Options)
                   ?? throw new InvalidDataException("Empty baseline document.");
         CheckVersion(doc.Schema);
+        if (doc.Standard == true)
+            return doc.Parts is null
+                ? TemplateBaseline.FollowStandard
+                : throw new InvalidDataException("The standard baseline's version lists no parts of its own.");
         return new TemplateBaseline(doc.Parts ?? throw new InvalidDataException("A baseline document without its parts."));
     }
 
+    /// <summary>A set of ladders as saved; <see cref="TierLadders.FollowStandard"/> is <c>"standard": true</c> with no ladders.</summary>
     public static string SerializeLadders(TierLadders l) =>
-        JsonSerializer.Serialize(new LaddersDocument(SchemaVersion,
-            l.Ladders.Select(x => new LadderDocument(x.Name, x.Words, x.Ordered)).ToList()), Options);
+        JsonSerializer.Serialize(
+            l.FollowsStandard
+                ? new LaddersDocument(SchemaVersion, null, true)
+                : new LaddersDocument(SchemaVersion, l.Ladders.Select(x => new LadderDocument(x.Name, x.Words, x.Ordered)).ToList()),
+            Options);
 
+    /// <summary>
+    /// A set of ladders as saved; <c>"standard": true</c> is <see cref="TierLadders.FollowStandard"/>, and one
+    /// that also lists ladders is refused.
+    /// </summary>
     /// <exception cref="InvalidDataException">The document is empty, of another schema, or not a valid set of ladders.</exception>
     public static TierLadders DeserializeLadders(string json)
     {
         var doc = JsonSerializer.Deserialize<LaddersDocument>(json, Options)
                   ?? throw new InvalidDataException("Empty ladders document.");
         CheckVersion(doc.Schema);
+        if (doc.Standard == true)
+            return doc.Ladders is null
+                ? TierLadders.FollowStandard
+                : throw new InvalidDataException("The standard ladders' version lists no ladders of its own.");
         if (doc.Ladders is null) throw new InvalidDataException("A ladders document without its ladders.");
         try
         {
@@ -269,10 +295,12 @@ public static class CampaignJson
         string? Text = null, string? MutedText = null, bool? Standard = null);
 
     // Parts are block types by name ("signOff"), so an empty list is an empty baseline, not a missing one.
-    private sealed record BaselineDocument(int Schema, IReadOnlyList<BlockType>? Parts);
+    // Standard is true, with no parts, only on the version "Use the standard baseline" saves (2026-10-11).
+    private sealed record BaselineDocument(int Schema, IReadOnlyList<BlockType>? Parts, bool? Standard = null);
 
     // Words lowest first when ordered; an empty list of ladders is a client with none, not a missing one.
-    private sealed record LaddersDocument(int Schema, IReadOnlyList<LadderDocument>? Ladders);
+    // Standard is true, with no ladders, only on the version "Use the standard ladders" saves (2026-10-11).
+    private sealed record LaddersDocument(int Schema, IReadOnlyList<LadderDocument>? Ladders, bool? Standard = null);
 
     private sealed record LadderDocument(string? Name, IReadOnlyList<string>? Words, bool Ordered);
 }

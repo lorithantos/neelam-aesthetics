@@ -12,10 +12,11 @@
    child components, which tell the page of each change so the checks follow what is typed. The
    label at the top is the client's own name for the campaign, saved with the draft and never part
    of the email, its checks or its export. Another tab or person may change the campaign while this
-   page is open (owner, 2026-10-11): CampaignWatch tells the page, at once on this instance and within
+   page is open (owner, 2026-10-11): PageWatch tells the page, at once on this instance and within
    CampaignWatch:Interval from anywhere, and the page says so with "Load the latest", keeping her
    unsaved edits until she chooses. Approve reads storage and the checks' lists again at the click,
-   and the export is shown only from a read of storage that agrees with the page. *@
+   the export is shown only from a read of storage that agrees with the page, and Undo takes back
+   only the version on the page while it is still the newest. *@
 @attribute [Authorize(Policy = Features.Campaigns)]
 @* Streamed, so the page says it is opening the campaign as soon as it is clicked: without it, the
    list stays on screen under the campaign's address until every read is done, which reads as the
@@ -689,7 +690,7 @@ else
         }
         // What the campaign was just opened with is storage's as of now; listening and the timer start
         // once the page is live (OnAfterRenderAsync), never while it is rendered ahead of time.
-        _watch = new CampaignWatch(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
+        _watch = new PageWatch<SaveRef>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
         _watch.Watch(_session);
         try
         {
@@ -720,7 +721,7 @@ else
     // Reads storage for changes to this campaign: at once on this instance (CampaignSignals), every
     // CampaignWatch:Interval from anywhere, after each of the page's own actions, and before the export
     // is offered again. Null until the page has opened.
-    private CampaignWatch? _watch;
+    private PageWatch<SaveRef>? _watch;
 
     // The watch's read last seen when the export was not offered (no approval in force): it is offered
     // again only from a later read, so it never comes back from what the page alone holds.
@@ -867,11 +868,23 @@ else
         }
     }
 
-    // Undo marks the save for deletion; nothing is deleted here, or by leaving the page.
+    // Undo marks the save for deletion; nothing is deleted here, or by leaving the page. Only the version
+    // on the page, while storage still has it as the newest: otherwise nothing is undone, and the page
+    // says why and, once the read after it is done, what changed.
     private Task UndoAsync() => ActingAsync(async () =>
     {
         _confirmingUndo = false;
-        if (await _session!.UndoLastSaveAsync())
+        bool left;
+        try
+        {
+            left = await _session!.UndoLastSaveAsync();
+        }
+        catch (CampaignChangedException ex)
+        {
+            _message = ex.Message;
+            return;
+        }
+        if (left)
         {
             _message = "The last save was undone; the version before it is open.";
             return;

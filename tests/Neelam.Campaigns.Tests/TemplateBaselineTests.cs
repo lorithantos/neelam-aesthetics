@@ -122,20 +122,68 @@ public class TemplateBaselineTests
         Assert.Contains(saved.BlobName, _containers.For(Neelam.Value).Blobs.Keys);
     }
 
-    // Every version goes, not just the newest: otherwise an older own baseline would come back.
+    // Going back to the standard is a version saying so (2026-10-11), as the look's is: it used to delete
+    // every version of hers, one saved in another tab she never saw included. Nothing is deleted now, and
+    // an older own baseline still never comes back, since the newest says the standard applies.
     [Fact]
-    public async Task Using_the_standard_baseline_deletes_the_client_s_own_and_the_standard_applies_again()
+    public async Task Using_the_standard_baseline_keeps_the_client_s_own_and_the_standard_applies_again()
     {
-        await Stores.Baseline(Neelam).SaveAsync(new TemplateBaseline([BlockType.Greeting]));
+        var greeting = await Stores.Baseline(Neelam).SaveAsync(new TemplateBaseline([BlockType.Greeting]));
         _clock.Now += TimeSpan.FromMinutes(1);
-        await Stores.Baseline(Neelam).SaveAsync(new TemplateBaseline([BlockType.Offer]));
+        var offer = await Stores.Baseline(Neelam).SaveAsync(new TemplateBaseline([BlockType.Offer]));
+        _clock.Now += TimeSpan.FromMinutes(1);
 
-        await Stores.UseStandardBaselineAsync(Neelam, Actor.Demo);
+        var standard = await Stores.UseStandardBaselineAsync(Neelam, Actor.Demo);
 
         var inForce = await Stores.BaselineInForceAsync(Neelam);
         Assert.False(inForce.IsOwn);
         Assert.Equal(TemplateBaseline.Standard.Parts, inForce.Baseline.Parts);
-        Assert.Empty(_containers.For(Neelam.Value).Blobs);
+        Assert.Equal(standard, inForce.Version);
+        Assert.Equal([standard, offer, greeting], await Stores.Baseline(Neelam).HistoryAsync());
+        Assert.Equal(3, _containers.For(Neelam.Value).Blobs.Count);
+        Assert.True((await Stores.Baseline(Neelam).LoadAsync(standard)).FollowsStandard);
+    }
+
+    // The version that says so holds no parts, and one that also lists parts is refused as it is read.
+    [Fact]
+    public void The_standard_s_version_reads_back_as_itself_and_never_with_parts()
+    {
+        var json = CampaignJson.SerializeBaseline(TemplateBaseline.FollowStandard);
+
+        Assert.Same(TemplateBaseline.FollowStandard, CampaignJson.DeserializeBaseline(json));
+        Assert.DoesNotContain("parts", json);
+        Assert.Throws<InvalidDataException>(() => CampaignJson.DeserializeBaseline("""{"schema":2,"standard":true,"parts":["offer"]}"""));
+        Assert.False(CampaignJson.DeserializeBaseline("""{"schema":2,"parts":["offer"]}""").FollowsStandard);
+        Assert.Same(TierLadders.FollowStandard, CampaignJson.DeserializeLadders(CampaignJson.SerializeLadders(TierLadders.FollowStandard)));
+        Assert.Throws<InvalidDataException>(() => CampaignJson.DeserializeLadders("""{"schema":2,"standard":true,"ladders":[]}"""));
+    }
+
+    // Two tabs on her baseline (2026-10-11): the one that has not seen the other's save is refused at the
+    // click, saves nothing and deletes nothing; with Keep mine, hers is saved over it, and theirs stays.
+    [Fact]
+    public async Task A_save_from_a_page_that_has_not_seen_the_newest_is_refused_until_she_keeps_hers()
+    {
+        await Stores.SaveBaselineAsync(Neelam, new TemplateBaseline([BlockType.Greeting]), Actor.Demo);
+        var a = Stores.HoldBaseline(Neelam, (await Stores.BaselineInForceAsync(Neelam)).Version);
+        var b = Stores.HoldBaseline(Neelam, (await Stores.BaselineInForceAsync(Neelam)).Version);
+        _clock.Now += TimeSpan.FromMinutes(1);
+        var theirs = await Stores.SaveBaselineAsync(b, new TemplateBaseline([BlockType.Offer]), Actor.Demo);
+        _clock.Now += TimeSpan.FromMinutes(1);
+
+        var refused = await Assert.ThrowsAsync<CampaignChangedException>(() => Stores.UseStandardBaselineAsync(a, Actor.Demo));
+        Assert.Equal(CampaignChange.SavedSince, refused.Change);
+        Assert.Equal("Not saved: the parts every template should have were changed since you opened this page.", refused.Message);
+        await Assert.ThrowsAsync<CampaignChangedException>(() => Stores.SaveBaselineAsync(a, TemplateBaseline.None, Actor.Demo));
+        var inForce = await Stores.BaselineInForceAsync(Neelam);
+        Assert.Equal([BlockType.Offer], inForce.Baseline.Parts);
+        Assert.Equal(theirs, inForce.Version);
+        Assert.Equal(2, (await Stores.Baseline(Neelam).HistoryAsync()).Count);
+
+        var kept = await Stores.SaveBaselineAsync(a, TemplateBaseline.None, Actor.Demo, keepMine: true);
+
+        Assert.Equal(kept, (await Stores.BaselineInForceAsync(Neelam)).Version);
+        Assert.Contains(theirs, await Stores.Baseline(Neelam).HistoryAsync());
+        Assert.Equal(CampaignChange.SavedSince, b.ChangeSince(await b.NewestAsync()));
     }
 
     // Saving it empty is how a client opts out: its own, and nothing in it.

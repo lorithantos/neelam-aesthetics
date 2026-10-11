@@ -141,6 +141,23 @@ public sealed partial class TierLadders
     /// <summary>No ladders: a client that saves this gets no ladder notes.</summary>
     public static TierLadders None { get; } = new([]);
 
+    private TierLadders()
+    {
+        Ladders = [];
+        FollowsStandard = true;
+    }
+
+    /// <summary>
+    /// What "Use the standard ladders" saves as the client's newest version (2026-10-11): no ladders of
+    /// its own, only that the standard ones apply to her again. Saved rather than her versions deleted,
+    /// so a version saved in another tab, which she never saw, is never deleted by it. Never in force
+    /// itself: the standard is (<c>ClientStores.LaddersInForceAsync</c>).
+    /// </summary>
+    public static TierLadders FollowStandard { get; } = new();
+
+    /// <summary>True only for <see cref="FollowStandard"/>.</summary>
+    public bool FollowsStandard { get; }
+
     /// <summary>These ladders with the one at <paramref name="index"/> replaced.</summary>
     public TierLadders Replace(int index, TierLadder ladder) =>
         new(Ladders.Select((l, i) => i == index ? ladder : l));

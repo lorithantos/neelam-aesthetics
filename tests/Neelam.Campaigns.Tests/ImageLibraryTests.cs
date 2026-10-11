@@ -75,7 +75,7 @@ public class ImageLibraryTests
     {
         await Library.AddAsync("Principals seated", Png, "image/png");
 
-        Assert.True(await Library.DeleteAsync("Principals seated"));
+        Assert.True(await Library.DeleteListedAsync("Principals seated"));
 
         Assert.Empty(_container.Blobs);
         Assert.Empty(await Library.ListAsync());
@@ -165,7 +165,7 @@ public class ImageLibraryTests
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             Library.AddFromSquareAsync("Principals toasting", "https://postoffice-production-f.squarecdn.com/toasting.jpg"));
 
-        Assert.True(await Library.DeleteAsync("Principals toasting"));
+        Assert.True(await Library.DeleteListedAsync("Principals toasting"));
         Assert.Equal("Principals seated", Assert.Single(await Library.ListAsync()).Name);
     }
 
@@ -229,7 +229,7 @@ public class ImageLibraryTests
         await Library.AddAsync("Principals seated", Png, "image/png");
         Assert.Equal(["Principals seated", "Principals toasting"], (await Library.ListAsync()).Select(i => i.Name));
 
-        Assert.True(await Library.DeleteAsync("Principals toasting"));
+        Assert.True(await Library.DeleteListedAsync("Principals toasting"));
 
         Assert.Equal("Principals seated", Assert.Single(await Library.ListAsync()).Name);
         Assert.Equal(["images/Principals%20seated"], _container.Blobs.Keys);
@@ -246,6 +246,36 @@ public class ImageLibraryTests
         Assert.Null(ImageLibrary.Find(images, " "));
     }
 
+    // Two tabs on the library (2026-10-11): one deletes "hero" and adds a different photo under the same
+    // name; the other, still showing the first, deletes "hero". Only the photo it showed may go, and it is
+    // gone already, so nothing is deleted: the new photo stays, with nothing on the trail.
+    [Fact]
+    public async Task Deleting_a_photo_replaced_under_the_same_name_since_it_was_listed_deletes_nothing()
+    {
+        await Library.AddFromSquareAsync("Hero", Toasting);
+        var shownInA = Assert.Single(await Library.ListAsync());
+        Assert.True(await Library.DeleteListedAsync("Hero"));
+        await Library.AddAsync("Hero", Png, "image/png");
+        var events = Records.Activity.Events.Count;
+
+        Assert.False(await Library.DeleteAsync(shownInA));
+
+        var hero = Assert.Single(await Library.ListAsync());
+        Assert.False(hero.IsOnSquare);
+        Assert.Equal(Png.ToArray(), (await Library.ReadAsync("Hero")).Content.ToArray());
+        Assert.Equal(events, Records.Activity.Events.Count);
+    }
+
+    [Fact]
+    public async Task A_photo_deleted_as_listed_goes_and_one_never_listed_is_refused()
+    {
+        var added = await Library.AddAsync("Hero", Png, "image/png");
+
+        await Assert.ThrowsAsync<ArgumentException>(() => Library.DeleteAsync(added));
+        Assert.True(await Library.DeleteAsync(Assert.Single(await Library.ListAsync())));
+        Assert.Empty(_container.Blobs);
+    }
+
     // The library shares the client's container with saves and documents, and never mixes with them.
     [Fact]
     public async Task Photos_and_documents_keep_to_their_own_prefixes()
@@ -256,4 +286,12 @@ public class ImageLibraryTests
         Assert.Single(await Library.ListAsync());
         Assert.Single(await ClientStores.CatalogIn(_container, new ManualClock(Start)).HistoryAsync());
     }
+}
+
+/// <summary>Deleting a photo as a page does: the one the library lists by that name now.</summary>
+internal static class ListedPhotos
+{
+    public static async Task<bool> DeleteListedAsync(this ImageLibrary library, string name) =>
+        await library.DeleteAsync(ImageLibrary.Find(await library.ListAsync(), name)
+                                  ?? throw new InvalidOperationException($"No photo called {name} is listed."));
 }

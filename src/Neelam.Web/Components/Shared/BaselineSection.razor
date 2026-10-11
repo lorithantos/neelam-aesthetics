@@ -1,24 +1,56 @@
 @* The parts every template should have: the standard baseline, or the client's own. The baseline
-   is the client's data like its templates, so the access check decides whose. *@
+   is the client's data like its templates, so the access check decides whose. Another tab or person
+   may change it while this is open (2026-10-11, phase 2): PageWatch tells the section, and each save
+   here is made only while her newest version is still the one shown, read again at the click; when it
+   is not, she chooses Keep mine or Load the latest, as on the campaign page. "Use the standard
+   baseline" saves a version saying so and deletes nothing. *@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject BlockCatalog Blocks
+@inject CampaignSignals Signals
+@inject TimeProvider Clock
+@inject Microsoft.Extensions.Options.IOptions<CampaignWatchOptions> WatchOptions
+@inject ILogger<BaselineSection> Log
+@implements IDisposable
 
 @if (_client is not null && _inForce is not null)
 {
     var parts = _inForce.Baseline.Parts;
+    var change = _watch?.Change ?? CampaignChange.None;
     <section class="card" aria-labelledby="baseline-heading">
         <h2 id="baseline-heading">Every template should have</h2>
-        <p class="muted">@(_inForce.IsOwn ? "Your own baseline." : "The standard baseline.")
+        <p class="muted" data-testid="baseline-status">@(_inForce.IsOwn ? "Your own baseline." : "The standard baseline.")
             A template without one of these still saves; its editor says what it lacks. A new template
             starts with them, top to bottom in this order.</p>
+
+        @if (change != CampaignChange.None || _refused is not null)
+        {
+            @* The owner's "modified" (2026-10-11), as on the campaign page: what she chose here stays until
+               she loads the latest; after a save refused, Keep mine saves hers over the other version. *@
+            <div class="card" role="alert" data-testid="baseline-modified">
+                @if (change != CampaignChange.None)
+                {
+                    <p data-testid="baseline-modified-what">@HeldDocument.ChangedNotice(WatchSubject.Baseline, change)</p>
+                }
+                @if (_refused is not null)
+                {
+                    <p data-testid="baseline-refused">@_refused.Value.Message</p>
+                    <button class="button" data-testid="baseline-keep-mine" @onclick="KeepMineAsync">Keep mine</button>
+                }
+                <button class="button primary" data-testid="baseline-load-latest" @onclick="LoadLatestAsync">Load the latest</button>
+                <p class="field-help">@(_refused is not null
+                    ? "Keep mine saves yours as the newest; the other version stays stored. Load the latest shows the other version and replaces what you chose here."
+                    : "Load the latest replaces what you chose here and have not saved.")</p>
+            </div>
+        }
+
         @if (parts.Count == 0)
         {
             <p>Nothing: these warnings are off.</p>
         }
         else
         {
-            <ol>
+            <ol data-testid="baseline-parts">
                 @foreach (var part in parts)
                 {
                     <li>@Blocks.For(part).Label</li>
@@ -58,17 +90,17 @@
                 </ol>
             }
             <p>
-                <button class="button primary" @onclick="SaveOwnAsync">Save as your own</button>
-                <button class="button" @onclick="SaveEmptyAsync">Save it empty: no warnings</button>
+                <button class="button primary" data-testid="baseline-save-own" @onclick="SaveOwnAsync">Save as your own</button>
+                <button class="button" data-testid="baseline-save-empty" @onclick="SaveEmptyAsync">Save it empty: no warnings</button>
                 @if (_inForce.IsOwn)
                 {
-                    <button class="button" @onclick="UseStandardAsync">Use the standard baseline</button>
+                    <button class="button" data-testid="baseline-use-standard" @onclick="UseStandardAsync">Use the standard baseline</button>
                 }
             </p>
         </details>
         @if (_message is not null)
         {
-            <p role="status">@_message</p>
+            <p role="status" data-testid="baseline-message">@_message</p>
         }
     </section>
 }
@@ -80,17 +112,39 @@
     private TemplateBaseline _chosen = TemplateBaseline.None;
     private string? _message;
 
+    // Her baseline as this section shows it, and the section's look at storage for changes to it.
+    private HeldDocument? _held;
+    private PageWatch<DocumentVersion>? _watch;
+
+    // A save refused because her baseline changed since it was shown: what was said, and the same save
+    // again over the other version, for Keep mine.
+    private (string Message, Func<Task<string>> KeepMine)? _refused;
+
     protected override async Task OnInitializedAsync()
     {
         (_client, _) = await Workspace.ClientDataAsync();
-        if (_client is not null) await LoadAsync();
+        if (_client is null) return;
+        await LoadAsync();
+        _watch = new PageWatch<DocumentVersion>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
+        _watch.Watch(_held);
     }
 
     private async Task LoadAsync()
     {
         _inForce = await Stores.BaselineInForceAsync(_client!);
         _chosen = _inForce.Baseline;
+        _held = Stores.HoldBaseline(_client!, _inForce.Version);
+        _refused = null;
     }
+
+    // The watch's news, on this section's circuit, and the section drawn again with it.
+    private Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
+    {
+        await work();
+        StateHasChanged();
+    });
+
+    protected override void OnAfterRender(bool firstRender) => _watch?.Start();
 
     // A part she ticks goes last; she moves it from there.
     private void Choose(BlockType type, bool chosen) =>
@@ -98,24 +152,79 @@
 
     private void Order(int index, int by) => _chosen = _chosen.Move(index, by);
 
-    private async Task SaveOwnAsync()
+    // One save: refused when her baseline changed since it was shown, and then offered again as Keep
+    // mine. Done, the section reads her baseline again; what storage says meanwhile is not news.
+    private async Task SavingAsync(Func<bool, Task<string>> save)
     {
-        await Stores.SaveBaselineAsync(_client!, _chosen, await Workspace.ActorAsync());
-        await LoadAsync();
-        _message = "Saved as your own baseline.";
+        _watch?.Begin();
+        try
+        {
+            _message = await save(false);
+            await LoadAsync();
+        }
+        catch (CampaignChangedException ex)
+        {
+            _message = null;
+            _refused = (ex.Message, () => save(true));
+        }
+        finally
+        {
+            if (_watch is not null)
+            {
+                _watch.Watch(_held);
+                await _watch.EndAsync();
+            }
+        }
     }
 
-    private async Task SaveEmptyAsync()
+    private Task SaveOwnAsync()
     {
-        await Stores.SaveBaselineAsync(_client!, TemplateBaseline.None, await Workspace.ActorAsync());
-        await LoadAsync();
-        _message = "Saved empty: templates get no baseline warnings.";
+        var chosen = _chosen;
+        return SavingAsync(async keepMine =>
+        {
+            await Stores.SaveBaselineAsync(_held!, chosen, await Workspace.ActorAsync(), keepMine);
+            return "Saved as your own baseline.";
+        });
     }
 
-    private async Task UseStandardAsync()
+    private Task SaveEmptyAsync() => SavingAsync(async keepMine =>
     {
-        await Stores.UseStandardBaselineAsync(_client!, await Workspace.ActorAsync());
-        await LoadAsync();
-        _message = "Your own baseline is deleted; the standard one applies.";
+        await Stores.SaveBaselineAsync(_held!, TemplateBaseline.None, await Workspace.ActorAsync(), keepMine);
+        return "Saved empty: templates get no baseline warnings.";
+    });
+
+    private Task UseStandardAsync() => SavingAsync(async keepMine =>
+    {
+        await Stores.UseStandardBaselineAsync(_held!, await Workspace.ActorAsync(), keepMine);
+        return "The standard baseline applies again.";
+    });
+
+    // "Keep mine": the refused save, made over the other version, which stays stored.
+    private async Task KeepMineAsync()
+    {
+        if (_refused is not { } refused) return;
+        await SavingAsync(_ => refused.KeepMine());
     }
+
+    // "Load the latest": her baseline as storage has it now, replacing what she chose here. Only ever on her click.
+    private async Task LoadLatestAsync()
+    {
+        _watch?.Begin();
+        try
+        {
+            await LoadAsync();
+            _message = "The latest version is open.";
+        }
+        finally
+        {
+            if (_watch is not null)
+            {
+                _watch.Watch(_held);
+                await _watch.EndAsync();
+            }
+        }
+    }
+
+    // With the circuit: the timer stops and the section stops listening.
+    public void Dispose() => _watch?.Dispose();
 }

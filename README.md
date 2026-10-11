@@ -160,7 +160,9 @@ required or optional, and wherever it sits. A new template starts with one block
 the baseline's order, which the client can change (Up and Down on the Templates page), each left
 for every campaign to write and removable like any block; a copy starts from the template it
 copies. Square adds the legal address and unsubscribe in its own footer, so templates never
-include them.
+include them. Going back to the standard ("Use the standard baseline") saves a version that says
+so (`"standard": true`, no parts), as the look does, so her earlier versions stay stored and a
+version saved in another tab is never deleted by it.
 
 Campaigns are written as a `CampaignDraft`, started from a template. Every value in a draft is
 a `Slot` that remembers where it came from:
@@ -224,6 +226,10 @@ the client's own container (see [Clients and access](#clients-and-access)):
   `DeletedBySweep` event, by id, stays). Her look is undone the same way, from her Look page, and
   the sweep reaches it in `settings/{client}/` as well, apart from her drafts so one failing never
   stops the other. A client's catalog and policy have no undo page yet and still delete outright.
+  **Undo acts only on the newest** (2026-10-11): the version the page holds is undone only while
+  storage still has it as the newest in use, read at the click, so a tab that has not seen a later
+  save can never undo a version in the middle, which Restore would not offer and the sweep would
+  delete; a save landing between that read and the mark has the mark taken back.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed
@@ -459,7 +465,8 @@ The standard ladders are the operator's (`settings/_standard-ladders/`, else
 `TierLadders.Standard` in code); a client may save her own set at `{client}/ladders/`, which
 replaces the standard for her: adding a ladder, reordering any ladder's words, standard ones
 included, marking one ordered or of equal weight, or removing one. She does it in "Tier name
-ladders" on her Known items page; "Use the standard ladders" deletes hers.
+ladders" on her Known items page; "Use the standard ladders" saves a version saying the standard
+applies, as for the baseline, and deletes nothing.
 
 ## Layout
 

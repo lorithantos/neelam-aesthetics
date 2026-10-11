@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.RenderTree;
+using Microsoft.AspNetCore.Components.Routing;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -20,7 +21,9 @@ namespace Neelam.Campaigns.Tests;
 /// CampaignEdit rendered with the app's own services, in one scope as a circuit has, held between
 /// clicks as the server holds it: a request only ever renders the page afresh, never what a click
 /// leaves. Two of these on one campaign are two tabs. Services can be put in place of the app's for
-/// this page alone, such as a proofreader or a clock whose timers move only when told.
+/// this page alone, such as a proofreader or a clock whose timers move only when told. Since phase 2 of
+/// concurrent edits (2026-10-11) it holds any page or section the same way (<see cref="OpenAsync{TComponent}"/>):
+/// the template editor, the Look page, the baseline and ladders sections, the image library.
 /// </summary>
 internal sealed class OpenCampaignPage : IAsyncDisposable
 {
@@ -34,16 +37,25 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
     private OpenCampaignPage(AsyncServiceScope scope, PageRenderer renderer, int root) =>
         (_scope, _renderer, _root) = (scope, renderer, root);
 
-    public static async Task<OpenCampaignPage> OpenAsync(InMemoryApp app, Guid id, params object[] replacing)
+    public static Task<OpenCampaignPage> OpenAsync(InMemoryApp app, Guid id, params object[] replacing) =>
+        OpenAsync<CampaignEdit>(app, new Dictionary<string, object?> { [nameof(CampaignEdit.Id)] = (Guid?)id }, replacing);
+
+    /// <summary>Any page or component of the app, held as its circuit holds it, with these parameters.</summary>
+    public static async Task<OpenCampaignPage> OpenAsync<TComponent>(
+        InMemoryApp app, IReadOnlyDictionary<string, object?> parameters, params object[] replacing) where TComponent : IComponent
     {
         var scope = app.Services.CreateAsyncScope();
         // Who is asking, set as a circuit sets it when it starts: nobody signed in, as on the demo.
         ((IHostEnvironmentAuthenticationStateProvider)scope.ServiceProvider.GetRequiredService<AuthenticationStateProvider>())
             .SetAuthenticationState(Task.FromResult(new AuthenticationState(new ClaimsPrincipal(new ClaimsIdentity()))));
+        // Where it is, as a circuit sets it when it starts, for a page that reads its address (a query
+        // parameter); nothing here navigates.
+        if (scope.ServiceProvider.GetRequiredService<NavigationManager>() is IHostEnvironmentNavigationManager navigation)
+            navigation.Initialize("http://localhost/", "http://localhost/");
         var services = new Replacing(scope.ServiceProvider, [.. replacing, new NoBrowser()]);
         var renderer = new PageRenderer(services, services.GetRequiredService<ILoggerFactory>());
-        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<CampaignEdit>(
-            ParameterView.FromDictionary(new Dictionary<string, object?> { [nameof(CampaignEdit.Id)] = (Guid?)id })));
+        var root = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<TComponent>(ParameterView.FromDictionary(
+            parameters.ToDictionary(p => p.Key, p => p.Value))));
         return new(scope, renderer, root);
     }
 

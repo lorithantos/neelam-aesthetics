@@ -41,6 +41,24 @@ public sealed class TemplateBaseline
     /// <summary>No parts at all: a client that saves this gets no baseline warnings.</summary>
     public static TemplateBaseline None { get; } = new([]);
 
+    private TemplateBaseline()
+    {
+        Parts = [];
+        FollowsStandard = true;
+    }
+
+    /// <summary>
+    /// What "Use the standard baseline" saves as the client's newest version (2026-10-11): no parts of
+    /// its own, only that the standard applies to her again. Saved rather than her versions deleted, so
+    /// a version saved in another tab, which she never saw, is never deleted by it; her earlier versions
+    /// stay stored, as her earlier looks do. Never in force itself: the standard is
+    /// (<c>ClientStores.BaselineInForceAsync</c>).
+    /// </summary>
+    public static TemplateBaseline FollowStandard { get; } = new();
+
+    /// <summary>True only for <see cref="FollowStandard"/>.</summary>
+    public bool FollowsStandard { get; }
+
     /// <summary>The same parts with <paramref name="part"/> added last, or unchanged when it is already in.</summary>
     public TemplateBaseline With(BlockType part) => new([.. Parts, part]);
 

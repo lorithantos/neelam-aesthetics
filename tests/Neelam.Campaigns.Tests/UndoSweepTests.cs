@@ -207,7 +207,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var kept = await stores.SaveLookAsync(SalonOne.Name, ClientLookTests.Blush, Actor.Demo);
         clock.Now += TimeSpan.FromMinutes(1);
         await stores.SaveLookAsync(SalonOne.Name, new ClientLook(accentColour: "#225e3e"), Actor.Demo);
-        var undone = await stores.UndoLastLookSaveAsync(SalonOne.Name, Actor.Demo);
+        var undone = await stores.UndoLastLookSaveAsync(await stores.HoldLookAsync(SalonOne.Name), Actor.Demo);
         var keys = containers.For(ClientStores.SettingsContainer).Blobs.Keys;
         var sweep = SweepOver(stores, new InMemoryClientDirectory(SalonOne), clock);
 

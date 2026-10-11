@@ -48,7 +48,10 @@ public sealed class ClientStores
     /// <param name="undoGracePeriod">How long an undone draft or template can be restored (<see cref="UndoOptions"/>).</param>
     /// <param name="approvals">The approvals table.</param>
     /// <param name="activity">Writes the activity trail; a failed write never fails an action.</param>
-    /// <param name="signals">The app's in-process signal of campaign changes, for the open pages; null where none listen.</param>
+    /// <param name="signals">
+    /// The app's in-process signal of changes, for the open pages: the editing sessions raise it for
+    /// campaigns and templates, and this raises it for her look, baseline and ladders; null where none listen.
+    /// </param>
     public ClientStores(
         StorageClients storage, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityRecorder activity,
         CampaignSignals? signals = null)
@@ -136,8 +139,18 @@ public sealed class ClientStores
         var version = await Look(client).SaveAsync(look, ct);
         await _activity.For(client, actor).RecordAsync(
             ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), action, ct);
+        // The Look page loads again after each change, so every open one is told, its own included.
+        _signals?.Raise(client, WatchSubject.Look, source: null);
         return version;
     }
+
+    /// <summary>The client's look as an open page holds it: <paramref name="held"/>, the newest version it showed (null for none).</summary>
+    public HeldDocument HoldLook(ClientName client, DocumentVersion? held) =>
+        new(client, WatchSubject.Look, held, ct => Look(client).NewestAsync(ct), _signals);
+
+    /// <summary>The client's look as it stands in storage now, held as a page would hold it.</summary>
+    public async Task<HeldDocument> HoldLookAsync(ClientName client, CancellationToken ct = default) =>
+        HoldLook(client, await Look(client).NewestAsync(ct));
 
     /// <summary>How many of her saved looks the Look page lists, newest first.</summary>
     public const int EarlierLooksListed = 20;
@@ -171,18 +184,32 @@ public sealed class ClientStores
     }
 
     /// <summary>
-    /// Undoes the client's newest look as the editors undo a save: the version is marked undone, the one
+    /// Undoes the look the page holds as the editors undo a save: the version is marked undone, the one
     /// before is in force at once (or the standard look, when there is none), and it can be restored for
-    /// the grace period before the sweep deletes it. Null when she has no look to undo.
+    /// the grace period before the sweep deletes it. Only while it is still her newest look, read again
+    /// at the click (2026-10-11): undo used to take back whatever was newest, even a look saved in
+    /// another tab that this page never showed. Null when the page held no look and storage has none.
     /// </summary>
-    public async Task<DocumentVersion?> UndoLastLookSaveAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    /// <exception cref="CampaignChangedException">Her look changed since the page read it; nothing is undone.</exception>
+    public async Task<DocumentVersion?> UndoLastLookSaveAsync(HeldDocument held, Actor actor, CancellationToken ct = default)
     {
-        var look = Look(client);
-        if ((await look.HistoryAsync(ct)).FirstOrDefault() is not { } newest) return null;
-        var undone = await look.MarkUndoneAsync(newest, ct);
-        await _activity.For(client, actor).RecordAsync(
-            ActivityEntity.Look, LookEntityId, SaveStamp.Of(undone.SavedAt), ActivityAction.Undone, ct);
-        return undone;
+        if (held.Subject != WatchSubject.Look) throw new ArgumentException("That is not a look.", nameof(held));
+        if (held.Held is not { } version)
+        {
+            if (await held.ChangeNowAsync(ct) is var nothing and not CampaignChange.None)
+                throw new CampaignChangedException(nothing, HeldDocument.NotUndone(held.Subject, nothing));
+            return null;
+        }
+        var undo = await Look(held.Client).UndoIfNewestAsync(version, ct);
+        if (!undo.Done)
+        {
+            var change = held.ChangeSince(undo.Newest);
+            throw new CampaignChangedException(change, HeldDocument.NotUndone(held.Subject, change));
+        }
+        await _activity.For(held.Client, actor).RecordAsync(
+            ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.Undone, ct);
+        held.Changed(undo.Newest);
+        return undo.Undone;
     }
 
     /// <summary>
@@ -194,6 +221,7 @@ public sealed class ClientStores
         if (!await Look(client).RestoreAsync(version, _undoGracePeriod, ct)) return false;
         await _activity.For(client, actor).RecordAsync(
             ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.Restored, ct);
+        _signals?.Raise(client, WatchSubject.Look, source: null);
         return true;
     }
 
@@ -239,31 +267,85 @@ public sealed class ClientStores
     public Task<BaselineInForce> BaselineInForceAsync(ClientName client, CancellationToken ct = default) =>
         BaselineInForceAsync(Baseline(client), StandardBaseline(), ct);
 
+    // Her newest version is the one in force, unless it says the standard applies
+    // (TemplateBaseline.FollowStandard); with it, the version, so a page can hold what it showed.
     internal static async Task<BaselineInForce> BaselineInForceAsync(
-        DocumentStore<TemplateBaseline> own, DocumentStore<TemplateBaseline> standard, CancellationToken ct) =>
-        await own.CurrentAsync(ct) is { } mine
-            ? new BaselineInForce(mine, IsOwn: true)
-            : new BaselineInForce(await standard.CurrentAsync(ct) ?? TemplateBaseline.Standard, IsOwn: false);
+        DocumentStore<TemplateBaseline> own, DocumentStore<TemplateBaseline> standard, CancellationToken ct)
+    {
+        var newest = await own.NewestAsync(ct);
+        return newest is not null && await own.LoadAsync(newest, ct) is { FollowsStandard: false } mine
+            ? new BaselineInForce(mine, IsOwn: true, newest)
+            : new BaselineInForce(await standard.CurrentAsync(ct) ?? TemplateBaseline.Standard, IsOwn: false, newest);
+    }
+
+    /// <summary>The client's baseline as an open page holds it: <paramref name="held"/>, her newest version it showed (null for none).</summary>
+    public HeldDocument HoldBaseline(ClientName client, DocumentVersion? held) =>
+        new(client, WatchSubject.Baseline, held, ct => Baseline(client).NewestAsync(ct), _signals);
 
     /// <summary>Saves the client's own baseline, which replaces the standard one for it, on its activity trail.</summary>
     public async Task<DocumentVersion> SaveBaselineAsync(
         ClientName client, TemplateBaseline baseline, Actor actor, CancellationToken ct = default)
     {
-        var version = await Baseline(client).SaveAsync(baseline, ct);
-        await _activity.For(client, actor).RecordAsync(
-            ActivityEntity.Baseline, BaselineEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.BaselineSaved, ct);
+        var version = await KeepBaselineAsync(client, baseline, actor, ct);
+        _signals?.Raise(client, WatchSubject.Baseline, source: null);
         return version;
     }
 
     /// <summary>
-    /// Deletes every version of the client's own baseline, so the standard one applies again. Like
-    /// any deleted save, nothing of its contents remains; the activity trail says it was reset, and when.
+    /// Saves the client's own baseline from an open page, only while her newest version is still the one
+    /// the page held, read again at the click (2026-10-11), unless <paramref name="keepMine"/>: she chose to
+    /// save hers over the other. Nothing is deleted either way; the other version stays stored.
     /// </summary>
-    public async Task UseStandardBaselineAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    /// <exception cref="CampaignChangedException">Her baseline changed since the page read it; nothing is saved.</exception>
+    public Task<DocumentVersion> SaveBaselineAsync(
+        HeldDocument held, TemplateBaseline baseline, Actor actor, bool keepMine = false, CancellationToken ct = default) =>
+        SaveHeldAsync(held, WatchSubject.Baseline, keepMine, () => KeepBaselineAsync(held.Client, baseline, actor, ct), ct);
+
+    /// <summary>
+    /// Makes the standard baseline apply to the client again by saving a version that says so
+    /// (<see cref="TemplateBaseline.FollowStandard"/>), as the look's standard is a version (2026-10-11).
+    /// It used to delete every version of hers, a version saved in another tab included, which she had
+    /// never seen; now nothing is deleted, and her earlier versions stay stored. The activity trail says it
+    /// was reset, by the new version's stamp.
+    /// </summary>
+    public async Task<DocumentVersion> UseStandardBaselineAsync(ClientName client, Actor actor, CancellationToken ct = default)
     {
-        await DeleteEveryVersionAsync(Baseline(client), ct);
+        var version = await KeepBaselineAsync(client, TemplateBaseline.FollowStandard, actor, ct);
+        _signals?.Raise(client, WatchSubject.Baseline, source: null);
+        return version;
+    }
+
+    /// <summary>
+    /// <see cref="UseStandardBaselineAsync(ClientName, Actor, CancellationToken)"/> from an open page, only
+    /// while her newest version is still the one the page held, unless <paramref name="keepMine"/>.
+    /// </summary>
+    /// <exception cref="CampaignChangedException">Her baseline changed since the page read it; nothing is saved.</exception>
+    public Task<DocumentVersion> UseStandardBaselineAsync(
+        HeldDocument held, Actor actor, bool keepMine = false, CancellationToken ct = default) =>
+        SaveHeldAsync(held, WatchSubject.Baseline, keepMine,
+            () => KeepBaselineAsync(held.Client, TemplateBaseline.FollowStandard, actor, ct), ct);
+
+    // A new version of her baseline, on the trail as saved or as reset to the standard; nobody told yet.
+    private async Task<DocumentVersion> KeepBaselineAsync(ClientName client, TemplateBaseline baseline, Actor actor, CancellationToken ct)
+    {
+        var version = await Baseline(client).SaveAsync(baseline, ct);
         await _activity.For(client, actor).RecordAsync(
-            ActivityEntity.Baseline, BaselineEntityId, null, ActivityAction.BaselineResetToStandard, ct);
+            ActivityEntity.Baseline, BaselineEntityId, SaveStamp.Of(version.SavedAt),
+            baseline.FollowsStandard ? ActivityAction.BaselineResetToStandard : ActivityAction.BaselineSaved, ct);
+        return version;
+    }
+
+    // A save from an open page: refused when what it held is no longer the newest, unless she keeps hers;
+    // then the page holds the new version, and the other pages are told.
+    private static async Task<DocumentVersion> SaveHeldAsync(
+        HeldDocument held, string subject, bool keepMine, Func<Task<DocumentVersion>> save, CancellationToken ct)
+    {
+        if (held.Subject != subject) throw new ArgumentException($"That is not the client's {subject}.", nameof(held));
+        if (!keepMine && await held.ChangeNowAsync(ct) is var change and not CampaignChange.None)
+            throw new CampaignChangedException(change, HeldDocument.NotSaved(held.Subject, change));
+        var version = await save();
+        held.Changed(version);
+        return version;
     }
 
     /// <summary>A client has one baseline of its own, so its events name it by this rather than by an id.</summary>
@@ -289,41 +371,73 @@ public sealed class ClientStores
     public Task<LaddersInForce> LaddersInForceAsync(ClientName client, CancellationToken ct = default) =>
         LaddersInForceAsync(Ladders(client), StandardLadders(), ct);
 
+    // Her newest version is the one in force, unless it says the standard applies
+    // (TierLadders.FollowStandard); with it, the version, so a page can hold what it showed.
     internal static async Task<LaddersInForce> LaddersInForceAsync(
-        DocumentStore<TierLadders> own, DocumentStore<TierLadders> standard, CancellationToken ct) =>
-        await own.CurrentAsync(ct) is { } mine
-            ? new LaddersInForce(mine, IsOwn: true)
-            : new LaddersInForce(await standard.CurrentAsync(ct) ?? TierLadders.Standard, IsOwn: false);
+        DocumentStore<TierLadders> own, DocumentStore<TierLadders> standard, CancellationToken ct)
+    {
+        var newest = await own.NewestAsync(ct);
+        return newest is not null && await own.LoadAsync(newest, ct) is { FollowsStandard: false } mine
+            ? new LaddersInForce(mine, IsOwn: true, newest)
+            : new LaddersInForce(await standard.CurrentAsync(ct) ?? TierLadders.Standard, IsOwn: false, newest);
+    }
+
+    /// <summary>The client's ladders as an open page holds them: <paramref name="held"/>, her newest version it showed (null for none).</summary>
+    public HeldDocument HoldLadders(ClientName client, DocumentVersion? held) =>
+        new(client, WatchSubject.Ladders, held, ct => Ladders(client).NewestAsync(ct), _signals);
 
     /// <summary>Saves the client's own ladders, which replace the standard ones for it, on its activity trail.</summary>
     public async Task<DocumentVersion> SaveLaddersAsync(
         ClientName client, TierLadders ladders, Actor actor, CancellationToken ct = default)
     {
-        var version = await Ladders(client).SaveAsync(ladders, ct);
-        await _activity.For(client, actor).RecordAsync(
-            ActivityEntity.Ladders, LaddersEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.LaddersSaved, ct);
+        var version = await KeepLaddersAsync(client, ladders, actor, ct);
+        _signals?.Raise(client, WatchSubject.Ladders, source: null);
         return version;
     }
 
     /// <summary>
-    /// Deletes every version of the client's own ladders, so the standard ones apply again. Nothing of
-    /// their contents remains; the activity trail says they were reset, and when.
+    /// Saves the client's own ladders from an open page, only while her newest version is still the one
+    /// the page held, read again at the click (2026-10-11), unless <paramref name="keepMine"/>.
     /// </summary>
-    public async Task UseStandardLaddersAsync(ClientName client, Actor actor, CancellationToken ct = default)
+    /// <exception cref="CampaignChangedException">Her ladders changed since the page read them; nothing is saved.</exception>
+    public Task<DocumentVersion> SaveLaddersAsync(
+        HeldDocument held, TierLadders ladders, Actor actor, bool keepMine = false, CancellationToken ct = default) =>
+        SaveHeldAsync(held, WatchSubject.Ladders, keepMine, () => KeepLaddersAsync(held.Client, ladders, actor, ct), ct);
+
+    /// <summary>
+    /// Makes the standard ladders apply to the client again by saving a version that says so
+    /// (<see cref="TierLadders.FollowStandard"/>), as for the baseline (2026-10-11): it used to delete every
+    /// version of hers, one she never saw included. Nothing is deleted now; the trail says they were reset.
+    /// </summary>
+    public async Task<DocumentVersion> UseStandardLaddersAsync(ClientName client, Actor actor, CancellationToken ct = default)
     {
-        await DeleteEveryVersionAsync(Ladders(client), ct);
+        var version = await KeepLaddersAsync(client, TierLadders.FollowStandard, actor, ct);
+        _signals?.Raise(client, WatchSubject.Ladders, source: null);
+        return version;
+    }
+
+    /// <summary>
+    /// <see cref="UseStandardLaddersAsync(ClientName, Actor, CancellationToken)"/> from an open page, only
+    /// while her newest version is still the one the page held, unless <paramref name="keepMine"/>.
+    /// </summary>
+    /// <exception cref="CampaignChangedException">Her ladders changed since the page read them; nothing is saved.</exception>
+    public Task<DocumentVersion> UseStandardLaddersAsync(
+        HeldDocument held, Actor actor, bool keepMine = false, CancellationToken ct = default) =>
+        SaveHeldAsync(held, WatchSubject.Ladders, keepMine,
+            () => KeepLaddersAsync(held.Client, TierLadders.FollowStandard, actor, ct), ct);
+
+    // A new version of her ladders, on the trail as saved or as reset to the standard; nobody told yet.
+    private async Task<DocumentVersion> KeepLaddersAsync(ClientName client, TierLadders ladders, Actor actor, CancellationToken ct)
+    {
+        var version = await Ladders(client).SaveAsync(ladders, ct);
         await _activity.For(client, actor).RecordAsync(
-            ActivityEntity.Ladders, LaddersEntityId, null, ActivityAction.LaddersResetToStandard, ct);
+            ActivityEntity.Ladders, LaddersEntityId, SaveStamp.Of(version.SavedAt),
+            ladders.FollowsStandard ? ActivityAction.LaddersResetToStandard : ActivityAction.LaddersSaved, ct);
+        return version;
     }
 
     /// <summary>A client has one set of ladders of its own, named by this in its events.</summary>
     internal const string LaddersEntityId = "ladders";
-
-    internal static async Task DeleteEveryVersionAsync<T>(DocumentStore<T> document, CancellationToken ct) where T : class
-    {
-        foreach (var version in await document.HistoryAsync(ct))
-            await document.DeleteAsync(version, ct);
-    }
 
     // Built over any backend so the layout is tested without Azure.
     internal static DocumentStore<ClientCatalog> CatalogIn(IBlobBackend clientContainer, TimeProvider clock) =>
@@ -349,10 +463,15 @@ public sealed class ClientStores
 }
 
 /// <summary>The template baseline in force for a client, and whether it is the client's own or the standard one.</summary>
-public sealed record BaselineInForce(TemplateBaseline Baseline, bool IsOwn);
+/// <param name="Version">
+/// Her newest version in use, read with it, which a page holds to tell a change since; null when she has
+/// never saved one. Also set while the standard applies, when that version is the one saying so.
+/// </param>
+public sealed record BaselineInForce(TemplateBaseline Baseline, bool IsOwn, DocumentVersion? Version = null);
 
 /// <summary>The tier-name ladders in force for a client, and whether they are the client's own or the standard ones.</summary>
-public sealed record LaddersInForce(TierLadders Ladders, bool IsOwn);
+/// <param name="Version">Her newest version in use, read with them; null when she has never saved any.</param>
+public sealed record LaddersInForce(TierLadders Ladders, bool IsOwn, DocumentVersion? Version = null);
 
 /// <summary>One of a client's saved looks, as her Look page lists it.</summary>
 /// <param name="Look">The look, or null when its document cannot be read: listed, but never used.</param>

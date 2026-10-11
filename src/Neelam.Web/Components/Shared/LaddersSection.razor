@@ -1,16 +1,45 @@
 @* Tier-name ladders (owner, 2026-10-09): the standard ones, or the client's own, which replace them.
    They are the client's data like its templates, so the access check decides whose. Her changes are
-   a working copy until she saves them as her own. *@
+   a working copy until she saves them as her own. Another tab or person may change them while this is
+   open (2026-10-11, phase 2): as for the baseline, PageWatch tells the section, each save is made only
+   while her newest version is still the one shown, and "Use the standard ladders" deletes nothing. *@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
+@inject CampaignSignals Signals
+@inject TimeProvider Clock
+@inject Microsoft.Extensions.Options.IOptions<CampaignWatchOptions> WatchOptions
+@inject ILogger<LaddersSection> Log
+@implements IDisposable
 
 @if (_client is not null && _inForce is not null && _working is not null)
 {
+    var change = _watch?.Change ?? CampaignChange.None;
     <h2 id="ladders-heading">Tier name ladders</h2>
     <section class="card" aria-labelledby="ladders-heading">
-        <p class="muted">@(_inForce.IsOwn ? "Your own ladders." : "The standard ladders.")
+        <p class="muted" data-testid="ladders-status">@(_inForce.IsOwn ? "Your own ladders." : "The standard ladders.")
             Tier names that use these words tell readers which tier is which. The checks point out two tiers
             on the same word, and, on an ordered ladder, a higher word that costs less. Neither stops an email.</p>
+
+        @if (change != CampaignChange.None || _refused is not null)
+        {
+            @* As for the baseline: what she changed here stays until she loads the latest; after a save
+               refused, Keep mine saves hers over the other version. *@
+            <div class="card" role="alert" data-testid="ladders-modified">
+                @if (change != CampaignChange.None)
+                {
+                    <p data-testid="ladders-modified-what">@HeldDocument.ChangedNotice(WatchSubject.Ladders, change)</p>
+                }
+                @if (_refused is not null)
+                {
+                    <p data-testid="ladders-refused">@_refused.Value.Message</p>
+                    <button class="button" data-testid="ladders-keep-mine" @onclick="KeepMineAsync">Keep mine</button>
+                }
+                <button class="button primary" data-testid="ladders-load-latest" @onclick="LoadLatestAsync">Load the latest</button>
+                <p class="field-help">@(_refused is not null
+                    ? "Keep mine saves yours as the newest; the other version stays stored. Load the latest shows the other version and replaces what you changed here."
+                    : "Load the latest replaces what you changed here and have not saved.")</p>
+            </div>
+        }
         @if (_working.Ladders.Count == 0)
         {
             <p>No ladders: tier names are not read against any.</p>
@@ -65,15 +94,15 @@
         </details>
 
         <p>
-            <button class="button primary" @onclick="SaveOwnAsync">Save as your own</button>
+            <button class="button primary" data-testid="ladders-save-own" @onclick="SaveOwnAsync">Save as your own</button>
             @if (_inForce.IsOwn)
             {
-                <button class="button" @onclick="UseStandardAsync">Use the standard ladders</button>
+                <button class="button" data-testid="ladders-use-standard" @onclick="UseStandardAsync">Use the standard ladders</button>
             }
         </p>
         @if (_message is not null)
         {
-            <p role="status">@_message</p>
+            <p role="status" data-testid="ladders-message">@_message</p>
         }
     </section>
 }
@@ -88,17 +117,93 @@
     private bool _newOrdered;
     private string? _message;
 
+    // Her ladders as this section shows them, and the section's look at storage for changes to them.
+    private HeldDocument? _held;
+    private PageWatch<DocumentVersion>? _watch;
+
+    // A save refused because her ladders changed since they were shown: what was said, and the same save
+    // again over the other version, for Keep mine.
+    private (string Message, Func<Task<string>> KeepMine)? _refused;
+
     protected override async Task OnInitializedAsync()
     {
         (_client, _) = await Workspace.ClientDataAsync();
-        if (_client is not null) await LoadAsync();
+        if (_client is null) return;
+        await LoadAsync();
+        _watch = new PageWatch<DocumentVersion>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
+        _watch.Watch(_held);
     }
 
     private async Task LoadAsync()
     {
         _inForce = await Stores.LaddersInForceAsync(_client!);
         _working = _inForce.Ladders;
+        _held = Stores.HoldLadders(_client!, _inForce.Version);
+        _refused = null;
     }
+
+    // The watch's news, on this section's circuit, and the section drawn again with it.
+    private Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
+    {
+        await work();
+        StateHasChanged();
+    });
+
+    protected override void OnAfterRender(bool firstRender) => _watch?.Start();
+
+    // One save: refused when her ladders changed since they were shown, and then offered again as Keep
+    // mine. Done, the section reads her ladders again; what storage says meanwhile is not news.
+    private async Task SavingAsync(Func<bool, Task<string>> save)
+    {
+        _watch?.Begin();
+        try
+        {
+            _message = await save(false);
+            await LoadAsync();
+        }
+        catch (CampaignChangedException ex)
+        {
+            _message = null;
+            _refused = (ex.Message, () => save(true));
+        }
+        finally
+        {
+            if (_watch is not null)
+            {
+                _watch.Watch(_held);
+                await _watch.EndAsync();
+            }
+        }
+    }
+
+    // "Keep mine": the refused save, made over the other version, which stays stored.
+    private async Task KeepMineAsync()
+    {
+        if (_refused is not { } refused) return;
+        await SavingAsync(_ => refused.KeepMine());
+    }
+
+    // "Load the latest": her ladders as storage has them now, replacing what she changed here. Only ever on her click.
+    private async Task LoadLatestAsync()
+    {
+        _watch?.Begin();
+        try
+        {
+            await LoadAsync();
+            _message = "The latest version is open.";
+        }
+        finally
+        {
+            if (_watch is not null)
+            {
+                _watch.Watch(_held);
+                await _watch.EndAsync();
+            }
+        }
+    }
+
+    // With the circuit: the timer stops and the section stops listening.
+    public void Dispose() => _watch?.Dispose();
 
     private void Change(int index, TierLadder ladder)
     {
@@ -130,17 +235,19 @@
         _message = "Not saved yet: save them as your own to use them.";
     }
 
-    private async Task SaveOwnAsync()
+    private Task SaveOwnAsync()
     {
-        await Stores.SaveLaddersAsync(_client!, _working!, await Workspace.ActorAsync());
-        await LoadAsync();
-        _message = "Saved as your own ladders.";
+        var working = _working!;
+        return SavingAsync(async keepMine =>
+        {
+            await Stores.SaveLaddersAsync(_held!, working, await Workspace.ActorAsync(), keepMine);
+            return "Saved as your own ladders.";
+        });
     }
 
-    private async Task UseStandardAsync()
+    private Task UseStandardAsync() => SavingAsync(async keepMine =>
     {
-        await Stores.UseStandardLaddersAsync(_client!, await Workspace.ActorAsync());
-        await LoadAsync();
-        _message = "Your own ladders are deleted; the standard ones apply.";
-    }
+        await Stores.UseStandardLaddersAsync(_held!, await Workspace.ActorAsync(), keepMine);
+        return "The standard ladders apply again.";
+    });
 }

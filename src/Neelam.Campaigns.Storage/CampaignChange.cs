@@ -3,7 +3,10 @@ namespace Neelam.Campaigns.Storage;
 /// <summary>
 /// What storage says has happened to a campaign since the version a page holds
 /// (<see cref="DraftSession.ChangeSince"/>). Anything but <see cref="None"/> means the page is out of
-/// date: it may not approve or export what it shows, and it says so.
+/// date: it may not approve, export or undo what it shows, and it says so. Since phase 2 (2026-10-11)
+/// also what happened to a template (<see cref="TemplateSession.ChangeSince"/>) or one of the client's
+/// documents (<see cref="HeldDocument.ChangeSince"/>), which use only <see cref="SavedSince"/>,
+/// <see cref="Undone"/> and, for a template, <see cref="Deleted"/>.
 /// </summary>
 public enum CampaignChange
 {
@@ -27,7 +30,7 @@ public enum CampaignChange
 }
 
 /// <summary>
-/// An approval or export refused because storage no longer agrees with the page: its
+/// An approval, export, undo or save refused because storage no longer agrees with the page: its
 /// <see cref="Exception.Message"/> is what to tell her.
 /// </summary>
 public sealed class CampaignChangedException(CampaignChange change, string message) : InvalidOperationException(message)

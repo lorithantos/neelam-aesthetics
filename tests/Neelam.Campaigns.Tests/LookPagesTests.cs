@@ -218,7 +218,7 @@ public class LookPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var green = await Saved(Undoing, Green);
         await Saved(Undoing, ClientLookTests.Blush);
-        var undone = await app.Stores.UndoLastLookSaveAsync(Undoing.Name, Actor.Demo);
+        var undone = await app.Stores.UndoLastLookSaveAsync(await app.Stores.HoldLookAsync(Undoing.Name), Actor.Demo);
 
         var (_, templates) = await Get("/templates", Undoing, Features.Templates);
         var (status, page) = await Get("/look", Undoing, Features.Look);

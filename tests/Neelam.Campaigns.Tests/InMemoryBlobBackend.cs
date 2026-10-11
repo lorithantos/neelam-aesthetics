@@ -59,13 +59,17 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         return Task.FromResult(Blobs[name].Blob);
     }
 
-    public Task<bool> SetMetadataAsync(
+    /// <summary>Runs as a metadata write (an undo's mark) arrives, before it takes effect: something else landing in between.</summary>
+    public Func<string, Task>? BeforeSetMetadata { get; set; }
+
+    public async Task<bool> SetMetadataAsync(
         string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default)
     {
-        if (!Blobs.TryGetValue(name, out var blob)) return Task.FromResult(false);
+        if (BeforeSetMetadata is { } before) await before(name);
+        if (!Blobs.TryGetValue(name, out var blob)) return false;
         Blobs[name] = (blob.Blob, new Dictionary<string, string>(metadata));
         Renew(name);
-        return Task.FromResult(true);
+        return true;
     }
 
     public async Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default)

@@ -8,7 +8,7 @@ namespace Neelam.Campaigns.Storage;
 /// restored, here or after coming back to the campaign, and then the sweep deletes it, leaving no
 /// record. Leaving the page deletes nothing.
 /// </summary>
-public sealed class DraftSession
+public sealed class DraftSession : IWatched<SaveRef>
 {
     private readonly CampaignStore _store;
 
@@ -73,6 +73,11 @@ public sealed class DraftSession
 
     /// <summary>The newest saved version, or null when there is none.</summary>
     public SaveRef? Latest { get; private set; }
+
+    /// <summary>What the open page watches it under; null before the first save, when there is nothing to watch.</summary>
+    public string? Subject => Latest is not null && Id is { } id ? WatchSubject.Campaign(id) : null;
+
+    SaveRef? IWatched<SaveRef>.Held => Latest;
 
     /// <summary>The undone version Restore would bring back, while its grace period lasts; otherwise null.</summary>
     public SaveRef? Restorable { get; private set; }
@@ -421,6 +426,13 @@ public sealed class DraftSession
         $"Not approved: {WhatChanged(change)}. Load the latest above, check it, then approve it.";
 
     /// <summary>
+    /// Said when Undo is refused because the page's version is no longer the newest (2026-10-11).
+    /// Proposed wording, awaiting the owner.
+    /// </summary>
+    public static string NotUndone(CampaignChange change) =>
+        $"Not undone: {WhatChanged(change)}. Undo takes back only the newest version, so load the latest above first.";
+
+    /// <summary>
     /// "Keep mine" (owner, 2026-10-11: "what if the person wants to overwrite anyway?" ... "yes, add Keep
     /// mine"): saves what the page holds, edited or not, as a new version, the campaign's newest. Nothing
     /// is deleted or undone: the version it takes the place of stays stored, in the campaign's history.
@@ -587,13 +599,21 @@ public sealed class DraftSession
     /// Undoes the newest version and opens the one before it, discarding any unsaved changes. The
     /// undone version is marked for deletion and stays restorable for the grace period. False when
     /// no version is left in use: the campaign is gone from the list, and <see cref="Restorable"/>
-    /// still brings it back.
+    /// still brings it back. Only while the page's version is still the newest in use, read again at
+    /// the click (<see cref="CampaignStore.UndoIfNewestAsync"/>): a version with a newer one above it
+    /// could not be restored and would be swept for good, so it is never undone (2026-10-11).
     /// </summary>
+    /// <exception cref="CampaignChangedException">Another tab or person saved or undid since; nothing is undone.</exception>
     public async Task<bool> UndoLastSaveAsync(CancellationToken ct = default)
     {
         if (Latest is null || Id is null)
             throw new InvalidOperationException("There is no saved version to take back.");
-        await _store.MarkUndoneAsync(Latest, ct);
+        var undo = await _store.UndoIfNewestAsync(Latest, ct);
+        if (!undo.Done)
+        {
+            var change = ChangeSince(undo.Newest);
+            throw new CampaignChangedException(change, NotUndone(change));
+        }
         try
         {
             return await ReopenAsync(ct);
