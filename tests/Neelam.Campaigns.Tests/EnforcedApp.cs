@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Neelam.Campaigns.Storage;
+using Neelam.Web;
 using Neelam.Web.Security;
 
 namespace Neelam.Campaigns.Tests;
@@ -68,6 +69,8 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
         builder.UseSetting("Storage:BlobServiceUri", "https://test.blob.core.windows.net/");
         builder.UseSetting("Storage:TableServiceUri", "https://test.table.core.windows.net/");
+        // The warm-up would request pages and read the stores while a test does; WarmupTests turn it on.
+        builder.UseSetting($"{WarmupOptions.Section}:{nameof(WarmupOptions.Enabled)}", "false");
         builder.ConfigureTestServices(services =>
         {
             ConfigureAccess(services);

@@ -109,6 +109,18 @@ builder.Services.AddSingleton(services => new ClientStores(
     services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,
     services.GetRequiredService<IApprovalStore>(), services.GetRequiredService<ActivityRecorder>()));
 builder.Services.AddHostedService<UndoSweep>();
+
+// Warms the app as it starts, off the startup path: storage's first token and connections, then every
+// client page requested once from the app itself (owner, 2026-10-10: "Once she hits the site ...
+// everything else should be snappy"). It only reads, never proofreads or fetches a photo, and logs
+// timings and outcomes only. /warmup answers once it has finished, for App Service to wait on.
+builder.Services.AddOptions<WarmupOptions>()
+    .Bind(builder.Configuration.GetSection(WarmupOptions.Section))
+    .Validate(warmup => warmup.Budget > TimeSpan.Zero, "Warmup:Budget must be a positive time span, such as 00:01:00.")
+    .ValidateOnStart();
+builder.Services.AddSingleton<WarmupState>();
+builder.Services.AddSingleton<ISelfRequests, LoopbackRequests>();
+builder.Services.AddHostedService<Warmup>();
 builder.Services.AddSingleton<IKnownItemStore>(services =>
     new KnownItemTable(storageClients, services.GetRequiredService<ILogger<KnownItemTable>>()));
 
@@ -165,6 +177,15 @@ app.MapGet("/healthz", async (IClientDirectory clients, TimeProvider clock, ILog
         log.LogError(ex, "Health check could not read the clients table.");
         return Results.Json(HealthReport.At("storage unreachable", clock), statusCode: StatusCodes.Status503ServiceUnavailable);
     }
+}).AllowAnonymous();
+
+// Where App Service waits for a started instance to be warm before it sends her there
+// (WEBSITE_WARMUP_PATH, infra/site.bicep): answers once the warm-up has finished, or after its budget,
+// always 200, so it can hold traffic back but never fail a start. Says only "warm" or "warming".
+app.MapGet(WarmupEndpoint.Path, async (WarmupState warmup, IOptions<WarmupOptions> options, TimeProvider clock, CancellationToken ct) =>
+{
+    await Task.WhenAny(warmup.Completion, Task.Delay(options.Value.Budget, ct));
+    return Results.Json(HealthReport.At(warmup.IsDone ? "warm" : "warming", clock));
 }).AllowAnonymous();
 
 app.MapRazorComponents<App>()

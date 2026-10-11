@@ -96,6 +96,16 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: insights.properties.ConnectionString
         }
+        // Linux App Service: after starting the app (a deploy, a restart, a recycle) the platform pings
+        // this path and sends traffic there only once it answers; the app answers it once its warm-up
+        // has run, so she never meets a cold page (Microsoft Learn, "Environment variables and app
+        // settings", WEBSITE_WARMUP_PATH). It always answers 200, and WEBSITE_WARMUP_STATUSES is left
+        // unset, so it can hold traffic back but never fail a start. On a Windows plan the documented
+        // equivalent is applicationInitialization in web.config, not this setting.
+        {
+          name: 'WEBSITE_WARMUP_PATH'
+          value: '/warmup'
+        }
       ], empty(prototypeClient) ? [] : [
         {
           name: 'Prototype__Client'
