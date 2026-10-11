@@ -67,6 +67,39 @@ public class RepositoryTests
         Assert.Contains("src/Neelam.Web/Properties/launchSettings.json", files);
     }
 
+    // No personal email address reaches GitHub (2026-10-10, with the outage alert, whose address the
+    // deployment passes as an override). The example domains reserved for documentation are allowed, as
+    // the tests use them; a URL's user part (https://user@host) is not an address.
+    [Fact]
+    public void Nothing_git_would_commit_holds_an_email_address()
+    {
+        var found = CommittableFiles()
+            .Where(file => Addresses(File.ReadAllText(Path.Combine(InfrastructureTests.Root, file))).Any())
+            .ToList();
+
+        // Names the file, never the address.
+        Assert.True(found.Count == 0, "Remove the email address from: " + string.Join("; ", found));
+    }
+
+    // Built here rather than written out, so this file does not trip the scan.
+    [Fact]
+    public void The_address_scan_finds_addresses_and_passes_the_rest()
+    {
+        Assert.NotEmpty(Addresses("alertEmail=" + "someone" + "@" + "contoso.com"));
+        Assert.NotEmpty(Addresses("mail " + "first.last+tag" + "@" + "mail.contoso.co.uk" + " today"));
+        Assert.Empty(Addresses("priya" + "@" + "example.com"));
+        Assert.Empty(Addresses("hello" + "@" + "mail.example.org"));
+        Assert.Empty(Addresses("https://user" + "@" + "postoffice-production-f.squarecdn.com/x.jpg"));
+        Assert.Empty(Addresses("data-testid=\"start-" + "@" + "start.Id\""));
+        Assert.Empty(Addresses("-p alertEmail=<address>"));
+    }
+
+    /// <summary>The email addresses in a text, leaving out the documentation domains and a URL's user part.</summary>
+    internal static IEnumerable<string> Addresses(string text) =>
+        Regex.Matches(text, @"(?<![\w./:%+-])[A-Za-z0-9._%+-]+@(?<domain>[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})\b")
+            .Where(m => !Regex.IsMatch(m.Groups["domain"].Value, @"(^|\.)example\.(com|org|net)$"))
+            .Select(m => m.Value);
+
     private static IEnumerable<string> Leaks(string text) =>
         RealLookingValues.Where(v => v.Pattern.IsMatch(text)).Select(v => v.Name);
 

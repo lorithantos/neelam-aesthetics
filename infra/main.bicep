@@ -46,6 +46,9 @@ param location string = resourceGroup().location
 @description('App Service plan SKU. Blazor Server keeps a live connection per user, so Basic or above.')
 param planSku string = 'B1'
 
+@description('Where the outage alert is emailed. Never set in a committed file, so no address reaches GitHub: the deployment passes it as an override (-p alertEmail=...). Left empty, the template makes no action group and no alert rule, and the availability test still runs.')
+param alertEmail string = ''
+
 var suffix = uniqueString(resourceGroup().id)
 
 // The one client the prototype works as, on the test deployment only; empty everywhere else.
@@ -203,6 +206,108 @@ module stagingStorage 'storage.bicep' = if (staging) {
     appId: resourceId('Microsoft.Web/sites', stagingSiteName)
     appPrincipalId: stagingSite!.outputs.principalId
     developerPrincipalId: developerOnAccounts
+  }
+}
+
+// The outage signal (owner, 2026-10-10: "We can add the measurement to help make certain there are no
+// outages"): an Application Insights standard availability test on the client's site's /healthz (the
+// app reading its clients table with its own identity), every five minutes from three US locations,
+// with retries, so a blip is retried before it counts. It needs no key or credential: the site's
+// /healthz is anonymous and the results land in this Application Insights. Microsoft Learn,
+// "Application Insights availability tests" (standard tests; location population tags) and "Resource
+// Manager template samples for metric alert rules" (availability test with metric alert), read
+// 2026-10-10. Standard tests are billed per execution: three locations every five minutes is 25,920 a
+// month, about $13 at $0.0005 each (Azure retail prices API, meter "Standard Web Test Execution",
+// westus3, 2026-10-10). The staging site has no test, which would cost as much again.
+var availabilityLocations = [
+  'us-ca-sjc-azr' // West US
+  'us-tx-sn1-azr' // South Central US
+  'us-va-ash-azr' // East US
+]
+var siteHealthTestName = '${siteName}-healthz'
+
+resource siteHealthTest 'Microsoft.Insights/webtests@2022-06-15' = {
+  name: siteHealthTestName
+  location: location
+  tags: {
+    'hidden-link:${insights.id}': 'Resource'
+  }
+  properties: {
+    SyntheticMonitorId: siteHealthTestName
+    Name: 'Client site /healthz'
+    Description: 'The client\'s site answering /healthz: the app up and reading its own storage.'
+    Enabled: true
+    Kind: 'standard'
+    Frequency: 300
+    Timeout: 30
+    RetryEnabled: true
+    Locations: [
+      for id in availabilityLocations: {
+        Id: id
+      }
+    ]
+    Request: {
+      RequestUrl: '${site.outputs.url}/healthz'
+      HttpVerb: 'GET'
+      ParseDependentRequests: false
+    }
+    ValidationRules: {
+      ExpectedHttpStatusCode: 200
+      SSLCheck: true
+      SSLCertRemainingLifetimeCheck: 7
+    }
+  }
+}
+
+// The alert, only where an address to email was passed: two or more of the three locations failing
+// within five minutes, emailed once when it starts and once when it clears (a state-based metric alert).
+// Without the override there is no action group and no alert, so a deploy without it still works.
+var alerting = !empty(alertEmail)
+
+resource outageEmail 'Microsoft.Insights/actionGroups@2023-01-01' = if (alerting) {
+  name: '${prefix}-outage-${suffix}'
+  location: 'global'
+  properties: {
+    groupShortName: 'outage'
+    enabled: true
+    emailReceivers: [
+      {
+        name: 'operator'
+        emailAddress: alertEmail
+        useCommonAlertSchema: true
+      }
+    ]
+  }
+}
+
+resource siteOutage 'Microsoft.Insights/metricAlerts@2018-03-01' = if (alerting) {
+  name: '${siteName}-outage'
+  location: 'global'
+  tags: {
+    'hidden-link:${insights.id}': 'Resource'
+    'hidden-link:${siteHealthTest.id}': 'Resource'
+  }
+  properties: {
+    description: 'The client\'s site is not answering /healthz from two or more locations.'
+    severity: 1
+    enabled: true
+    scopes: [
+      siteHealthTest.id
+      insights.id
+    ]
+    evaluationFrequency: 'PT1M'
+    windowSize: 'PT5M'
+    criteria: {
+      'odata.type': 'Microsoft.Azure.Monitor.WebtestLocationAvailabilityCriteria'
+      webTestId: siteHealthTest.id
+      componentId: insights.id
+      failedLocationCount: 2
+    }
+    actions: [
+      {
+        actionGroupId: outageEmail.id
+      }
+    ]
   }
 }
 

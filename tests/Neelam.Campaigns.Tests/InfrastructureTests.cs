@@ -175,6 +175,84 @@ public class InfrastructureTests
             "@Microsoft.KeyVault(SecretUri=https://neelamtest-kv-6excvnu62r.vault.azure.net/secrets/anthropic-api-key/)"));
     }
 
+    // ---- The outage signal (owner, 2026-10-10: "We can add the measurement to help make certain there are no outages") ----
+
+    // A standard availability test on the client's site's /healthz, every five minutes, from three
+    // locations, retried before a failure counts, expecting 200 over valid TLS.
+    [Fact]
+    public void The_client_site_s_health_is_tested_from_three_locations_every_five_minutes()
+    {
+        var test = Resource("siteHealthTest", "Microsoft.Insights/webtests");
+        Assert.Matches(new Regex(@"\bKind: 'standard'\s"), test);
+        Assert.Matches(new Regex(@"\bFrequency: 300\s"), test);
+        Assert.Matches(new Regex(@"\bEnabled: true\s"), test);
+        Assert.Matches(new Regex(@"\bRetryEnabled: true\s"), test);
+        Assert.Matches(new Regex(@"RequestUrl: '\$\{site\.outputs\.url\}/healthz'\s"), test);
+        Assert.Matches(new Regex(@"ExpectedHttpStatusCode: 200\s"), test);
+        Assert.Matches(new Regex(@"SSLCheck: true\s"), test);
+        Assert.Matches(new Regex(@"'hidden-link:\$\{insights\.id\}': 'Resource'"), test);
+        Assert.Matches(new Regex(@"Locations: \[\s*for id in availabilityLocations: \{\s*Id: id\s*\}\s*\]"), test);
+        Assert.Matches(new Regex(@"SyntheticMonitorId: siteHealthTestName\s"), test);
+
+        var list = Regex.Match(Bicep, @"var availabilityLocations = \[(.*?)\]", RegexOptions.Singleline).Groups[1].Value;
+        string[] locations = Regex.Matches(list, @"'([^']*)'").Select(m => m.Groups[1].Value).ToArray();
+        Assert.Equal(["us-ca-sjc-azr", "us-tx-sn1-azr", "us-va-ash-azr"], locations);
+        Assert.Single(Regex.Matches(Bicep, @"'Microsoft\.Insights/webtests@"));
+    }
+
+    // Two or more failing locations within five minutes fire the alert, to an action group that emails
+    // the address passed at deploy time. Both exist only when that address is passed, so a deploy
+    // without it still works and nothing in the repository names anyone.
+    [Fact]
+    public void The_outage_alert_exists_only_when_an_address_is_passed()
+    {
+        Assert.Matches(new Regex(@"param alertEmail string = ''\s"), Bicep);
+        Assert.Matches(new Regex(@"var alerting = !empty\(alertEmail\)\s"), Bicep);
+        Assert.Single(Regex.Matches(Bicep, @"\balerting = "));
+        Assert.Matches(new Regex(@"^resource outageEmail 'Microsoft\.Insights/actionGroups@[^']+' = if \(alerting\) \{", RegexOptions.Multiline), Bicep);
+        Assert.Matches(new Regex(@"^resource siteOutage 'Microsoft\.Insights/metricAlerts@[^']+' = if \(alerting\) \{", RegexOptions.Multiline), Bicep);
+        Assert.Single(Regex.Matches(Bicep, @"'Microsoft\.Insights/actionGroups@"));
+        Assert.Single(Regex.Matches(Bicep, @"'Microsoft\.Insights/metricAlerts@"));
+        // The address goes to the action group alone.
+        Assert.Equal(["var alerting = !empty(alertEmail)", "emailAddress: alertEmail"],
+            Bicep.ReplaceLineEndings("\n").Split('\n').Select(l => l.Trim())
+                .Where(l => l.Contains("alertEmail", StringComparison.Ordinal) && !l.StartsWith("@description", StringComparison.Ordinal) && !l.StartsWith("param ", StringComparison.Ordinal))
+                .ToArray());
+        Assert.Matches(new Regex(@"emailAddress: alertEmail\s"), Resource("outageEmail", "Microsoft.Insights/actionGroups"));
+
+        var alert = Resource("siteOutage", "Microsoft.Insights/metricAlerts");
+        Assert.Matches(new Regex(@"'odata\.type': 'Microsoft\.Azure\.Monitor\.WebtestLocationAvailabilityCriteria'\s"), alert);
+        Assert.Matches(new Regex(@"webTestId: siteHealthTest\.id\s"), alert);
+        Assert.Matches(new Regex(@"componentId: insights\.id\s"), alert);
+        Assert.Matches(new Regex(@"failedLocationCount: 2\s"), alert);
+        Assert.Matches(new Regex(@"windowSize: 'PT5M'\s"), alert);
+        Assert.Matches(new Regex(@"actionGroupId: outageEmail\.id\s"), alert);
+        Assert.Matches(new Regex(@"enabled: true\s"), alert);
+    }
+
+    // No parameter file sets the address, and no template or parameter file holds one: it comes only
+    // as the deploy's override. (RepositoryTests scans every committed file for an address too.)
+    [Fact]
+    public void No_committed_infra_file_names_an_address()
+    {
+        foreach (var file in Directory.GetFiles(Path.Combine(Root, "infra")))
+        {
+            var text = File.ReadAllText(file);
+            Assert.DoesNotMatch(new Regex(@"param alertEmail\s*="), Path.GetExtension(file) == ".bicepparam" ? text : "");
+            Assert.Empty(RepositoryTests.Addresses(text));
+        }
+    }
+
+    // The resource's declaration as written, from its line to the next top-level declaration.
+    private static string Resource(string name, string type)
+    {
+        var block = Regex.Match(Bicep.ReplaceLineEndings("\n"),
+            $@"^resource {name} '{Regex.Escape(type)}@[^']+' =[^\n]*\{{\n(.*?)\n\}}\n",
+            RegexOptions.Multiline | RegexOptions.Singleline);
+        Assert.True(block.Success, $"resource {name} not found in the shape this test reads");
+        return block.Groups[1].Value + "\n";
+    }
+
     // The staging site exists on the test deployment alone: only test.bicepparam names its clients,
     // and the template ignores them outside Test. Production gets nothing new.
     [Fact]
