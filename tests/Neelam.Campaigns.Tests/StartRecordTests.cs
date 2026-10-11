@@ -339,12 +339,16 @@ public sealed class StartsApp : InMemoryApp
 
     internal IStartRecords? Store { get; init; }
 
+    /// <summary>App Service's WEBSITE_WARMUP_PATH, when a test sets one.</summary>
+    internal string? WarmupPath { get; init; }
+
     internal ListLogger<StartRecordWriter> Log { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting(PrototypeCallerSource.ClientSetting, DemoApp.Client.ToString());
         if (Build is not null) builder.UseSetting(BuildStamp.Setting, Build);
+        if (WarmupPath is not null) builder.UseSetting(PlatformRequests.WarmupPathSetting, WarmupPath);
         base.ConfigureWebHost(builder);
         builder.ConfigureTestServices(services =>
         {

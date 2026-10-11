@@ -187,8 +187,8 @@ internal sealed record FirstVisitSeen(PageVisit Visit) : StartEvent;
 internal sealed record GettingReadyShown(int Shown, DateTimeOffset At) : StartEvent;
 
 /// <summary>
-/// Notes every request that is not the warm-up's own (<see cref="WarmupMarker"/>) against this start:
-/// the first one, and each page's first GET. It sits first in the pipeline, so its time is the whole
+/// Notes every request that is not the warm-up's own (<see cref="WarmupMarker"/>) or App Service's own
+/// (<see cref="PlatformRequests"/>) against this start: the first one, and each page's first GET. It sits first in the pipeline, so its time is the whole
 /// request. What it notes is the route as declared, never the address: <c>/campaigns/{Id:guid}</c>, not
 /// a campaign's id. It only adds to memory and queues an event; anything that goes wrong in it is logged
 /// and swallowed, so it can never slow or fail the request.
@@ -205,7 +205,8 @@ public static class StartRecording
         app.Use(async (context, next) =>
         {
             var services = context.RequestServices;
-            if (services.GetRequiredService<WarmupMarker>().IsOn(context.Request))
+            if (services.GetRequiredService<WarmupMarker>().IsOn(context.Request)
+                || services.GetRequiredService<PlatformRequests>().IsPlatform(context.Request))
             {
                 await next(context);
                 return;

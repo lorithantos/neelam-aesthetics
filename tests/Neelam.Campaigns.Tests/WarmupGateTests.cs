@@ -324,13 +324,13 @@ public class WarmupGateTests
         var files = new FilteredFiles(new PhysicalFileProvider(root), missing);
 
         var problem = Assert.Throws<InvalidOperationException>(() => new WarmupGate(
-            _ => Task.CompletedTask, new WarmupState(), new WarmupMarker(),
+            _ => Task.CompletedTask, new WarmupState(), new WarmupMarker(), new PlatformRequests([]),
             new StartLog(TimeProvider.System, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), new WarmupState()),
             Options.Create(new WarmupOptions()), new Root(files)));
         Assert.Contains(missing, problem.Message);
 
         // Both as shipped load.
-        _ = new WarmupGate(_ => Task.CompletedTask, new WarmupState(), new WarmupMarker(),
+        _ = new WarmupGate(_ => Task.CompletedTask, new WarmupState(), new WarmupMarker(), new PlatformRequests([]),
             new StartLog(TimeProvider.System, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), new WarmupState()),
             Options.Create(new WarmupOptions()), new Root(new PhysicalFileProvider(root)));
     }

@@ -134,6 +134,10 @@ builder.Services.AddOptions<StartRecordOptions>()
         "Starts:Keep must be at least 1, and Starts:Coalesce a time span of zero or more, such as 00:00:02.")
     .ValidateOnStart();
 builder.Services.AddSingleton<StartLog>();
+// App Service's own requests are no visitor's (its start-up ping, Always On): data, PlatformRequests in
+// appsettings.json, with WEBSITE_WARMUP_PATH's path when set. Checked as the app starts, since the
+// warm-up gate takes it when the pipeline is built: a problem in the list stops the app there.
+builder.Services.AddSingleton(services => PlatformRequests.From(services.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton<IStartRecords>(services => services.GetRequiredService<ClientStores>()
     .Starts(services.GetRequiredService<IOptions<StartRecordOptions>>().Value.Keep));
 builder.Services.AddHostedService<StartRecordWriter>();
@@ -167,7 +171,7 @@ var app = builder.Build();
 app.Services.GetRequiredService<StartLog>();
 
 // First, so its time is the whole request: notes this start's first request and each page's first
-// visit, leaving out the warm-up's own (StartRecording).
+// visit, leaving out the warm-up's own and App Service's own (StartRecording).
 app.UseStartRecording();
 
 // Why the proofread is off, when it is: the setting's name and state, never a value.

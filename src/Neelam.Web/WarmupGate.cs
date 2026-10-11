@@ -30,7 +30,9 @@ namespace Neelam.Web;
 /// </para>
 /// <para>
 /// Each time the page is shown, the start's record notes it (<see cref="StartLog.HeldBack"/>), so the
-/// Starts page says how many requests were held and how long the earliest of them waited.
+/// Starts page says how many requests were held and how long the earliest of them waited. App Service's
+/// own requests (<see cref="PlatformRequests"/>) are held or let through exactly as any other, and are
+/// not noted.
 /// </para>
 /// </remarks>
 public sealed class WarmupGate
@@ -57,18 +59,20 @@ public sealed class WarmupGate
     private readonly RequestDelegate _next;
     private readonly WarmupState _warmup;
     private readonly WarmupMarker _marker;
+    private readonly PlatformRequests _platform;
     private readonly StartLog _start;
     private readonly WarmupOptions _options;
     private readonly string _gettingReady;
     private readonly string _startupFailed;
 
     public WarmupGate(
-        RequestDelegate next, WarmupState warmup, WarmupMarker marker, StartLog start, IOptions<WarmupOptions> options,
-        IWebHostEnvironment environment)
+        RequestDelegate next, WarmupState warmup, WarmupMarker marker, PlatformRequests platform, StartLog start,
+        IOptions<WarmupOptions> options, IWebHostEnvironment environment)
     {
         _next = next;
         _warmup = warmup;
         _marker = marker;
+        _platform = platform;
         _start = start;
         _options = options.Value;
         // Read once, here, as the pipeline is built: a page missing from wwwroot stops the app at its
@@ -110,7 +114,8 @@ public sealed class WarmupGate
         }
         if (context.RequestAborted.IsCancellationRequested) return;
 
-        _start.HeldBack(arrived);
+        // App Service's own requests (Always On's ping of /) are held like any other, but nobody was asked to wait.
+        if (!_platform.IsPlatform(context.Request)) _start.HeldBack(arrived);
         context.Items[StartRecording.GettingReadyRoute] = true;
         if (_warmup.FailureReason is { } failed)
         {
