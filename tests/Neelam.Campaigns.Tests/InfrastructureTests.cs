@@ -387,6 +387,28 @@ public class InfrastructureTests
         Assert.Contains("deploy-manifest.test.json", (string)staging["promote"]!["hint"]!);
     }
 
+    // The package is compiled ahead of time (ReadyToRun) for the runtime the site runs, so a page's
+    // first use after a start does not wait on the JIT (owner, 2026-10-10). Framework-dependent: App
+    // Service supplies .NET, already compiled ahead of time. The runtime identifier is the manifest's
+    // alone, never the project's, so a local build is untouched and a move to a Windows plan is one
+    // word in each manifest (win-x64), which this test then asks for.
+    [Theory]
+    [InlineData("deploy-manifest.test.json")]
+    [InlineData("deploy-manifest.staging.json")]
+    public void The_package_is_compiled_ahead_of_time_for_the_site_s_runtime(string manifest)
+    {
+        var package = (string)JsonNode.Parse(File.ReadAllText(Path.Combine(Root, manifest)))!["stages"]!["package"]!["run"]!;
+        var runtime = Regex.IsMatch(Site, @"kind: 'app,linux'") && Site.Contains("linuxFxVersion: 'DOTNETCORE|10.0'")
+            ? "linux-x64" : "win-x64";
+
+        Assert.Contains($" -r {runtime} ", package);
+        Assert.Contains(" --self-contained false ", package);
+        Assert.Contains(" -p:PublishReadyToRun=true ", package);
+        var project = File.ReadAllText(Path.Combine(Root, "src", "Neelam.Web", "Neelam.Web.csproj"));
+        Assert.DoesNotContain("RuntimeIdentifier", project);
+        Assert.DoesNotContain("PublishReadyToRun", project);
+    }
+
     [Theory]
     [InlineData("appsettings.json")]
     [InlineData("appsettings.Development.json")]

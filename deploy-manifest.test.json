@@ -6,7 +6,7 @@
   },
   "stages": {
     "build": { "run": "dotnet build Neelam.sln --configuration Release" },
-    "package": { "run": "dotnet publish src\\Neelam.Web\\Neelam.Web.csproj -c Release -o {packageDir}", "zip": true },
+    "package": { "run": "dotnet publish src\\Neelam.Web\\Neelam.Web.csproj -c Release -r linux-x64 --self-contained false -p:PublishReadyToRun=true -o {packageDir}", "zip": true },
     "push": { "type": "azureWebAppZip", "app": "neelamtest-6excvnu62r4z6", "resourceGroup": "neelam-test-rg" }
   },
   "verify": {
