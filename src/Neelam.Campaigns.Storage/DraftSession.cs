@@ -66,6 +66,9 @@ public sealed class DraftSession
     /// <summary>The campaign's id; null until a new campaign is first saved.</summary>
     public Guid? Id { get; private set; }
 
+    /// <summary>The client whose campaign this is.</summary>
+    public ClientName Client => _store.Client;
+
     public CampaignEditor Editor { get; private set; }
 
     /// <summary>The newest saved version, or null when there is none.</summary>
@@ -325,15 +328,21 @@ public sealed class DraftSession
     /// <summary>
     /// Approves the saved version as it stands, in the approver's name, now. Recorded in the approvals
     /// table against that one save, so a later edit or save is not approved, and undoing the save
-    /// withdraws it.
+    /// withdraws it. Only while the version on the page is still the campaign's newest in storage, not
+    /// undone, with its approval as the page shows it (<see cref="ChangeSince"/>): read again here, at
+    /// the click, since another tab or person may have saved, undone or approved since the page opened.
     /// </summary>
     /// <exception cref="InvalidOperationException">It cannot be approved; <see cref="CannotApprove"/> says why.</exception>
+    /// <exception cref="CampaignChangedException">Storage has changed since the page's version; nothing is approved.</exception>
     public async Task<Approval> ApproveAsync(
         string approvedBy, CampaignPolicy? policy = null, BusinessContext? business = null, CancellationToken ct = default)
     {
         if (CannotApprove(policy, business) is { } why) throw new InvalidOperationException(why);
+        if (ChangeSince(await NewestAsync(ct)) is var change and not CampaignChange.None)
+            throw new CampaignChangedException(change, NotApproved(change));
         Latest = await _store.ApproveAsync(Latest!, approvedBy, ct);
         SupersededApproval = null;
+        Raise();
         return Latest.Approval!;
     }
 
@@ -342,6 +351,79 @@ public sealed class DraftSession
     {
         if (Latest?.Approval is null) throw new InvalidOperationException("There is no approval to withdraw.");
         Latest = await _store.WithdrawApprovalAsync(Latest, ct);
+        Raise();
+    }
+
+    /// <summary>
+    /// The campaign's newest save in use as storage has it now, with its approval; null when it has
+    /// none in use, or before its first save. One listing and one query (<see cref="CampaignStore.NewestAsync"/>).
+    /// </summary>
+    public async Task<SaveRef?> NewestAsync(CancellationToken ct = default) =>
+        Id is { } id ? await _store.NewestAsync(DocumentKind.Draft, id, ct) : null;
+
+    /// <summary>
+    /// What changed in storage since the version this session holds, given the newest save in use as
+    /// storage has it (<see cref="NewestAsync"/>): saved again, the version undone or every save undone,
+    /// its approval withdrawn, or approved by someone else; <see cref="CampaignChange.None"/> when it is
+    /// still the newest with the approval it shows, and before the first save, when there is nothing
+    /// to be out of date. Unsaved edits are the page's own and never count.
+    /// </summary>
+    public CampaignChange ChangeSince(SaveRef? newest)
+    {
+        if (Latest is null) return CampaignChange.None;
+        if (newest is null) return CampaignChange.Deleted;
+        if (newest.BlobName != Latest.BlobName)
+            return newest.SavedAt > Latest.SavedAt ? CampaignChange.SavedSince : CampaignChange.Undone;
+        if (SameApproval(newest.Approval, Latest.Approval)) return CampaignChange.None;
+        return newest.Approval is null ? CampaignChange.ApprovalWithdrawn : CampaignChange.Approved;
+    }
+
+    // The same person at the same moment. Storage may keep a time coarser than the clock gave it, so
+    // within a second is the same: two approvals by one name inside a second change nothing she sees.
+    private static bool SameApproval(Approval? stored, Approval? held) =>
+        stored is null
+            ? held is null
+            : held is not null && stored.By == held.By && Math.Abs((stored.At - held.At).Ticks) < TimeSpan.TicksPerSecond;
+
+    /// <summary>
+    /// Why a page is out of date, in words that finish "Not approved: ..." and the like; null for
+    /// <see cref="CampaignChange.None"/>. Proposed wording, the owner's to change.
+    /// </summary>
+    public static string? WhatChanged(CampaignChange change) => change switch
+    {
+        CampaignChange.SavedSince => "the campaign was saved again since you opened it",
+        CampaignChange.Undone => "the version on this page was undone since you opened it",
+        CampaignChange.Deleted => "the campaign was deleted since you opened it",
+        CampaignChange.ApprovalWithdrawn => "its approval was withdrawn since you opened it",
+        CampaignChange.Approved => "its approval changed since you opened it",
+        _ => null,
+    };
+
+    /// <summary>
+    /// What the page says at its top once it knows storage has changed: what, and that it was another
+    /// tab or person. Proposed wording, the owner's to change.
+    /// </summary>
+    public static string ChangedNotice(CampaignChange change)
+    {
+        var what = WhatChanged(change) ?? throw new ArgumentOutOfRangeException(nameof(change), "Nothing changed.");
+        var notice = $"{char.ToUpperInvariant(what[0])}{what[1..]}, in another tab or by someone else.";
+        return change == CampaignChange.Deleted
+            ? $"{notice} You can restore it from Recently deleted in your campaigns."
+            : notice;
+    }
+
+    /// <summary>Said in place of the export when the page is out of date. Proposed wording, the owner's to change.</summary>
+    public static string NotExported(CampaignChange change) =>
+        $"Not ready to copy into Square: {WhatChanged(change)}. Load the latest above, and copy from it once it is approved.";
+
+    /// <summary>Said when Approve is refused because the page is out of date. Proposed wording, the owner's to change.</summary>
+    public static string NotApproved(CampaignChange change) =>
+        $"Not approved: {WhatChanged(change)}. Load the latest above, check it, then approve it.";
+
+    // Tells the other pages open on this instance that this campaign changed; never this session's own.
+    private void Raise()
+    {
+        if (Id is { } id) _store.Signals?.Raise(_store.Client, id, this);
     }
 
     /// <summary>The newest version of each of the client's campaigns, newest first.</summary>
@@ -407,8 +489,13 @@ public sealed class DraftSession
     /// Restores an undone version of a campaign with nothing else in use and opens it; null when
     /// its grace period has passed or it is gone.
     /// </summary>
-    public static async Task<DraftSession?> RestoreAsync(CampaignStore store, SaveRef undone, CancellationToken ct = default) =>
-        await store.RestoreAsync(undone, ct) ? await OpenAsync(store, undone.Id, ct) : null;
+    public static async Task<DraftSession?> RestoreAsync(CampaignStore store, SaveRef undone, CancellationToken ct = default)
+    {
+        if (!await store.RestoreAsync(undone, ct)) return null;
+        // Restored from a page with no session open on it: every open page is told.
+        store.Signals?.Raise(store.Client, undone.Id, source: null);
+        return await OpenAsync(store, undone.Id, ct);
+    }
 
     /// <summary>
     /// Saves the draft as it stands, finished or not, as a new version. A new campaign gets its id
@@ -422,18 +509,26 @@ public sealed class DraftSession
         // approval goes with it to the new save.
         var keeps = before?.Approval is not null && CurrentApproval == before.Approval ? before : null;
         Latest = await _store.SaveDraftAsync(Id.Value, Editor.Title, Editor.Draft, ct);
-        // A new version, which nobody has had proofread yet.
-        _proofread = null;
-        _versions++;
-        MarkSaved();
-        // Saved over: an undone version below the new one is no longer offered back.
-        Restorable = null;
-        if (keeps is not null)
-            Latest = await _store.KeepApprovalAsync(keeps, Latest, ct);
-        // Otherwise a new version is not approved, whatever the one before it was.
-        else if (before?.Approval is not null)
-            SupersededApproval = before;
-        return Latest;
+        try
+        {
+            // A new version, which nobody has had proofread yet.
+            _proofread = null;
+            _versions++;
+            MarkSaved();
+            // Saved over: an undone version below the new one is no longer offered back.
+            Restorable = null;
+            if (keeps is not null)
+                Latest = await _store.KeepApprovalAsync(keeps, Latest, ct);
+            // Otherwise a new version is not approved, whatever the one before it was.
+            else if (before?.Approval is not null)
+                SupersededApproval = before;
+            return Latest;
+        }
+        finally
+        {
+            // Saved, whatever happened to the approval it carries: the other pages are told.
+            Raise();
+        }
     }
 
     /// <summary>
@@ -447,7 +542,14 @@ public sealed class DraftSession
         if (Latest is null || Id is null)
             throw new InvalidOperationException("There is no saved version to take back.");
         await _store.MarkUndoneAsync(Latest, ct);
-        return await ReopenAsync(ct);
+        try
+        {
+            return await ReopenAsync(ct);
+        }
+        finally
+        {
+            Raise();
+        }
     }
 
     /// <summary>
@@ -463,7 +565,14 @@ public sealed class DraftSession
             Restorable = await _store.RestorableAsync(DocumentKind.Draft, Id!.Value, ct);
             return false;
         }
-        return await ReopenAsync(ct);
+        try
+        {
+            return await ReopenAsync(ct);
+        }
+        finally
+        {
+            Raise();
+        }
     }
 
     // Reads the campaign back from storage after an undo or a restore.

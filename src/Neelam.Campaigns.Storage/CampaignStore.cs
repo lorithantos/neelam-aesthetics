@@ -39,10 +39,19 @@ public sealed record SaveRef(
 /// <param name="undoGracePeriod">How long an undone save can be restored before the sweep may delete it.</param>
 /// <param name="approvals">The approvals table; read and written only in <paramref name="activity"/>'s client's partition.</param>
 /// <param name="activity">The trail for this client and whoever is acting. A failed write never fails an action.</param>
+/// <param name="signals">
+/// Where the editing sessions over this store say they changed a campaign, for the other pages open on
+/// this instance; null where nothing listens. The store itself never raises it, so a write made
+/// straight through the store is seen only by the pages' periodic look, as one from another instance is.
+/// </param>
 public sealed class CampaignStore(
-    IBlobBackend blobs, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityTrail activity)
+    IBlobBackend blobs, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityTrail activity,
+    CampaignSignals? signals = null)
 {
     private const string TitleKey = "title";
+
+    /// <summary>The in-process signal the editing sessions raise after each change; null where nothing listens.</summary>
+    public CampaignSignals? Signals => signals;
 
     public Task<SaveRef> SaveDraftAsync(Guid id, string title, CampaignDraft draft, CancellationToken ct = default) =>
         SaveAsync(DocumentKind.Draft, id, title, CampaignJson.SerializeDraft(draft), ct);
@@ -78,6 +87,15 @@ public sealed class CampaignStore(
                 : s)
             .ToList();
     }
+
+    /// <summary>
+    /// The newest save in use of one campaign or template, as storage has it now, with its approval for
+    /// a campaign; null when it has none in use. The cheapest read of "what is newest": one listing of
+    /// its saves and, for a campaign, one query of its approval rows. What the page holds is checked
+    /// against it at the moment of approving or exporting, and every minute or so while it is open.
+    /// </summary>
+    public async Task<SaveRef?> NewestAsync(DocumentKind kind, Guid id, CancellationToken ct = default) =>
+        (await HistoryAsync(kind, id, ct)).FirstOrDefault();
 
     /// <summary>The newest save of each campaign or template, newest first.</summary>
     public async Task<IReadOnlyList<SaveRef>> LatestAsync(DocumentKind kind, CancellationToken ct = default) =>

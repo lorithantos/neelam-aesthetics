@@ -111,10 +111,20 @@ builder.Services.AddSingleton<IApprovalStore>(metadata);
 builder.Services.AddSingleton<IActivityLog>(metadata);
 builder.Services.AddSingleton<ActivityRecorder>();
 builder.Services.AddSingleton<ClientRegistry>();
+// Open campaign pages are told when another tab or person changes their campaign (owner, 2026-10-11):
+// at once on this instance through the signal, and by a look at storage every CampaignWatch:Interval
+// (a minute; at most two, as the owner asked) from anywhere.
+builder.Services.AddSingleton<CampaignSignals>();
+builder.Services.AddOptions<CampaignWatchOptions>()
+    .Bind(builder.Configuration.GetSection(CampaignWatchOptions.Section))
+    .Validate(watch => watch.Problem() is null,
+        "CampaignWatch:Interval must lie between 00:00:10 and 00:02:00, such as 00:01:00.")
+    .ValidateOnStart();
 builder.Services.AddSingleton(services => new ClientStores(
     storageClients, services.GetRequiredService<TimeProvider>(),
     services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,
-    services.GetRequiredService<IApprovalStore>(), services.GetRequiredService<ActivityRecorder>()));
+    services.GetRequiredService<IApprovalStore>(), services.GetRequiredService<ActivityRecorder>(),
+    services.GetRequiredService<CampaignSignals>()));
 builder.Services.AddHostedService<UndoSweep>();
 
 // Warms the app as it starts, off the startup path: storage's first token and connections, then every

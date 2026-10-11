@@ -42,14 +42,17 @@ public sealed class ClientStores
     private readonly TimeSpan _undoGracePeriod;
     private readonly IApprovalStore _approvals;
     private readonly ActivityRecorder _activity;
+    private readonly CampaignSignals? _signals;
 
     /// <param name="storage">The app's storage clients, built once at startup.</param>
     /// <param name="undoGracePeriod">How long an undone draft or template can be restored (<see cref="UndoOptions"/>).</param>
     /// <param name="approvals">The approvals table.</param>
     /// <param name="activity">Writes the activity trail; a failed write never fails an action.</param>
+    /// <param name="signals">The app's in-process signal of campaign changes, for the open pages; null where none listen.</param>
     public ClientStores(
-        StorageClients storage, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityRecorder activity)
-        : this(container => new AzureBlobBackend(storage, container), clock, undoGracePeriod, approvals, activity)
+        StorageClients storage, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityRecorder activity,
+        CampaignSignals? signals = null)
+        : this(container => new AzureBlobBackend(storage, container), clock, undoGracePeriod, approvals, activity, signals)
     {
     }
 
@@ -57,21 +60,23 @@ public sealed class ClientStores
     // Azure. Internal: outside this assembly a client's container is reached only through Azure.
     internal ClientStores(
         Func<string, IBlobBackend> container, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals,
-        ActivityRecorder activity)
+        ActivityRecorder activity, CampaignSignals? signals = null)
     {
         _container = container;
         _clock = clock;
         _undoGracePeriod = undoGracePeriod;
         _approvals = approvals;
         _activity = activity;
+        _signals = signals;
     }
 
     /// <summary>
     /// The client's drafts and templates, with their approvals; what <paramref name="actor"/> does
-    /// through it goes on the client's activity trail.
+    /// through it goes on the client's activity trail, and the editing sessions over it signal their
+    /// changes to the other pages open on this instance.
     /// </summary>
     public CampaignStore Campaigns(ClientName client, Actor actor) =>
-        new(_container(client.Value), _clock, _undoGracePeriod, _approvals, _activity.For(client, actor));
+        new(_container(client.Value), _clock, _undoGracePeriod, _approvals, _activity.For(client, actor), _signals);
 
     /// <summary>
     /// What the AI proofread read in the client's photos, by the hash of each image's bytes, in her own

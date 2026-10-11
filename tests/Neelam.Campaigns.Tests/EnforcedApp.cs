@@ -84,7 +84,7 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
             services.RemoveAll<IActivityLog>().AddSingleton<IActivityLog>(Activity);
             services.RemoveAll<ClientStores>().AddSingleton(provider => new ClientStores(
                 Containers.For, Clock, provider.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,
-                Approvals, provider.GetRequiredService<ActivityRecorder>()));
+                Approvals, provider.GetRequiredService<ActivityRecorder>(), provider.GetRequiredService<CampaignSignals>()));
             services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(Clients);
             services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(Grants);
             services.RemoveAll<IKnownItemStore>().AddSingleton<IKnownItemStore>(KnownItems);
