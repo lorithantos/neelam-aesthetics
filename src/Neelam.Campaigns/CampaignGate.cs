@@ -100,7 +100,7 @@ public static class CampaignGate
         {
             // Fail closed: an email nobody proofread does not go out by default.
             ai = [new Finding(Severity.Blocker, "ai-unavailable", "Whole email",
-                $"The AI proofread could not run ({ex.Message}). Retry, or dismiss to send without it.",
+                $"The LLM could not proofread the email ({ex.Message}). Retry, or dismiss to send without it.",
                 Excerpt: "")];
         }
 

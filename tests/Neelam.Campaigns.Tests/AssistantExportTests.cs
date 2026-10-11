@@ -152,7 +152,7 @@ public class AssistantExportTests
         var doc = Parse(Exported(Demo(BeautyBankEmail.Corrected()), context: Context));
 
         Assert.False(doc["review"]!["proofread"]!.GetValue<bool>());
-        Assert.Equal("Not proofread by AI yet", doc["review"]!["notice"]!.GetValue<string>());
+        Assert.Equal("Not checked by the LLM yet", doc["review"]!["notice"]!.GetValue<string>());
         Assert.Equal(ByPriya.At, doc["review"]!["approval"]!["at"]!.GetValue<DateTimeOffset>());
         // The corrected email keeps "Beauty Bank" on purpose, so there is something worth a look.
         Assert.NotEmpty(doc["review"]!["worthALook"]!.AsArray());
@@ -903,7 +903,7 @@ public class AssistantExportPageTests(DemoApp app) : IClassFixture<DemoApp>
         var doc = JsonNode.Parse(json)!;
         Assert.Equal(save.Id, doc["campaign"]!["id"]!.GetValue<Guid>());
         Assert.Equal("Beauty Bank -- first send", doc["campaign"]!["label"]!.GetValue<string>());
-        Assert.Equal("Not proofread by AI yet", doc["review"]!["notice"]!.GetValue<string>());
+        Assert.Equal("Not checked by the LLM yet", doc["review"]!["notice"]!.GetValue<string>());
         // One JSON block per copy block on the same page.
         Assert.Equal(Regex.Matches(page, "<li class=\"export-block\">").Count, doc["blocks"]!.AsArray().Count);
         // Nothing of where it is kept: not the client, not the blob, not the approval's metadata.

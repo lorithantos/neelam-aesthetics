@@ -49,7 +49,7 @@ public class ProofreadSessionTests
         var attempt = await Proofread(session, proofreader);
 
         Assert.True(attempt.Done);
-        Assert.Equal("The AI proofread found 1 thing in this version, listed with the rules' findings.", attempt.Message);
+        Assert.Equal("LLM report: 1 thing worth a look.", attempt.Message);
         Assert.Single(proofreader.Read);
         var kept = Assert.Single(_container.Blobs.Keys, k => k.StartsWith("proofread/", StringComparison.Ordinal));
         Assert.Equal($"proofread/{session.Id:N}/{SaveStamp.Of(session.Latest!.SavedAt)}.json", kept);
@@ -57,7 +57,7 @@ public class ProofreadSessionTests
         Assert.Equal("Read now.", Assert.Single(session.CurrentProofread.Photos).Note);
         Assert.Equal(_clock.GetUtcNow(), session.CurrentProofread.At);
         // Asked again, nothing runs: this version is proofread.
-        Assert.Equal("This version is proofread.", (await Proofread(session, proofreader)).Message);
+        Assert.Equal("This version already has its LLM report.", (await Proofread(session, proofreader)).Message);
         Assert.Single(proofreader.Read);
     }
 
@@ -80,7 +80,7 @@ public class ProofreadSessionTests
 
         session.Editor.Subject.Text += "!";
         Assert.Null(session.CurrentProofread);
-        Assert.Equal("Changed since the last save: save it, then the proofread reads that version.", session.CannotProofread());
+        Assert.Equal("Changed since the last save: save it, then proofread that version.", session.CannotProofread());
 
         await session.SaveAsync();
         Assert.Null(session.CurrentProofread);
@@ -108,7 +108,7 @@ public class ProofreadSessionTests
         var attempt = await Proofread(session, proofreader);
 
         Assert.False(attempt.Done);
-        Assert.Equal("Save the campaign first: the AI proofread reads a saved version.", attempt.Message);
+        Assert.Equal("Save the campaign first: the LLM reads a saved version.", attempt.Message);
         Assert.Empty(proofreader.Read);
     }
 
@@ -127,12 +127,12 @@ public class ProofreadSessionTests
         var session = await Saved();
         await session.ApproveAsync("Priya");
         var before = session.DemoExportReport();
-        var refusing = new FakeProofreader { Throws = new ProofreadUnavailableException("The AI proofread declined to read this version.") };
+        var refusing = new FakeProofreader { Throws = new ProofreadUnavailableException("The LLM declined to read this version.") };
 
         var attempt = await Proofread(session, refusing);
 
         Assert.False(attempt.Done);
-        Assert.Equal("The AI proofread declined to read this version. The rules' checks above still stand.", attempt.Message);
+        Assert.Equal("The LLM declined to read this version. The rules' checks above still stand.", attempt.Message);
         Assert.Null(session.CurrentProofread);
         Assert.DoesNotContain(_container.Blobs.Keys, k => k.StartsWith("proofread/", StringComparison.Ordinal));
         Assert.Equal(before?.Findings, session.DemoExportReport()?.Findings);
@@ -146,14 +146,14 @@ public class ProofreadSessionTests
 
         var attempt = await Proofread(session, new FakeProofreader { Throws = new InvalidOperationException("internal detail") });
 
-        Assert.Equal("The AI proofread could not run. The rules' checks above still stand.", attempt.Message);
+        Assert.Equal("The LLM could not proofread this version. The rules' checks above still stand.", attempt.Message);
     }
 
     [Fact]
     public async Task A_client_s_day_of_proofreads_is_limited_failures_included()
     {
         var allowance = new DailyProofreadAllowance(2, _clock);
-        var failing = new FakeProofreader { Throws = new ProofreadUnavailableException("The AI proofread could not be reached just now.") };
+        var failing = new FakeProofreader { Throws = new ProofreadUnavailableException("The LLM could not be reached just now.") };
         var session = await Saved();
 
         await session.ProofreadAsync(failing, allowance, _clock);
@@ -161,7 +161,7 @@ public class ProofreadSessionTests
         var third = await session.ProofreadAsync(new FakeProofreader(), allowance, _clock);
 
         Assert.False(third.Done);
-        Assert.StartsWith("The AI proofread has run 2 times for you today, its daily limit.", third.Message);
+        Assert.StartsWith("Proofreading with the LLM has run 2 times for you today, its daily limit.", third.Message);
 
         _clock.Now += TimeSpan.FromDays(1);
         Assert.True((await session.ProofreadAsync(new FakeProofreader(), allowance, _clock)).Done);
@@ -201,7 +201,7 @@ public class ProofreadSessionTests
         Assert.False(report.Proofread);
         var json = JsonNode.Parse(AssistantExport.Offer(report).Json!)!;
         Assert.False((bool?)json["review"]!["proofread"]);
-        Assert.Equal("Not proofread by AI yet", (string?)json["review"]!["notice"]);
+        Assert.Equal("Not checked by the LLM yet", (string?)json["review"]!["notice"]);
     }
 
     [Fact]

@@ -125,5 +125,5 @@ public sealed class ProofreadSetup
 public sealed class ProofreadNotSwitchedOn : IProofreader
 {
     public Task<ProofreadResult> ProofreadAsync(Campaign campaign, BusinessContext? business, CancellationToken cancellationToken = default) =>
-        Task.FromException<ProofreadResult>(new ProofreadUnavailableException("The AI proofread is not switched on yet."));
+        Task.FromException<ProofreadResult>(new ProofreadUnavailableException("Proofreading with the LLM is not switched on yet."));
 }

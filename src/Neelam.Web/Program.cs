@@ -61,6 +61,11 @@ builder.Services.AddSingleton(new DefaultTimeZone(LocalTime.For(builder.Configur
 // startup. When the files and the code disagree, the app stops here, saying every problem.
 builder.Services.AddSingleton(BlockCatalog.Shipped(AppContext.BaseDirectory));
 
+// What the words the pages explain mean, such as "LLM" (owner, 2026-10-10): data shipped beside the
+// catalog (Catalog/glossary.json), read and checked here, at startup, so a word left unexplained
+// stops the app rather than a page.
+builder.Services.AddSingleton(Glossary.Shipped(AppContext.BaseDirectory));
+
 // The AI proofread (owner, 2026-10-09/10): Claude Opus 5.5 through the Anthropic API for now, its key
 // from Key Vault through App Service (Proofread:AnthropicApiKey, the one secret CredentialGuard lets in),
 // Foundry later. What it is told is data (Proofread/proofread.json), read and checked here even while

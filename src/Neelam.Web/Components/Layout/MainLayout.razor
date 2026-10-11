@@ -13,7 +13,7 @@
 }
 else if (Site.IsDemo)
 {
-    <p class="demo-banner" role="note">This is a demo. What you save here is kept on a test system, not your own account, and the AI proofread isn't switched on yet.</p>
+    <p class="demo-banner" role="note" data-testid="demo-banner">This is a demo. What you save here is kept on a test system, not your own account, and proofreading with the <Llm TestId="llm-term-banner" /> isn't switched on yet.</p>
 }
 
 <header class="site-header">
@@ -35,6 +35,9 @@ else if (Site.IsDemo)
 </main>
 
 <BuildStamp />
+
+@* What "LLM" means, for every LLM on the page to open (Llm). *@
+<LlmExplained />
 
 <div id="blazor-error-ui">
     An unhandled error has occurred.

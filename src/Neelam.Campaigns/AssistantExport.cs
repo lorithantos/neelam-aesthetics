@@ -79,7 +79,7 @@ public static partial class AssistantExport
     public const int SchemaVersion = 1;
 
     /// <summary>The demo's notice, the same words every copy block carries there.</summary>
-    public const string DemoNotice = "Not proofread by AI yet";
+    public const string DemoNotice = "Not checked by the LLM yet";
 
     /// <summary>The verification steps, after filling in; part of <see cref="Instructions"/>.</summary>
     public static readonly IReadOnlyList<string> VerificationSteps =

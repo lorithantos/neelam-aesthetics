@@ -1,0 +1,5 @@
+{
+  "terms": [
+    { "term": "LLM", "explanation": "LLM -- a large language model, the kind of AI behind ChatGPT and Claude. Here it reads each saved version the way a careful editor might and points out what looks off. It can be wrong, so check what it says against your offer." }
+  ]
+}

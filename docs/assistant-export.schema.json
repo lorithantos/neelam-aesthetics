@@ -45,7 +45,7 @@
       "additionalProperties": false,
       "required": ["proofread", "approval", "worthALook"],
       "properties": {
-        "proofread": { "description": "True when the AI proofread passed the email.", "type": "boolean" },
+        "proofread": { "description": "True when the email was proofread with the LLM (a large language model) and it passed.", "type": "boolean" },
         "approval": {
           "type": "object",
           "additionalProperties": false,
@@ -70,7 +70,7 @@
             "at": { "description": "When, in UTC.", "type": "string", "format": "date-time" }
           }
         },
-        "notice": { "description": "Present on the demo site, where the email was not proofread by AI.", "type": "string", "minLength": 1 }
+        "notice": { "description": "Present on the demo site when the email was not checked by the LLM.", "type": "string", "minLength": 1 }
       },
       "if": { "properties": { "worthALook": { "minItems": 1 } } },
       "then": { "required": ["worthALookSeen"] },

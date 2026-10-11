@@ -1,0 +1,17 @@
+@* What "LLM" means, once per page, for every Llm on it to open: the glossary's words
+   (Catalog/glossary.json), never written here. A popover, so the browser shows it over the page on a
+   phone, and a tap outside it, Escape or Close puts it away. *@
+@inject Glossary Words
+
+<div id="@Id" class="term-explained" popover="auto">
+    <p id="@TextId" data-testid="llm-explained">@Words.Explain(Glossary.Llm)</p>
+    <button type="button" class="button" popovertarget="@Id" popovertargetaction="hide">Close</button>
+</div>
+
+@code {
+    /// <summary>The popover every <see cref="Llm"/> opens.</summary>
+    public const string Id = "llm-explained";
+
+    /// <summary>Its words alone, which each <see cref="Llm"/> names as its description.</summary>
+    public const string TextId = "llm-explained-text";
+}

@@ -41,8 +41,8 @@ public sealed class ProofreadDemoApp : InMemoryApp
 }
 
 /// <summary>
-/// What she sees of the AI proofread on the campaign page (owner, 2026-10-10): "Proofread with AI" on a
-/// saved version; once proofread, its findings with the rules' and its photos' notes; the export then
+/// What she sees of the LLM on the campaign page (owner, 2026-10-10): "Proofread with the LLM" on a
+/// saved version; once proofread, its LLM report, its findings with the rules' and its photos' notes; the export then
 /// says proofread, and the JSON too; a Must fix it found stops the export. Read by named elements.
 /// </summary>
 public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadDemoApp>
@@ -84,14 +84,15 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
             [new PhotoCheck("Principals toasting", "Couldn't check this photo: it is not a Square photo in your image library.", false)]));
 
     [Fact]
-    public async Task A_saved_version_offers_proofread_with_ai()
+    public async Task A_saved_version_offers_proofread_with_the_llm()
     {
         var save = await Saved();
 
         var page = await Get($"/campaigns/{save.Id}");
 
-        Assert.Equal("Proofread with AI", RenderedPage.Named(page, "proofread-button"));
-        Assert.StartsWith("It reads this saved version once, when you click", RenderedPage.Named(page, "proofread-status"));
+        Assert.Equal("LLM report", RenderedPage.Named(page, "proofread-title"));
+        Assert.Equal("Proofread with the LLM", RenderedPage.Named(page, "proofread-button"));
+        Assert.StartsWith("No LLM report for this version yet. The LLM reads it once, when you click", RenderedPage.Named(page, "proofread-status"));
     }
 
     [Fact]
@@ -103,7 +104,9 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         var page = await Get($"/campaigns/{save.Id}");
 
         Assert.Equal(0, RenderedPage.Count(page, "proofread-button"));
-        Assert.EndsWith("The AI proofread found 1 thing in this version, listed with the rules' findings.", RenderedPage.Named(page, "proofread-status"));
+        // When, in her zone and the page's own format ("3 Oct 2026, 5:00 AM PDT"), then what it found.
+        Assert.Matches(@"^LLM report, \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [AP]M [A-Z]+: 1 thing worth a look\. Editing clears this version's LLM report\.$",
+            RenderedPage.Named(page, "proofread-status"));
         Assert.Contains(Unclear.Message, RenderedPage.Named(page, "checks-findings"));
         Assert.Equal("Principals toasting Couldn't check this photo: it is not a Square photo in your image library.",
             RenderedPage.Named(page, "proofread-photos"));
@@ -119,8 +122,10 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 
         var page = await Get($"/campaigns/{save.Id}");
 
-        Assert.StartsWith("Approved and proofread by AI", RenderedPage.Named(page, "export-proofread"));
-        Assert.DoesNotContain("Not proofread by AI yet", RenderedPage.Text(page));
+        Assert.Equal("Approved and checked by the LLM, and nothing found stops it. Paste the blocks into Square's editor in this order.",
+            LlmTermOffTests.Prose(RenderedPage.Named(page, "export-proofread")));
+        Assert.Equal(0, RenderedPage.Count(page, "export-not-checked"));
+        Assert.Empty(RenderedPage.NamesStartingWith(page, "export-not-checked-"));
         var href = RenderedPage.Attribute(page, "assistant-download", "href");
         var json = JsonNode.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(href[(href.IndexOf(',') + 1)..])))!;
         Assert.True((bool?)json["review"]!["proofread"]);
@@ -137,8 +142,10 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         var page = await Get($"/campaigns/{save.Id}");
 
         Assert.Equal(0, RenderedPage.Count(page, "export-proofread"));
-        Assert.Contains("Not proofread by AI yet", RenderedPage.Text(page));
-        Assert.Contains("This version has not been proofread by AI", RenderedPage.Text(page));
+        Assert.Equal("Not checked by the LLM yet", RenderedPage.Named(page, "export-not-checked"));
+        Assert.Equal("Not checked by the LLM yet", RenderedPage.Named(page, "export-not-checked-0"));
+        Assert.StartsWith("Approved, and the rules find nothing to stop it. No LLM report for this version yet, so read each block as you paste it.",
+            RenderedPage.Named(page, "export-not-checked-why"));
     }
 
     // What the AI found that is worth a look comes up at export, with the rules' own.
@@ -164,7 +171,7 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 
         var page = await Get($"/campaigns/{save.Id}");
 
-        Assert.Equal("The AI proofread found something to fix in this version. Fix it, save, and approve the new version.",
+        Assert.Equal("The LLM found something to fix in this version. Fix it, save, and approve the new version.",
             RenderedPage.Named(page, "export-waits-for-proofread-fix"));
         Assert.Equal(0, RenderedPage.Count(page, "assistant-download"));
         Assert.DoesNotContain("Copy into Square", RenderedPage.Text(page));
@@ -194,8 +201,8 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         var page = await Get($"/campaigns/{save.Id}");
 
         Assert.Equal("Nothing has to be fixed. 1 thing is worth a look.", RenderedPage.Named(page, "checks-summary"));
-        Assert.Equal("AI", RenderedPage.Named(page, $"finding-ai-{Unclear.SeenKey}"));
-        Assert.StartsWith("Worth a look · AI Offer Could read two ways.", RenderedPage.Named(page, "checks-findings"));
+        Assert.Equal("LLM", RenderedPage.Named(page, $"finding-ai-{Unclear.SeenKey}"));
+        Assert.StartsWith("Worth a look · LLM Offer Could read two ways.", RenderedPage.Named(page, "checks-findings"));
         Assert.DoesNotContain("The rules find nothing", RenderedPage.Text(page));
     }
 
@@ -225,9 +232,11 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 
         Assert.Equal("1 thing has to be fixed. 4 things are worth a look.", RenderedPage.Named(page, "checks-summary"));
         Assert.Equal([Misspelt.SeenKey, Unclear.SeenKey], RenderedPage.NamesStartingWith(page, "finding-ai-"));
-        Assert.Equal("AI", RenderedPage.Named(page, $"finding-ai-{Misspelt.SeenKey}"));
+        Assert.Equal("LLM", RenderedPage.Named(page, $"finding-ai-{Misspelt.SeenKey}"));
+        Assert.Equal("LLM", RenderedPage.Named(page, $"finding-ai-{Unclear.SeenKey}"));
         Assert.All(rules, r => Assert.Equal(0, RenderedPage.Count(page, $"finding-ai-{r.SeenKey}")));
-        Assert.StartsWith("Must fix · AI Opening Misspelt.", RenderedPage.Named(page, "checks-findings"));
+        Assert.StartsWith("Must fix · LLM Opening Misspelt.", RenderedPage.Named(page, "checks-findings"));
+        Assert.Matches(@"^LLM report, .*: 1 thing to fix, 1 worth a look\. ", RenderedPage.Named(page, "proofread-status"));
     }
 
     [Fact]
@@ -255,7 +264,7 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         var page = await Get($"/campaigns/{save.Id}");
 
         Assert.Equal("Nothing has to be fixed. 3 things are worth a look.", RenderedPage.Named(page, "checks-summary"));
-        Assert.Equal("These are the instant rules. The AI proofread reads a saved version when you ask it to, below.",
+        Assert.Equal("These are the instant rules. The LLM reads a saved version when you ask it to, below.",
             RenderedPage.Named(page, "checks-before-proofread"));
     }
 
@@ -271,8 +280,8 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         var page = await Get($"/campaigns/{save.Id}");
 
         Assert.Equal([Unclear.SeenKey], RenderedPage.NamesStartingWith(page, "export-warning-ai-"));
-        Assert.Equal("AI", RenderedPage.Named(page, $"export-warning-ai-{Unclear.SeenKey}"));
-        Assert.Contains("Worth a look · AI Offer Could read two ways.", RenderedPage.Named(page, "export-warnings-list"));
+        Assert.Equal("LLM", RenderedPage.Named(page, $"export-warning-ai-{Unclear.SeenKey}"));
+        Assert.Contains("Worth a look · LLM Offer Could read two ways.", RenderedPage.Named(page, "export-warnings-list"));
     }
 
     [Fact]
@@ -282,7 +291,7 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 }
 
 /// <summary>
-/// The page as she has it once she clicks "Proofread with AI" (owner, 2026-10-10, on staging: the
+/// The page as she has it once she clicks "Proofread with the LLM" (owner, 2026-10-10, on staging: the
 /// result read twice). A request only ever renders the page afresh, never what a click leaves, so the
 /// page is rendered here as the server holds it and the button's own click handler is dispatched.
 /// The proofreader is a fake; the stores are the app's in memory, so a request reopens what the click
@@ -291,7 +300,7 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<ProofreadDemoApp>
 {
     private static readonly Finding Unclear = new(Severity.Warning, "ai-clarity", "Offer", "Could read two ways. Suggest: say per visit.", "per visit");
-    private const string FoundOne = "The AI proofread found 1 thing in this version, listed with the rules' findings.";
+    private const string FoundOne = "1 thing worth a look. Editing clears this version's LLM report.";
 
     private async Task<SaveRef> Saved()
     {
@@ -308,7 +317,7 @@ public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<Proofread
     {
         var save = await Saved();
         await using var page = await OpenPage.OpenAsync(app, save.Id, new FakeProofreader(Unclear));
-        Assert.Equal("Proofread with AI", RenderedPage.Named(await page.HtmlAsync(), "proofread-button"));
+        Assert.Equal("Proofread with the LLM", RenderedPage.Named(await page.HtmlAsync(), "proofread-button"));
 
         await page.ClickAsync("proofread-button");
 
@@ -338,7 +347,7 @@ public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<Proofread
 
         var html = await page.HtmlAsync();
         Assert.Equal("Nothing has to be fixed. 1 thing is worth a look.", RenderedPage.Named(html, "checks-summary"));
-        Assert.Equal("AI", RenderedPage.Named(html, $"finding-ai-{Unclear.SeenKey}"));
+        Assert.Equal("LLM", RenderedPage.Named(html, $"finding-ai-{Unclear.SeenKey}"));
         Assert.Equal(0, RenderedPage.Count(html, "checks-before-proofread"));
     }
 
@@ -352,9 +361,9 @@ public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<Proofread
         await page.ClickAsync("proofread-button");
 
         var html = await page.HtmlAsync();
-        const string couldNotRun = "The AI proofread could not run. The rules' checks above still stand.";
+        const string couldNotRun = "The LLM could not proofread this version. The rules' checks above still stand.";
         Assert.Equal(couldNotRun, RenderedPage.Named(html, "proofread-message"));
-        Assert.StartsWith("It reads this saved version once, when you click", RenderedPage.Named(html, "proofread-status"));
+        Assert.StartsWith("No LLM report for this version yet.", RenderedPage.Named(html, "proofread-status"));
         Assert.Equal(1, Occurrences(RenderedPage.Named(html, "proofread"), couldNotRun));
     }
 
@@ -584,7 +593,7 @@ public class ProofreadOffPageTests(DemoApp app) : IClassFixture<DemoApp>
 
         Assert.Equal(0, RenderedPage.Count(page, "proofread-button"));
         Assert.Equal(0, RenderedPage.Count(page, "proofread-status"));
-        Assert.Contains("The AI proofread is not switched on yet.", RenderedPage.Text(page));
+        Assert.Equal("These are the instant rules. Proofreading with the LLM is not switched on yet.", RenderedPage.Named(page, "checks-llm-off"));
         Assert.False(app.Services.GetRequiredService<ProofreadSwitch>().IsOn);
     }
 }

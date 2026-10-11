@@ -86,7 +86,7 @@ public sealed class ClaudeProofreader(
         {
             // The kind of failure only: an error's text is not ours to log.
             log.LogWarning("The AI proofread could not be reached: {Error}.", ex.GetType().Name);
-            throw new ProofreadUnavailableException("The AI proofread could not be reached just now. Try again in a while.", ex);
+            throw new ProofreadUnavailableException("The LLM could not be reached just now. Try again in a while.", ex);
         }
 
         LogUsage(response, photos.Fresh.Count, photos.Remembered.Count);
@@ -130,15 +130,15 @@ public sealed class ClaudeProofreader(
             case "refusal":
                 var category = response.StopDetails?.Category?.Raw();
                 throw new ProofreadUnavailableException(
-                    "The AI proofread declined to read this version" +
+                    "The LLM declined to read this version" +
                     (string.IsNullOrEmpty(category) ? "" : $" (its safety check named \"{category}\")") +
                     ". That says nothing about the email itself; read it through yourself before it goes out.");
             case "max_tokens":
-                throw new ProofreadUnavailableException("The AI proofread was cut off before it finished, so nothing it found is shown.");
+                throw new ProofreadUnavailableException("The LLM was cut off before it finished, so nothing it found is shown.");
             case "end_turn":
                 break;
             default:
-                throw new ProofreadUnavailableException($"The AI proofread stopped before it finished ({stop ?? "no reason given"}).");
+                throw new ProofreadUnavailableException($"The LLM stopped before it finished ({stop ?? "no reason given"}).");
         }
 
         var json = string.Concat(response.Content.Select(b => b.Value).OfType<BetaTextBlock>().Select(t => t.Text));
@@ -154,7 +154,7 @@ public sealed class ClaudeProofreader(
     internal static Answered ToFindings(
         string json, Campaign campaign, IReadOnlyList<PreviewPart> parts, ProofreadInstructions instructions)
     {
-        const string unreadable = "The AI proofread's answer could not be read, so nothing it found is shown.";
+        const string unreadable = "The LLM's answer could not be read, so nothing it found is shown.";
         Answer? answer;
         try
         {
@@ -257,7 +257,7 @@ public sealed class ClaudeProofreader(
             }
             if (fetched.Bytes!.Length > MaxImageBytes)
             {
-                checks.Add(new PhotoCheck(name, $"Couldn't check this photo: it is larger than the {MaxImageBytes / (1024 * 1024)} MB the AI proofread can take.", false));
+                checks.Add(new PhotoCheck(name, $"Couldn't check this photo: it is larger than the {MaxImageBytes / (1024 * 1024)} MB the LLM can take.", false));
                 continue;
             }
 
@@ -282,7 +282,7 @@ public sealed class ClaudeProofreader(
             }
             else if (fresh.Count >= MaxPhotos)
             {
-                checks.Add(new PhotoCheck(name, $"Couldn't check this photo: the AI proofread reads at most {MaxPhotos} new photos at a time.", false));
+                checks.Add(new PhotoCheck(name, $"Couldn't check this photo: the LLM reads at most {MaxPhotos} new photos at a time.", false));
             }
             else
             {

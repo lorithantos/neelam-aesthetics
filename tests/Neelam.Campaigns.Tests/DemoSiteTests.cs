@@ -80,9 +80,9 @@ public class DemoReviewTests
 public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
 {
     private const string Banner =
-        "This is a demo. What you save here is kept on a test system, not your own account, and the AI proofread isn't switched on yet.";
+        "This is a demo. What you save here is kept on a test system, not your own account, and proofreading with the LLM isn't switched on yet.";
 
-    private const string NotProofread = "Not proofread by AI yet";
+    private const string NotChecked = "Not checked by the LLM yet";
 
     private CampaignStore Store => app.Stores.Campaigns(DemoApp.Client, Actor.Demo);
 
@@ -118,7 +118,7 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
     [InlineData("/campaigns")]
     [InlineData("/templates")]
     public async Task Every_client_page_carries_the_demo_banner(string path) =>
-        Assert.Contains(Banner, await Get(path));
+        Assert.Equal(Banner, RenderedPage.Named(await Get(path), "demo-banner"));
 
     [Fact]
     public async Task An_approved_campaign_exports_each_block_with_a_copy_button_and_the_notice()
@@ -134,7 +134,7 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal(expected.Count, blocks.Count);
         for (var i = 0; i < blocks.Count; i++)
         {
-            Assert.Contains(NotProofread, blocks[i].Value);
+            Assert.Equal(NotChecked, RenderedPage.Named(page, $"export-not-checked-{i}"));
             // Everything with words to paste has them, with its copy button; a spacer has none.
             if (expected[i].Text.Length > 0)
             {
@@ -143,8 +143,7 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
             }
         }
         // The section says it too, not only each block.
-        var section = Regex.Match(page, "<h2>Copy into Square</h2>(.*?)<ol", RegexOptions.Singleline).Value;
-        Assert.Contains(NotProofread, section);
+        Assert.Equal(NotChecked, RenderedPage.Named(page, "export-not-checked"));
         // The button's link has its own copy.
         Assert.Contains("Copy link", page);
     }
@@ -221,8 +220,10 @@ public class DemoSiteTests(DemoApp app) : IClassFixture<DemoApp>
 
         Assert.DoesNotContain("Being built", page);
         Assert.Contains("Try it: in <a href=\"campaigns\">Campaigns</a>, finish and save a campaign, then approve it with your name.", page);
-        Assert.Contains("each block is marked \"Not proofread by AI yet\"", page);
-        Assert.Contains("The AI proofread is not switched on yet.", page);
+        Assert.EndsWith("Here proofreading with the LLM isn't switched on yet, so each block is marked \"Not checked by the LLM yet\".",
+            RenderedPage.Named(page, "how-export"));
+        Assert.Equal("The rules above are real and run as this page loads. Proofreading with the LLM is not switched on yet.",
+            RenderedPage.Named(page, "how-llm-status"));
     }
 }
 
@@ -271,11 +272,12 @@ public class EnforcedIsNotTheDemoTests(EnforcedApp app) : IClassFixture<Enforced
         var page = await Get($"/campaigns/{save.Id}", Features.Campaigns, Features.Review);
 
         Assert.Contains("Approved by Priya", page);
-        Assert.Contains("Export comes once the AI proofread is switched on.", page);
+        Assert.Equal("Export comes once proofreading with the LLM is switched on. A campaign leaves only after both the rules and the LLM have passed it.",
+            RenderedPage.Named(page, "export-waits"));
         Assert.DoesNotContain("Export anyway", page);
         Assert.DoesNotContain("Copy into Square", page);
         Assert.DoesNotContain("data-copy", page);
-        Assert.DoesNotContain("Not proofread by AI yet", page);
+        Assert.Equal(0, RenderedPage.Count(page, "export-not-checked"));
     }
 
     // Approving is the Review feature, apart from writing campaigns.
@@ -300,6 +302,9 @@ public class EnforcedIsNotTheDemoTests(EnforcedApp app) : IClassFixture<Enforced
 
         Assert.DoesNotContain("Being built", page);
         Assert.Contains("Approved campaigns are in <a href=\"campaigns\">Campaigns</a>.", page);
-        Assert.DoesNotContain("Not proofread by AI yet", page);
+        Assert.Equal("Approved campaigns are in Campaigns. Their blocks come with copy buttons once proofreading with the LLM is switched on.",
+            LlmTermOffTests.Prose(RenderedPage.Named(page, "how-export")));
+        // Off the demo, a campaign the LLM cannot read waits, as Enforced's gate fails closed.
+        Assert.EndsWith("If the LLM cannot run at all, the campaign waits rather than going out unread.", RenderedPage.Named(page, "how-llm"));
     }
 }

@@ -6,6 +6,7 @@
    2026-10-09 for now, since the email already went to Neelam's customers. *@
 @attribute [AllowAnonymous]
 @inject SiteMode Site
+@inject ProofreadSwitch Proofreading
 
 <PageTitle>How it works</PageTitle>
 
@@ -77,13 +78,26 @@
         The first send, 38 minutes earlier, offered the $299 option twice, as "Option 1 Platinum
         Member" and "Option 2 Platinum Member". The rules stop that too: @FirstSendBlockers thing@(FirstSendBlockers == 1 ? "" : "s") to fix before it could go.
     </p>
-    <p>
-        Then an AI proofreader reads it the way a careful editor would: spelling, prices that do not
-        match, contradictions, placeholder text left in. If it is wrong about something, you can
-        dismiss that one finding, with your name and a reason, which are kept. If the proofread cannot
-        run at all, the campaign waits rather than going out unread.
+    @* What is true here, not a promise: no page dismisses an LLM finding yet (owner, 2026-10-10), so a
+       wrong "Worth a look" is left as it is and a wrong "Must fix" holds that version until it is
+       edited and saved. This page never calls the LLM: it says whether it is on, and nothing more. *@
+    <p data-testid="how-llm">
+        Then an <Llm TestId="llm-term-how" /> reads it the way a careful editor would: spelling, prices
+        that do not match, contradictions, placeholder text left in. If it is wrong about something
+        worth a look, you can leave it as it is. If it is wrong about something it says must be fixed,
+        that version waits until you edit it and save again.
+        @(Site.IsDemo
+            ? "If the LLM cannot run, the rules' checks still stand."
+            : "If the LLM cannot run at all, the campaign waits rather than going out unread.")
     </p>
-    <p class="muted">The rules above are real and run as this page loads. The AI proofread is not switched on yet.</p>
+    @if (Offered)
+    {
+        <p class="muted" data-testid="how-llm-status">The rules above are real and run as this page loads. Proofreading with the LLM is switched on: on a saved campaign in <a href="campaigns">Campaigns</a>, use the "Proofread with the LLM" button.</p>
+    }
+    else
+    {
+        <p class="muted" data-testid="how-llm-status">The rules above are real and run as this page loads. Proofreading with the LLM is not switched on yet.</p>
+    }
 </section>
 
 <section class="card" aria-labelledby="step-approve">
@@ -121,13 +135,17 @@
                 : "").
         </p>
     }
-    @if (Site.IsDemo)
+    @if (Offered)
     {
-        <p class="muted">Try it: once a campaign is approved, its blocks appear on its page in <a href="campaigns">Campaigns</a>, each with a copy button. Here the AI proofread isn't switched on yet, so each block is marked "Not proofread by AI yet".</p>
+        <p class="muted" data-testid="how-export">Try it: once a campaign is approved, its blocks appear on its page in <a href="campaigns">Campaigns</a>, each with a copy button. Unless that version is proofread with the LLM first, each block is marked "@AssistantExport.DemoNotice".</p>
+    }
+    else if (Site.IsDemo)
+    {
+        <p class="muted" data-testid="how-export">Try it: once a campaign is approved, its blocks appear on its page in <a href="campaigns">Campaigns</a>, each with a copy button. Here proofreading with the LLM isn't switched on yet, so each block is marked "@AssistantExport.DemoNotice".</p>
     }
     else
     {
-        <p class="muted">Approved campaigns are in <a href="campaigns">Campaigns</a>. Their blocks come with copy buttons once the AI proofread is switched on.</p>
+        <p class="muted" data-testid="how-export">Approved campaigns are in <a href="campaigns">Campaigns</a>. Their blocks come with copy buttons once proofreading with the LLM is switched on.</p>
     }
 </section>
 
@@ -142,4 +160,8 @@
     private static readonly Campaign Corrected = BeautyBankEmail.Corrected();
     private static readonly IReadOnlyList<EditorBlock> CorrectedBlocks = EditorExport.PreviewBlocks(Corrected);
     private static readonly ReviewReport CorrectedReview = CampaignReview.Check(Corrected);
+
+    // Whether she can proofread with the LLM here, as the campaign page offers it: on the demo, once
+    // switched on (CampaignEdit.ProofreadOffered). Read from the switch alone; nothing is called.
+    private bool Offered => Site.IsDemo && Proofreading.IsOn;
 }

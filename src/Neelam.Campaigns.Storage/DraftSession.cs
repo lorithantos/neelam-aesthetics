@@ -151,15 +151,15 @@ public sealed class DraftSession
     /// </summary>
     public string? CannotProofread(CampaignPolicy? policy = null, BusinessContext? business = null)
     {
-        if (Latest is null) return "Save the campaign first: the AI proofread reads a saved version.";
-        if (HasUnsavedChanges) return "Changed since the last save: save it, then the proofread reads that version.";
-        if (Editor.Status(policy, business).Review is null) return "Fill in every part first: the AI proofread reads the whole email.";
-        if (CurrentProofread is not null) return "This version is proofread.";
+        if (Latest is null) return "Save the campaign first: the LLM reads a saved version.";
+        if (HasUnsavedChanges) return "Changed since the last save: save it, then proofread that version.";
+        if (Editor.Status(policy, business).Review is null) return "Fill in every part first: the LLM reads the whole email.";
+        if (CurrentProofread is not null) return "This version already has its LLM report.";
         return null;
     }
 
     /// <summary>
-    /// Has the saved version, as it stands, proofread by AI: only when she asks, once per version
+    /// Has the saved version, as it stands, proofread with the LLM: only when she asks, once per version
     /// (owner, 2026-10-10: on her click, never per keystroke or by itself). The result is kept beside
     /// the save (<see cref="CampaignStore.SaveProofreadAsync"/>) and its findings join the rules'
     /// (<see cref="DemoExportReport"/>). Never throws for the proofread itself: a refusal, a failure
@@ -175,7 +175,7 @@ public sealed class DraftSession
         var save = Latest!;
         var campaign = Editor.Status(policy, business).Review!.Campaign;
         if (!allowance.TryTake(_store.Client.ToString()))
-            return new(false, $"The AI proofread has run {allowance.PerClientPerDay} times for you today, its daily limit. " +
+            return new(false, $"Proofreading with the LLM has run {allowance.PerClientPerDay} times for you today, its daily limit. " +
                 "It can run again tomorrow; the rules' checks above still stand.");
         ProofreadResult result;
         try
@@ -189,20 +189,30 @@ public sealed class DraftSession
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Not one the proofreader words for her: its message could say anything, so it is not shown.
-            return new(false, "The AI proofread could not run. The rules' checks above still stand.");
+            return new(false, "The LLM could not proofread this version. The rules' checks above still stand.");
         }
         var kept = await _store.SaveProofreadAsync(save, new ProofreadRecord(clock.GetUtcNow(), result.Findings, result.Photos), ct);
         if (Latest?.BlobName == save.BlobName) _proofread = kept;
-        return new(true, ProofreadSummary(kept));
+        return new(true, $"LLM report: {ProofreadSummary(kept)}");
     }
 
-    /// <summary>What the page says of a version's proofread: whether it found anything, and how much.</summary>
+    /// <summary>
+    /// What a version's LLM report found, after "LLM report, {when}:" on the page (owner, 2026-10-10,
+    /// "LLM report, 10 Oct 2:46 PM: 5 things worth a look."): nothing, or how many to fix and how many
+    /// worth a look, the words the list beside it uses.
+    /// </summary>
     public static string ProofreadSummary(ProofreadRecord proofread)
     {
-        var count = proofread.Findings.Count;
-        return count == 0
-            ? "The AI proofread found nothing to fix in this version."
-            : $"The AI proofread found {(count == 1 ? "1 thing" : $"{count} things")} in this version, listed with the rules' findings.";
+        var mustFix = proofread.Findings.Count(f => f.Severity == Severity.Blocker);
+        var worthALook = proofread.Findings.Count - mustFix;
+        static string Things(int n) => n == 1 ? "1 thing" : $"{n} things";
+        return (mustFix, worthALook) switch
+        {
+            (0, 0) => "nothing to fix in this version.",
+            (0, _) => $"{Things(worthALook)} worth a look.",
+            (_, 0) => $"{Things(mustFix)} to fix.",
+            _ => $"{Things(mustFix)} to fix, {worthALook} worth a look.",
+        };
     }
 
     /// <summary>

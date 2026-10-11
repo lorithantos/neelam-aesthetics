@@ -50,7 +50,7 @@ else
                     <div class="field">
                         <label for="edit-description">Description of the business</label>
                         <textarea id="edit-description" @bind="_edit.Description"></textarea>
-                        <span class="field-help">Given to the AI proofread as background about who is sending the email.</span>
+                        <span class="field-help">Given to the LLM as background about who is sending the email, when it proofreads.</span>
                     </div>
                     <div class="field">
                         <label for="edit-phones">Registered phone numbers</label>
@@ -98,7 +98,7 @@ else
         <div class="field">
             <label for="new-description">Description of the business</label>
             <textarea id="new-description" @bind="_new.Description"></textarea>
-            <span class="field-help">Given to the AI proofread as background about who is sending the email.</span>
+            <span class="field-help">Given to the LLM as background about who is sending the email, when it proofreads.</span>
         </div>
         <div class="field">
             <label for="new-phones">Registered phone numbers</label>

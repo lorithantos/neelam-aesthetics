@@ -260,7 +260,7 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         foreach (var page in new[] { unfinished, sameNames, finished })
         {
-            Assert.Contains("Export comes once the AI proofread is switched on.", page);
+            Assert.StartsWith("Export comes once proofreading with the LLM is switched on.", RenderedPage.Named(page, "export-waits"));
             Assert.DoesNotContain("Copy into Square", page);
             Assert.DoesNotContain("clipboard", page);
         }

@@ -4,12 +4,22 @@
    space beside an @if, which ran the export list's parts together ("Worth a lookOffer › ..."), so
    the place's link or text is chosen inside its own span. *@
 <li class="finding @(Finding.Severity == Severity.Blocker ? "blocker" : "warning")">
-    @* What the AI proofread found says so beside how much it matters, "Worth a look · AI" (owner,
-       2026-10-10, option B: "letting them know probably won't hurt"); a rule's finding carries no tag.
-       Inside the label, so no space Razor drops beside the @if can run it into the place. *@
+    @* What the LLM found says so beside how much it matters, "Worth a look · LLM" (owner,
+       2026-10-10, option B: "letting them know probably won't hurt"; and "I prefer llm to ai"); a
+       rule's finding carries no tag. The list's first such tag opens what "LLM" means (ExplainLlm);
+       the rest are the word alone, so a list of them is not a row of buttons. Inside the label, so no
+       space Razor drops beside the @if can run it into the place. *@
     <strong>@(Finding.Severity == Severity.Blocker ? "Must fix" : "Worth a look")@if (Finding.IsAi)
         {
-            @(" · ")<span data-testid="@($"{Named}-ai-{Finding.SeenKey}")">AI</span>
+            @(" · ")
+            if (ExplainLlm)
+            {
+                <Llm TestId="@($"{Named}-ai-{Finding.SeenKey}")" />
+            }
+            else
+            {
+                <span data-testid="@($"{Named}-ai-{Finding.SeenKey}")">@Glossary.Llm</span>
+            }
         }</strong>
     <span class="muted">
         @if (JumpTo is { } jump)
@@ -41,10 +51,14 @@
     public string? JumpTo { get; set; }
 
     /// <summary>
-    /// What the list calls its findings, for their names on the page (data-testid): an AI finding's
+    /// What the list calls its findings, for their names on the page (data-testid): an LLM finding's
     /// tag is <c>{Named}-ai-{key}</c>, by its <see cref="Finding.SeenKey"/>, so the same finding in
     /// two lists on one page has two names.
     /// </summary>
     [Parameter]
     public string Named { get; set; } = "finding";
+
+    /// <summary>Whether this finding's "LLM" tag opens what LLM means: the list's first LLM finding's does.</summary>
+    [Parameter]
+    public bool ExplainLlm { get; set; }
 }

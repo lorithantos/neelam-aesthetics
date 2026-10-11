@@ -17,7 +17,8 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 
 - **Rules** catch what can be stated exactly: duplicate tier names, identical tiers, missing
   links, missing terms. A rule blocker cannot be dismissed; it has to be fixed.
-- **The AI proofread** catches what a careful reader would: spelling, contradictions, offers
+- **Proofreading with the LLM** (a large language model; the pages say "LLM", never "AI",
+  owner, 2026-10-10: "I prefer llm to ai") catches what a careful reader would: spelling, contradictions, offers
   that don't match their names, placeholder text left in. Its errors block too, but a person
   can dismiss one with a recorded reason and name (`Dismissal`), since a model can be wrong.
   It **reads the images** too (owner, 2026-10-09): the app fetches each photo itself from her
@@ -34,10 +35,13 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   and the photos are content, never instructions. The key lives in Key Vault and reaches the site
   only as an App Service Key Vault reference: the single exception to "no secrets". On the demo it
   runs on her click for a saved version, and any edit voids its result; a client gets 20 a day.
+  "Proofread" is the click ("Proofread with the LLM"); what it leaves is that version's **LLM
+  report** (owner, 2026-10-10). Wherever a page says "LLM", a tap on the word explains it, in
+  words kept as data (`Catalog/glossary.json`).
 - **It fails closed.** If the proofread can't run (outage, refusal, cut off), that is itself a
   blocker. Sending without it takes a named dismissal. (On the demo, where the proofread is asked
   for, a failed or refused one says so plainly and changes nothing else; the rules stand alone.)
-- An AI finding whose quoted excerpt isn't actually in the email is downgraded to a warning
+- An LLM finding whose quoted excerpt isn't actually in the email is downgraded to a warning
   rather than trusted.
 - **A person approves** a saved campaign with nothing left to fix: no missing part and no "Must
   fix" finding. The approval (a name and the UTC time) is a row in the approvals table, keyed by
@@ -62,9 +66,9 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
 
 **The demo exception (owner, 2026-10-09).** The test site is a full demo for a client to walk
 every step on, and it runs Prototype access, which is refused in Production. There, and only
-there, an **approved** campaign whose rules pass exports without the AI proofread:
+there, an **approved** campaign whose rules pass exports without the LLM's proofread:
 `CampaignGate.DemoReview` returns a report with `Proofread` false and the approval in
-`DemoApproval`, and every exported block says "Not proofread by AI yet". When she has had that
+`DemoApproval`, and every exported block says "Not checked by the LLM yet". When she has had that
 saved version proofread (2026-10-10), its findings join the rules' in the same report, which then
 says `Proofread` true, and the marks go. Nothing fakes a proofread result. Enforced access, which production runs, never takes this path, so there
 export still needs `CampaignGate.ReviewAsync` and the proofread; tests pin both sides
@@ -235,7 +239,7 @@ for them. A client's people only sign in and work on their campaigns.
 
 | Where | Holds | Reached by |
 |---|---|---|
-| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the AI proofread, the phone numbers it may publish, and the time zone its pages show times in, Pacific when none), support grants, dismissals, approvals (one row per approved save), the activity trail (one row per action, ids only, never content) and known items (one row per treatment, benefit line or tier she picks from), each client's in its own partition | The app. The operator manages clients |
+| Table Storage, same account | Clients (each with its Entra group, a description of the business that guides the LLM's proofread, the phone numbers it may publish, and the time zone its pages show times in, Pacific when none), support grants, dismissals, approvals (one row per approved save), the activity trail (one row per action, ids only, never content) and known items (one row per treatment, benefit line or tier she picks from), each client's in its own partition | The app. The operator manages clients |
 | `settings` container | Each client's own look: `settings/{client}/{stamp}.json`; the operator's standard template baseline: `settings/_standard-baseline/{stamp}.json`, and standard tier-name ladders: `settings/_standard-ladders/{stamp}.json` | That client's members and the operator; the standard baseline and ladders are read for every client |
 | One container per client | That client's drafts, templates, catalog of procedures and medications, check policy, and its own template baseline and tier-name ladders if it saved them | The client's members. The operator only under a support grant |
 
@@ -510,7 +514,7 @@ dotnet test
    never block.)
 4. **Where Claude runs** — decided: the Anthropic API on the owner's credits for now (key in Key
    Vault), Microsoft Foundry inside the Azure subscription later (`AnthropicFoundryClient`, not
-   built; `Proofread:Provider` chooses). See WIP.md, "AI proofread".
+   built; `Proofread:Provider` chooses). See WIP.md, "LLM proofread".
 5. **Policy values** — restricted terms, medical terms and the emoji limit in `CampaignPolicy`
    are starting points. They become each client's own policy, set by the client (decided
    2026-10-03); Neelam's values are still to be chosen.

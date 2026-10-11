@@ -78,7 +78,7 @@ else if (_session is not null)
     // version: listed with a way to each field, and one button to go on. Never a fix required.
     var warningsFirst = WarningsBeforeExport();
     var export = exportReport is null ? null : EditorExport.Blocks(exportReport);
-    // Proofread by AI: then nothing is marked "Not proofread by AI yet", and the JSON says proofread.
+    // Checked by the LLM: then nothing is marked "Not checked by the LLM yet", and the JSON says proofread.
     var exportProofread = exportReport?.Proofread == true;
     var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, exportReport.DemoApproval,
         new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
@@ -259,31 +259,33 @@ else if (_session is not null)
                 @{ var listed = status.Findings.Concat(proofreadFindings).OrderByDescending(f => f.Severity).ToList(); }
                 <p data-testid="checks-summary">@DraftSession.ChecksSummary(listed, soFar: status.Missing.Count > 0)</p>
                 <ul class="findings" data-testid="checks-findings">
-                    @foreach (var finding in listed)
+                    @for (var i = 0; i < listed.Count; i++)
                     {
-                        <FindingItem Finding="finding" />
+                        <FindingItem Finding="listed[i]" ExplainLlm="@(i == FirstLlm(listed))" />
                     }
                 </ul>
                 @if (!ProofreadOffered)
                 {
-                    <p class="muted">These are the instant rules. The AI proofread is not switched on yet.</p>
+                    <p class="muted" data-testid="checks-llm-off">These are the instant rules. Proofreading with the <Llm TestId="llm-term-checks" /> is not switched on yet.</p>
                 }
                 else if (proofread is null)
                 {
-                    <p class="muted" data-testid="checks-before-proofread">These are the instant rules. The AI proofread reads a saved version when you ask it to, below.</p>
+                    <p class="muted" data-testid="checks-before-proofread">These are the instant rules. The <Llm TestId="llm-term-checks" /> reads a saved version when you ask it to, below.</p>
                 }
             </section>
 
             @if (ProofreadOffered)
             {
-                @* The AI proofread, on the demo, on her click only (owner, 2026-10-10): never per keystroke
-                   or by itself. Its result is the saved version's; any edit voids it. A refusal or a
-                   failure is said plainly here and changes nothing else: the rules stand on their own. *@
+                @* Proofreading with the LLM, on the demo, on her click only (owner, 2026-10-10): never per
+                   keystroke or by itself. "Proofread" is the click; what it leaves is the version's LLM
+                   report (owner, 2026-10-10: one word was doing two jobs). The report is the saved
+                   version's; any edit voids it. A refusal or a failure is said plainly here and changes
+                   nothing else: the rules stand on their own. *@
                 <section class="card" aria-labelledby="proofread-title" data-testid="proofread">
-                    <h2 id="proofread-title">AI proofread</h2>
+                    <h2 id="proofread-title" data-testid="proofread-title"><Llm TestId="llm-term-report" /> report</h2>
                     @if (proofread is not null)
                     {
-                        <p data-testid="proofread-status">Proofread by AI @Times.DateAndTime(proofread.At). @DraftSession.ProofreadSummary(proofread)</p>
+                        <p data-testid="proofread-status">LLM report, @Times.DateAndTime(proofread.At): @DraftSession.ProofreadSummary(proofread) Editing clears this version's LLM report.</p>
                     }
                     else if (_session.CannotProofread(_policy, Business) is { } notYet)
                     {
@@ -291,8 +293,8 @@ else if (_session is not null)
                     }
                     else
                     {
-                        <p class="field-help" data-testid="proofread-status">It reads this saved version once, when you click, photos included, the way a careful editor would. Any change after needs a new save and a new proofread.</p>
-                        <button class="button primary" data-testid="proofread-button" disabled="@_proofreading" @onclick="ProofreadAsync">@(_proofreading ? "Proofreading…" : "Proofread with AI")</button>
+                        <p class="field-help" data-testid="proofread-status">No LLM report for this version yet. The LLM reads it once, when you click, photos included, the way a careful editor would. Any change after needs a new save and a new proofread.</p>
+                        <button class="button primary" data-testid="proofread-button" disabled="@_proofreading" @onclick="ProofreadAsync">@(_proofreading ? "Proofreading…" : "Proofread with the LLM")</button>
                     }
                     @if (_proofreadMessage is not null)
                     {
@@ -360,12 +362,14 @@ else if (_session is not null)
                     <h2>Copy into Square</h2>
                     @if (exportProofread)
                     {
-                        <p class="field-help" data-testid="export-proofread">Approved and proofread by AI, and nothing found stops it. Paste the blocks into Square's editor in this order.</p>
+                        <p class="field-help" data-testid="export-proofread">Approved and checked by the <Llm TestId="llm-term-export" />, and nothing found stops it. Paste the blocks into Square's editor in this order.</p>
                     }
                     else
                     {
-                        <p><span class="not-proofread">Not proofread by AI yet</span></p>
-                        <p class="field-help">Approved, and the rules find nothing to stop it. @(ProofreadOffered ? "This version has not been proofread by AI" : "The AI proofread isn't switched on yet"), so read each block as you paste it. Paste them into Square's editor in this order.</p>
+                        @* The export's own words (AssistantExport.DemoNotice), with "LLM" explained once here
+                           rather than on every block below. *@
+                        <p><span class="not-proofread" data-testid="export-not-checked">Not checked by the <Llm TestId="llm-term-export" /> yet</span></p>
+                        <p class="field-help" data-testid="export-not-checked-why">Approved, and the rules find nothing to stop it. @(ProofreadOffered ? "No LLM report for this version yet" : "Proofreading with the LLM isn't switched on yet"), so read each block as you paste it. Paste them into Square's editor in this order.</p>
                     }
                     @if (assistant?.Json is { } json)
                     {
@@ -388,7 +392,7 @@ else if (_session is not null)
                                     <strong>@(i + 1). @KindName(block.Kind)</strong>
                                     @if (!exportProofread)
                                     {
-                                        <span class="not-proofread">Not proofread by AI yet</span>
+                                        <span class="not-proofread" data-testid="export-not-checked-@i">@AssistantExport.DemoNotice</span>
                                     }
                                 </div>
                                 @switch (block.Kind)
@@ -448,9 +452,10 @@ else if (_session is not null)
                     <h2 id="export-warnings-title">Before you copy it into Square</h2>
                     <p>@DraftSession.WarningsLead(warningsFirst.Count, ExportedBefore)</p>
                     <ul class="findings" data-testid="export-warnings-list">
-                        @foreach (var warning in warningsFirst)
+                        @for (var i = 0; i < warningsFirst.Count; i++)
                         {
-                            <FindingItem Finding="warning" JumpTo="@JumpTo(warning)" Named="export-warning" />
+                            var warning = warningsFirst[i];
+                            <FindingItem Finding="warning" JumpTo="@JumpTo(warning)" Named="export-warning" ExplainLlm="@(i == FirstLlm(warningsFirst))" />
                         }
                     </ul>
                     <p class="field-help">Fixing one changes the campaign: save it again and approve the new version.</p>
@@ -464,19 +469,19 @@ else if (_session is not null)
                     <h2>Export</h2>
                     @if (Site.IsDemo && proofreadFindings.Any(f => f.Severity == Severity.Blocker))
                     {
-                        <p class="muted" data-testid="export-waits-for-proofread-fix">The AI proofread found something to fix in this version. Fix it, save, and approve the new version.</p>
+                        <p class="muted" data-testid="export-waits-for-proofread-fix">The LLM found something to fix in this version. Fix it, save, and approve the new version.</p>
                     }
                     else if (Site.IsDemo && ProofreadOffered)
                     {
-                        <p class="muted">On this demo, export comes once the campaign is approved with nothing left to fix. Unless this version is proofread by AI first, its blocks will be marked as not proofread.</p>
+                        <p class="muted" data-testid="export-waits">On this demo, export comes once the campaign is approved with nothing left to fix. Unless this version is proofread with the LLM first, its blocks will be marked as not checked by the LLM.</p>
                     }
                     else if (Site.IsDemo)
                     {
-                        <p class="muted">On this demo, export comes once the campaign is approved with nothing left to fix. The AI proofread isn't switched on yet, so its blocks will be marked as not proofread.</p>
+                        <p class="muted" data-testid="export-waits">On this demo, export comes once the campaign is approved with nothing left to fix. Proofreading with the LLM isn't switched on yet, so its blocks will be marked as not checked by the LLM.</p>
                     }
                     else
                     {
-                        <p class="muted">Export comes once the AI proofread is switched on. A campaign leaves only after both the rules and the proofread have passed it.</p>
+                        <p class="muted" data-testid="export-waits">Export comes once proofreading with the LLM is switched on. A campaign leaves only after both the rules and the LLM have passed it.</p>
                     }
                 </section>
             }
@@ -555,7 +560,7 @@ else
         catch (Exception ex)
         {
             Log.LogError(ex, "The AI proofread of a campaign of {Client} could not be kept.", _client!.Value);
-            _proofreadMessage = "The AI proofread could not be kept just now. The rules' checks above still stand.";
+            _proofreadMessage = "The LLM report could not be kept just now. The rules' checks above still stand.";
         }
         finally
         {
@@ -791,6 +796,15 @@ else
                 ? $"block-{i}"
                 : null;
         return anchor is null ? null : $"campaigns/{_session.Id}#{anchor}";
+    }
+
+    // Where in a list the first finding the LLM made is, or -1: its "LLM" tag alone opens what LLM
+    // means, so a list of LLM findings is not a row of buttons.
+    private static int FirstLlm(IReadOnlyList<Finding> findings)
+    {
+        for (var i = 0; i < findings.Count; i++)
+            if (findings[i].IsAi) return i;
+        return -1;
     }
 
     // The JSON as a link to download, with no endpoint: an endpoint would be a second way out.

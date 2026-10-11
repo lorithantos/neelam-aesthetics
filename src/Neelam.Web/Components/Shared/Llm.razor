@@ -1,0 +1,13 @@
+@* "LLM" where a client reads it, with what it means a tap away (owner, 2026-10-10: "Having a tooltip
+   is great; it lets her discover any time she stumbles across it"). She reads on a phone, so no hover
+   title: a button, dotted underline, that opens the explanation with the browser's own popover on a
+   tap, a click, Enter or Space, and no script. A screen reader reads the explanation as the button's
+   description as soon as it is focused. The explanation is on the page once, in the layout
+   (LlmExplained), from the glossary; every "LLM" opens that one. *@
+<button type="button" class="term" popovertarget="@LlmExplained.Id" aria-describedby="@LlmExplained.TextId" data-testid="@TestId">@Glossary.Llm</button>
+
+@code {
+    /// <summary>Its name on the page (data-testid), for a check that it is where it was placed.</summary>
+    [Parameter]
+    public string? TestId { get; set; }
+}

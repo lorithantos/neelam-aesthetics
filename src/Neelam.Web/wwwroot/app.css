@@ -681,6 +681,35 @@ label.check {
     padding: 0 0.375rem;
 }
 
+/* A word the pages explain, such as "LLM": a button that reads as the word,
+   its dotted underline saying there is more. A tap, a click, Enter or Space
+   opens the explanation, the browser's own popover, over the page. */
+
+.term {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    text-decoration-line: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 0.2em;
+    cursor: help;
+}
+
+.term-explained {
+    max-width: min(28rem, calc(100vw - 2 * var(--gutter)));
+    padding: 1rem 1.25rem;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+}
+
+.term-explained p {
+    margin: 0 0 0.75rem;
+}
+
 .copy-actions {
     display: flex;
     flex-wrap: wrap;

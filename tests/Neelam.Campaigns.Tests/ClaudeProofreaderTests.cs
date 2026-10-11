@@ -431,7 +431,7 @@ public class ClaudeProofreaderTests
 
         var ex = await Assert.ThrowsAsync<ProofreadUnavailableException>(() => rig.Proofreader.ProofreadAsync(BackToSchool(), Business()));
 
-        Assert.Equal("The AI proofread's answer could not be read, so nothing it found is shown.", ex.Message);
+        Assert.Equal("The LLM's answer could not be read, so nothing it found is shown.", ex.Message);
     }
 
     [Fact]
@@ -442,7 +442,7 @@ public class ClaudeProofreaderTests
         var ex = await Assert.ThrowsAsync<ProofreadUnavailableException>(() => rig.Proofreader.ProofreadAsync(BackToSchool(), Business()));
 
         Assert.Equal(
-            "The AI proofread declined to read this version (its safety check named \"bio\"). That says nothing about the email itself; read it through yourself before it goes out.",
+            "The LLM declined to read this version (its safety check named \"bio\"). That says nothing about the email itself; read it through yourself before it goes out.",
             ex.Message);
     }
 
@@ -453,7 +453,7 @@ public class ClaudeProofreaderTests
 
         var ex = await Assert.ThrowsAsync<ProofreadUnavailableException>(() => rig.Proofreader.ProofreadAsync(BackToSchool(), Business()));
 
-        Assert.Equal("The AI proofread was cut off before it finished, so nothing it found is shown.", ex.Message);
+        Assert.Equal("The LLM was cut off before it finished, so nothing it found is shown.", ex.Message);
     }
 
     [Fact]
@@ -466,7 +466,7 @@ public class ClaudeProofreaderTests
 
         var ex = await Assert.ThrowsAsync<ProofreadUnavailableException>(() => proofreader.ProofreadAsync(BackToSchool(), Business()));
 
-        Assert.Equal("The AI proofread could not be reached just now. Try again in a while.", ex.Message);
+        Assert.Equal("The LLM could not be reached just now. Try again in a while.", ex.Message);
     }
 
     private sealed class FailingApi : HttpMessageHandler
