@@ -22,6 +22,13 @@ TokenCredential credential = builder.Environment.IsDevelopment()
     ? new AzureCliCredential()
     : new ManagedIdentityCredential(ManagedIdentityId.SystemAssigned);
 
+// Storage's first token, asked for now, before the host is built: a new container's first managed-
+// identity request takes 4.5-6 s and more, and every other caller waits behind it, so it overlaps the
+// build rather than following it. Not awaited here; it never faults, and the warm-up awaits it within
+// its budget (TokenPrefetch). Locally, the developer's az login answers as before, with none.
+var prefetch = builder.Environment.IsDevelopment() ? TokenPrefetch.None : TokenPrefetch.Start(credential);
+builder.Services.AddSingleton(prefetch);
+
 var storage = builder.Configuration.GetSection("Storage");
 Uri RequiredEndpoint(string setting, string output) =>
     storage[setting] is { Length: > 0 } value
@@ -169,6 +176,9 @@ var app = builder.Build();
 
 // The start is taken now, as the app is built, rather than at its first use.
 app.Services.GetRequiredService<StartLog>();
+
+// "Token pre-fetch: fetched in N ms.", once it has finished: outcome and time only.
+app.Services.GetRequiredService<TokenPrefetch>().Report(app.Services.GetRequiredService<ILogger<TokenPrefetch>>());
 
 // First, so its time is the whole request: notes this start's first request and each page's first
 // visit, leaving out the warm-up's own and App Service's own (StartRecording).

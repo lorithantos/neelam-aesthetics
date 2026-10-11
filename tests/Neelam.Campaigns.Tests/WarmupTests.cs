@@ -284,6 +284,9 @@ public sealed class WarmupApp : InMemoryApp
     /// <summary>The warm-up's budget (Warmup:Budget), when a test needs it other than the shipped minute.</summary>
     internal TimeSpan? Budget { get; init; }
 
+    /// <summary>The token pre-fetch, as Program starts one in Azure; none (as in Development) when unset.</summary>
+    internal TokenPrefetch? Prefetch { get; init; }
+
     /// <summary>Her data, put straight into storage before the app starts: a template, a campaign, a photo, a known item, a look.</summary>
     internal static async Task SeedAsync(WarmupApp app)
     {
@@ -331,6 +334,7 @@ public sealed class WarmupApp : InMemoryApp
                 new SquarePhotoFetcher(new HttpClient(new RefusingPhotoHandler(Writes)), ImageLibrary.SquareHosts));
 
             services.AddSingleton<ILogger<Warmup>>(Log);
+            if (Prefetch is { } prefetch) services.RemoveAll<TokenPrefetch>().AddSingleton(prefetch);
         });
     }
 

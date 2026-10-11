@@ -42,7 +42,7 @@ namespace Neelam.Web;
 /// </remarks>
 public sealed class Warmup(
     IClientDirectory clients, ClientStores stores, ISelfRequests self, WarmupMarker marker, WarmupState state,
-    IHostApplicationLifetime lifetime, IOptions<WarmupOptions> options, ILogger<Warmup> log) : BackgroundService
+    TokenPrefetch prefetch, IHostApplicationLifetime lifetime, IOptions<WarmupOptions> options, ILogger<Warmup> log) : BackgroundService
 {
     /// <summary>
     /// The pages warmed, in order: every page of the client's site. A page whose address names a saved
@@ -106,9 +106,15 @@ public sealed class Warmup(
     }
 
     // The first token for each storage service, and its connection: the clients table, then the
-    // settings container, through the same clients and identity every request uses.
+    // settings container, through the same clients and identity every request uses. In Azure the token
+    // was asked for as the app started (TokenPrefetch): its answer is awaited first, within the budget,
+    // so the clients table finds it in the credential's cache. A failed pre-fetch is this step's outcome
+    // and the read asks for its own token, as it did before there was one.
     private async Task StorageAsync(CancellationToken ct)
     {
+        if (prefetch.Outcome is { } token)
+            await StepAsync("storage token", async () => (await token.WaitAsync(ct)).Outcome, ct,
+                ok: outcome => outcome == TokenPrefetchOutcome.Fetched);
         await StepAsync("clients table", async () => { await clients.ListAsync(ct); return "read"; }, ct);
         await StepAsync("settings container",
             async () => { await stores.StandardLadders().CurrentAsync(ct); return "read"; }, ct);
