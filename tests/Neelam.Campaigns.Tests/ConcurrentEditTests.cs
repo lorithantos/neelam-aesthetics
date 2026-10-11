@@ -220,6 +220,128 @@ public class ConcurrentEditTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal(0, RenderedPage.Count(html, "modified-notice"));
     }
 
+    private static readonly LocalTime Times = LocalTime.For(LocalTime.DefaultZone);
+
+    private async Task<SaveRef> Newest(Guid id) => (await Store.HistoryAsync(DocumentKind.Draft, id)).First();
+
+    // "Keep mine" (owner, 2026-10-11): hers saved as the newest, theirs left stored, the other tab told.
+    [Fact]
+    public async Task Keep_mine_makes_hers_the_newest_keeps_theirs_and_tells_the_other_tab()
+    {
+        var save = await Exportable();
+        var clock = Clock();
+        await using var a = await Open(save.Id, clock);
+        await using var b = await Open(save.Id, clock);
+        await a.TypeAsync("subject", "Mine");
+        await b.TypeAsync("subject", "Theirs");
+        await b.ClickAsync("save-button");
+        var theirs = await Newest(save.Id);
+
+        var html = await a.WaitForAsync("modified-notice");
+        Assert.Equal("Keep mine", RenderedPage.Named(html, "keep-mine"));
+        Assert.Equal("Keep mine saves what's on this page as the newest version. The other version stays in the campaign's history.",
+            RenderedPage.Named(html, "keep-mine-help"));
+        app.Clock.Now += TimeSpan.FromMinutes(1);
+        await a.ClickAsync("keep-mine");
+
+        var mine = await Newest(save.Id);
+        Assert.Equal("Mine", mine.Title);
+        Assert.Contains(await Store.HistoryAsync(DocumentKind.Draft, save.Id), s => s.BlobName == theirs.BlobName);
+        html = await a.HtmlAsync();
+        Assert.Equal(0, RenderedPage.Count(html, "modified-notice"));
+        Assert.Equal($"Saved at {Times.TimeOfDay(mine.SavedAt)} as the newest version, in place of the one saved " +
+                     $"{Times.DateAndTime(theirs.SavedAt)}, which stays in the campaign's history. This version is not approved yet.",
+            RenderedPage.Named(html, "page-message"));
+        Assert.Equal("The campaign was saved again since you opened it, in another tab or by someone else.",
+            RenderedPage.Named(await b.WaitForAsync("modified-notice"), "modified-what"));
+    }
+
+    [Fact]
+    public async Task After_keep_mine_approve_and_export_work_on_hers()
+    {
+        var save = await Exportable();
+        var clock = Clock();
+        await using var a = await Open(save.Id, clock);
+        await using var b = await Open(save.Id, clock);
+        await a.TypeAsync("subject", "Mine");
+        await b.TypeAsync("subject", "Theirs");
+        await b.ClickAsync("save-button");
+        await a.WaitForAsync("modified-notice");
+        await a.ClickAsync("keep-mine");
+
+        await a.TypeAsync("approver", "Priya");
+        await a.ClickAsync("approve-button");
+        var html = await a.HtmlAsync();
+        Assert.Equal("Approved by Priya.", RenderedPage.Named(html, "page-message"));
+        if (RenderedPage.Count(html, "export-anyway") == 1) await a.ClickAsync("export-anyway");
+
+        HasTheExport(await a.HtmlAsync());
+        var mine = await Newest(save.Id);
+        Assert.Equal(("Mine", "Priya"), (mine.Title, mine.Approval?.By));
+    }
+
+    // Looking at an older version with nothing edited: the same button brings that version back as the
+    // newest, and the approval the other version had stays with it.
+    [Fact]
+    public async Task Use_this_version_again_saves_the_one_on_the_page_as_the_newest()
+    {
+        var save = await Exportable();
+        var clock = Clock();
+        await using var a = await Open(save.Id, clock);
+        var subject = RenderedPage.Attribute(await a.HtmlAsync(), "subject", "value");
+        var other = DraftFixtures.Finished();
+        other.Subject.Set("Theirs");
+        var theirs = await Store.ApproveAsync(await Store.SaveDraftAsync(save.Id, "Theirs", other), "Neelam");
+        app.Clock.Now += TimeSpan.FromMinutes(1);
+        clock.Advance(Interval);
+
+        var html = await a.WaitForAsync("modified-notice");
+        Assert.Equal("Use this version again", RenderedPage.Named(html, "keep-mine"));
+        Assert.Equal("Use this version again saves this version as the newest. The other version stays in the campaign's history.",
+            RenderedPage.Named(html, "keep-mine-help"));
+        await a.ClickAsync("keep-mine");
+
+        var mine = await Newest(save.Id);
+        Assert.Equal(subject, mine.Title);
+        Assert.NotEqual(theirs.BlobName, mine.BlobName);
+        Assert.Null(mine.Approval);
+        html = await a.HtmlAsync();
+        Assert.EndsWith(", which stays in the campaign's history. Its approval by Neelam does not carry over: " +
+                        "approve this version before you copy it into Square.", RenderedPage.Named(html, "page-message"));
+        Assert.Contains(Times.DateAndTime(theirs.SavedAt), RenderedPage.Named(html, "page-message"));
+        Assert.Equal(0, RenderedPage.Count(html, "approved"));
+        Assert.Equal(0, RenderedPage.Count(html, "export"));
+    }
+
+    // A save that lands after the notice: hers is still saved as the newest, as she chose, and the page
+    // names the version it actually took the place of, read at the click.
+    [Fact]
+    public async Task Keep_mine_names_the_version_it_replaced_even_one_saved_after_the_notice()
+    {
+        var save = await Exportable();
+        var clock = Clock();
+        await using var a = await Open(save.Id, clock);
+        await using var b = await Open(save.Id, clock);
+        await a.TypeAsync("subject", "Mine");
+        await b.TypeAsync("subject", "Theirs");
+        await b.ClickAsync("save-button");
+        var noticed = await Newest(save.Id);
+        await a.WaitForAsync("modified-notice");
+        app.Clock.Now += TimeSpan.FromMinutes(5);
+        var later = DraftFixtures.Finished();
+        later.Subject.Set("Later still");
+        var latest = await Store.SaveDraftAsync(save.Id, "Later still", later);
+        app.Clock.Now += TimeSpan.FromMinutes(5);
+
+        await a.ClickAsync("keep-mine");
+
+        Assert.Equal("Mine", (await Newest(save.Id)).Title);
+        var message = RenderedPage.Named(await a.HtmlAsync(), "page-message");
+        Assert.Contains($"in place of the one saved {Times.DateAndTime(latest.SavedAt)}, which stays in the campaign's history.", message);
+        Assert.DoesNotContain(Times.DateAndTime(noticed.SavedAt), message);
+        Assert.Equal(4, (await Store.HistoryAsync(DocumentKind.Draft, save.Id)).Count);
+    }
+
     // The happy path, one tab: approve, go on past the warnings, and the export is there at once, with
     // nothing more to click and nothing said about changes.
     [Fact]

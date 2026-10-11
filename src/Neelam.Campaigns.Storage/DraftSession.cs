@@ -420,6 +420,58 @@ public sealed class DraftSession
     public static string NotApproved(CampaignChange change) =>
         $"Not approved: {WhatChanged(change)}. Load the latest above, check it, then approve it.";
 
+    /// <summary>
+    /// "Keep mine" (owner, 2026-10-11: "what if the person wants to overwrite anyway?" ... "yes, add Keep
+    /// mine"): saves what the page holds, edited or not, as a new version, the campaign's newest. Nothing
+    /// is deleted or undone: the version it takes the place of stays stored, in the campaign's history.
+    /// No approval goes with it, neither the other version's nor her own earlier one's: after someone
+    /// else's change, what she keeps is approved afresh. The other pages are told, as for any save.
+    /// </summary>
+    /// <returns>Her new save, and the newest version storage had at the click, which hers now follows.</returns>
+    /// <exception cref="InvalidOperationException">There is no saved campaign, or the form cannot be saved as it stands.</exception>
+    public async Task<KeptMine> KeepMineAsync(CancellationToken ct = default)
+    {
+        if (Latest is null || Id is not { } id) throw new InvalidOperationException("There is no saved version to keep.");
+        if (Editor.Errors().Count > 0) throw new InvalidOperationException("Fix what is marked first: the campaign cannot be saved as it stands.");
+        var before = Latest;
+        // Read at the click: whatever is newest now, even a save that landed after the notice, is what
+        // hers follows, and the page says which.
+        var history = await _store.HistoryAsync(DocumentKind.Draft, id, ct);
+        var replaced = history.FirstOrDefault() is { } newest && newest.BlobName != before.BlobName ? newest : null;
+        Latest = await _store.SaveDraftAsync(id, Editor.Title, Editor.Draft, ct);
+        try
+        {
+            _proofread = null;
+            _versions = history.Count + 1;
+            MarkSaved();
+            Restorable = null;
+            SupersededApproval = replaced?.Approval is not null ? replaced : before.Approval is not null ? before : null;
+            return new KeptMine(Latest, replaced, before.Approval);
+        }
+        finally
+        {
+            Raise();
+        }
+    }
+
+    /// <summary>
+    /// What the page says once "Keep mine" has saved: when, the version it took the place of as the
+    /// newest (read at the click, so a save that landed after the notice is the one named), and that no
+    /// approval came with it. Proposed wording, the owner's to change.
+    /// </summary>
+    public static string KeptMessage(KeptMine kept, LocalTime times)
+    {
+        var message = $"Saved at {times.TimeOfDay(kept.Saved.SavedAt)} as the newest version";
+        message += kept.Replaced is { } replaced
+            ? $", in place of the one saved {times.DateAndTime(replaced.SavedAt)}, which stays in the campaign's history."
+            : ".";
+        if (kept.Replaced?.Approval is { } theirs)
+            message += $" Its approval by {theirs.By} does not carry over: approve this version before you copy it into Square.";
+        else if (kept.HadApproval is not null)
+            message += " This version is not approved yet.";
+        return message;
+    }
+
     // Tells the other pages open on this instance that this campaign changed; never this session's own.
     private void Raise()
     {
@@ -600,6 +652,12 @@ public sealed class DraftSession
 /// <param name="Save">The newest version in use; its title is the subject, from the blob's metadata as before.</param>
 /// <param name="Label">The client's own label, read from that version's JSON; null when it has none.</param>
 public sealed record CampaignListing(SaveRef Save, string? Label);
+
+/// <summary>What "Keep mine" did.</summary>
+/// <param name="Saved">Her new save, now the campaign's newest.</param>
+/// <param name="Replaced">The version that was newest at the click and no longer is; it stays stored. Null when hers was still the newest.</param>
+/// <param name="HadApproval">The approval the page's own version had before, which does not go with the new save.</param>
+public sealed record KeptMine(SaveRef Saved, SaveRef? Replaced, Approval? HadApproval);
 
 /// <summary>What came of asking for the AI proofread, in words for her: done, or why not.</summary>
 /// <param name="Done">True when the proofread ran and its result is kept with the version.</param>

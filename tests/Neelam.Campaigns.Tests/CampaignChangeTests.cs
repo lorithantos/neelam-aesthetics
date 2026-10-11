@@ -165,6 +165,29 @@ public class CampaignChangeTests
     }
 
     [Fact]
+    public async Task Keep_mine_saves_hers_as_the_newest_with_no_approval_and_tells_the_other_tab()
+    {
+        var (a, b) = await TwoTabs(approved: true);
+        var toB = 0;
+        using var listening = _signals.Listen(b.Client, b.Id!.Value, b, () => Interlocked.Increment(ref toB));
+        b.Editor.Subject.Text = "Theirs";
+        var theirs = await b.SaveAsync();
+        _clock.Now += TimeSpan.FromMinutes(1);
+        a.Editor.Subject.Text = "Mine";
+
+        var kept = await a.KeepMineAsync();
+
+        Assert.Equal(theirs.BlobName, kept.Replaced!.BlobName);
+        Assert.Equal("Priya", kept.HadApproval!.By);
+        var history = await Store.HistoryAsync(DocumentKind.Draft, a.Id!.Value);
+        Assert.Equal(["Mine", "Theirs", "Hello"], history.Select(s => s.Title));
+        Assert.Null(history[0].Approval);
+        Assert.Equal(CampaignChange.None, await Change(a));
+        Assert.Equal(CampaignChange.SavedSince, await Change(b));
+        Assert.Equal(1, toB);
+    }
+
+    [Fact]
     public async Task A_write_straight_through_the_store_raises_nothing()
     {
         var (a, _) = await TwoTabs();

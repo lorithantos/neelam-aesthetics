@@ -110,7 +110,21 @@ else if (_session is not null)
             {
                 <p class="field-help" data-testid="modified-unsaved">Your changes on this page are not saved. Loading the latest replaces them, so copy anything you want to keep first.</p>
             }
+            @* Keep mine (owner, 2026-10-11) where the page holds another version than the newest: hers,
+               edited or not, saved again as the newest; nothing is deleted. Not for an approval
+               changed elsewhere, where the content is the same and there is nothing to keep. *@
+            @if (change is CampaignChange.SavedSince or CampaignChange.Undone)
+            {
+                var edited = _session.HasUnsavedChanges;
+                <button class="button" data-testid="keep-mine" disabled="@(errors.Count > 0)" @onclick="KeepMineAsync">@(edited ? "Keep mine" : "Use this version again")</button>
+            }
             <button class="button primary" data-testid="load-latest" @onclick="LoadLatestAsync">Load the latest</button>
+            @if (change is CampaignChange.SavedSince or CampaignChange.Undone)
+            {
+                <p class="field-help" data-testid="keep-mine-help">@(_session.HasUnsavedChanges
+                    ? "Keep mine saves what's on this page as the newest version."
+                    : "Use this version again saves this version as the newest.") The other version stays in the campaign's history.</p>
+            }
         </section>
     }
 
@@ -787,6 +801,24 @@ else
         _message = null;
         _undone = await DraftSession.RestorableAsync(_store!, id);
         if (_undone is null) _missing = "Campaign not found";
+    });
+
+    // "Keep mine" / "Use this version again": what the page holds, saved as the newest version over
+    // someone else's change. The other version stays stored; no approval comes with hers.
+    private Task KeepMineAsync() => ActingAsync(async () =>
+    {
+        try
+        {
+            var kept = await _session!.KeepMineAsync();
+            _message = DraftSession.KeptMessage(kept, Times);
+            _confirmingUndo = false;
+            _proofreadMessage = null;
+            await ShowTitleAsync(Title);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _message = ex.Message;
+        }
     });
 
     private Task SaveAsync() => ActingAsync(async () =>
