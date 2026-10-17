@@ -1,12 +1,17 @@
 @page "/"
 @* The landing page shows no client data, so it is open to anyone. It says what the site does here:
-   on the demo every step works; elsewhere, until sign-in exists, no campaign can be opened. *@
+   on the demo every step works; elsewhere, until sign-in exists, no campaign can be opened. It is
+   headed with the caller's client by the name its people know it by, as the layout draws that
+   client's look: neither is client data. With no client (signed out, the operator, or several), it
+   names nobody. *@
 @attribute [AllowAnonymous]
 @inject SiteMode Site
+@inject ClientWorkspace Workspace
+@inject ILogger<Home> Log
 
-<PageTitle>Neelam campaigns</PageTitle>
+<PageTitle>@_heading</PageTitle>
 
-<h1>Neelam campaigns</h1>
+<h1 data-testid="home-heading">@_heading</h1>
 
 @if (Site.IsDemo)
 {
@@ -22,3 +27,23 @@ else
 }
 
 <p><a href="how-it-works">How a campaign gets from idea to inbox</a></p>
+
+@code {
+    private string _heading = "Campaigns";
+
+    // A name that cannot be read is logged and the page goes on naming nobody: the landing page
+    // never stops for it.
+    protected override async Task OnInitializedAsync()
+    {
+        var (client, _) = await Workspace.LookClientAsync();
+        if (client is null) return;
+        try
+        {
+            _heading = $"{await Workspace.DisplayNameAsync(client)} campaigns";
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.LogError(ex, "The display name of {Client} could not be read, so the landing page names no client.", client.Value);
+        }
+    }
+}

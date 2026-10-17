@@ -15,11 +15,21 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     private static readonly ClientRecord SalonOne = new(
         new ClientName("test-salon-one"), Guid.Parse("11111111-1111-1111-1111-111111111111"), "Salon One");
 
-    private async Task<(HttpStatusCode Status, string Page)> Get(string path, params string[] roles)
+    private static readonly ClientRecord SalonTwo = new(
+        new ClientName("test-salon-two"), Guid.Parse("22222222-2222-2222-2222-222222222222"), "Salon Two");
+
+    private Task<(HttpStatusCode Status, string Page)> Get(string path, params string[] roles) =>
+        GetAs(path, roles, [SalonOne.GroupId]);
+
+    private async Task<(HttpStatusCode Status, string Page)> GetAs(string path, string[] roles, Guid[] groups)
     {
-        if ((await app.Clients.ListAsync()).Count == 0) await app.Clients.AddAsync(SalonOne);
+        if ((await app.Clients.ListAsync()).Count == 0)
+        {
+            await app.Clients.AddAsync(SalonOne);
+            await app.Clients.AddAsync(SalonTwo);
+        }
         var client = app.CreateClient(new() { AllowAutoRedirect = false });
-        if (roles.Length > 0) client.SignedIn(roles, [SalonOne.GroupId]);
+        if (roles.Length > 0) client.SignedIn(roles, groups);
         var response = await client.GetAsync(path);
         return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
@@ -79,6 +89,28 @@ public class HowItWorksPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.DoesNotContain(RenderedPage.Links(page), href => href.Contains("admin/"));
         Assert.DoesNotContain(">Clients<", page);
         Assert.DoesNotContain("Entra", RenderedPage.Text(page));
+    }
+
+    // The site serves several clients, so the landing page is headed with the caller's own client,
+    // by the name in the clients table, and names nobody when there is no client to name.
+    [Fact]
+    public async Task The_landing_page_names_the_caller_s_own_client_and_no_other()
+    {
+        foreach (var (salon, other) in new[] { (SalonOne, SalonTwo), (SalonTwo, SalonOne) })
+        {
+            var (status, page) = await GetAs("/", [Features.Campaigns], [salon.GroupId]);
+
+            Assert.Equal(HttpStatusCode.OK, status);
+            Assert.Equal($"{salon.DisplayName} campaigns", RenderedPage.Named(page, "home-heading"));
+            Assert.Contains($"<title>{salon.DisplayName} campaigns</title>", page);
+            var text = RenderedPage.Text(page);
+            Assert.DoesNotContain(other.DisplayName, text);
+            Assert.DoesNotContain("Neelam", text);
+        }
+
+        var (_, signedOut) = await Get("/");
+        Assert.Equal("Campaigns", RenderedPage.Named(signedOut, "home-heading"));
+        Assert.DoesNotContain("Neelam", RenderedPage.Text(signedOut));
     }
 
     [Fact]
