@@ -4,8 +4,9 @@ namespace Neelam.Campaigns;
 public static class TimeWords
 {
     /// <summary>
-    /// A period in words, such as "a day", "2 days", "12 hours" or "30 minutes": the largest whole
-    /// unit it is a number of, so a configured grace period reads as it was meant.
+    /// A period in words, such as "a day", "2 days", "12 hours", "30 minutes" or "a second": the
+    /// largest whole unit it is a number of, so a configured grace period or a threshold in code reads
+    /// as it was meant.
     /// </summary>
     public static string Period(TimeSpan period)
     {
@@ -15,6 +16,8 @@ public static class TimeWords
             return Count((int)period.TotalHours, "an hour", "hours");
         if (period >= TimeSpan.FromMinutes(1) && period.Ticks % TimeSpan.TicksPerMinute == 0)
             return Count((int)period.TotalMinutes, "a minute", "minutes");
+        if (period >= TimeSpan.FromSeconds(1) && period < TimeSpan.FromMinutes(1) && period.Ticks % TimeSpan.TicksPerSecond == 0)
+            return Count((int)period.TotalSeconds, "a second", "seconds");
         return period.TotalHours >= 1 ? $"{period.TotalHours:0.#} hours" : $"{period.TotalMinutes:0.#} minutes";
     }
 

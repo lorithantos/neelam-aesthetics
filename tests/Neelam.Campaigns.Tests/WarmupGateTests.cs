@@ -205,6 +205,9 @@ public class WarmupGateTests
         Assert.Equal("Storage <can't> be reached.", RenderedPage.Named(page, "startup-failed-reason"));
         Assert.Contains("Storage &lt;can&#39;t&gt; be reached.", page);
         Assert.Contains($"<meta http-equiv=\"refresh\" content=\"{WarmupGate.FailedRetryAfterSeconds}\" />", page);
+        // The page is static, so it says the gate's wait in words of its own; they must be the gate's.
+        Assert.StartsWith($"This page tries again by itself every {TimeWords.Period(TimeSpan.FromSeconds(WarmupGate.FailedRetryAfterSeconds))}.",
+            RenderedPage.Named(page, "startup-failed-retry"));
         Assert.Equal(0, RenderedPage.Count(page, "getting-ready"));
 
         // The health check still answers for itself.

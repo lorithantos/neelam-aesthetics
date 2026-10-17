@@ -180,6 +180,24 @@ public class ProofreadSetupTests
         Assert.Equal(20, (int?)settings["MaxPerClientPerDay"]);
         Assert.Null(settings["AnthropicApiKey"]);
     }
+
+    // The model, effort and limits are set explicitly in appsettings.json and also have defaults in the
+    // code, for a configuration that leaves one out: the two must say the same, so leaving a setting out
+    // never changes what the proofread does.
+    [Fact]
+    public void The_shipped_settings_are_the_code_s_defaults()
+    {
+        var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "appsettings.json")))![ProofreadOptions.Section]!;
+        var defaults = new ProofreadOptions();
+
+        Assert.Equal(defaults.Model, (string?)settings[nameof(ProofreadOptions.Model)]);
+        Assert.Equal(ClaudeProofreader.DefaultModel, defaults.Model);
+        Assert.Equal(defaults.Effort, (string?)settings[nameof(ProofreadOptions.Effort)]);
+        Assert.Equal(defaults.MaxTokens, (int?)settings[nameof(ProofreadOptions.MaxTokens)]);
+        Assert.Equal(defaults.MaxPerClientPerDay, (int?)settings[nameof(ProofreadOptions.MaxPerClientPerDay)]);
+        Assert.Equal(DailyProofreadAllowance.Default, defaults.MaxPerClientPerDay);
+        Assert.Equal(DailyProofreadAllowance.Setting, $"{ProofreadOptions.Section}:{nameof(ProofreadOptions.MaxPerClientPerDay)}");
+    }
 }
 
 public class DailyProofreadAllowanceTests

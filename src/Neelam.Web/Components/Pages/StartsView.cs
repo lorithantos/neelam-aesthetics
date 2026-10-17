@@ -1,4 +1,5 @@
 using System.Globalization;
+using Neelam.Campaigns;
 using Neelam.Campaigns.Storage;
 
 namespace Neelam.Web.Components.Pages;
@@ -76,6 +77,12 @@ public static class StartsView
     };
 
     public static string Visit(PageVisit? visit) => visit is { } v ? $"{v.Route}, {Duration(v.Ms)}" : "None yet";
+
+    /// <summary>How long down before a start makes it an outage, in words from <see cref="StartRecord.OutageMs"/>: "5 minutes".</summary>
+    public static string OutageAfter => TimeWords.Period(TimeSpan.FromMilliseconds(StartRecord.OutageMs));
+
+    /// <summary>How slow a first visit is to be marked, in words from <see cref="StartRecord.SluggishMs"/>: "a second".</summary>
+    public static string SluggishFrom => TimeWords.Period(TimeSpan.FromMilliseconds(StartRecord.SluggishMs));
 
     /// <summary>"420 ms" under a second, "1.4 s" from a second.</summary>
     public static string Duration(long ms) => ms < 1000

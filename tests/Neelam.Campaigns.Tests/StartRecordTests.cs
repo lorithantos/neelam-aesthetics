@@ -26,6 +26,17 @@ public class StartRecordTests
 
     internal const string Stamp = "Build 7 (local) | Commit 0123456789abcdef | Branch main | 2026-10-03T11:58:00Z";
 
+    // How many starts are kept is in the code, for the stores, and in appsettings.json, for the operator
+    // to see and change: the two must say the same, or the app keeps a number nobody reads.
+    [Fact]
+    public void The_shipped_keep_is_the_code_s_default()
+    {
+        var settings = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "appsettings.json")))!;
+
+        Assert.Equal(StartRecordStore.DefaultKeep, new StartRecordOptions().Keep);
+        Assert.Equal(StartRecordStore.DefaultKeep, (int)settings[StartRecordOptions.Section]![nameof(StartRecordOptions.Keep)]!);
+    }
+
     // ---- What a start keeps ----
 
     [Fact]
@@ -537,10 +548,24 @@ public class StartsPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         var (_, page) = await Get(Features.Operator);
 
-        Assert.Equal("/campaigns/{Id:guid}, 1.0 s Over 1 second", RenderedPage.Named(page, $"start-slowest-{Slow}"));
-        Assert.Equal("Over 1 second", RenderedPage.Named(page, $"start-sluggish-{Slow}"));
+        Assert.Equal("/campaigns/{Id:guid}, 1.0 s Over a second", RenderedPage.Named(page, $"start-slowest-{Slow}"));
+        Assert.Equal("Over a second", RenderedPage.Named(page, $"start-sluggish-{Slow}"));
         Assert.Equal("/campaigns, 999 ms", RenderedPage.Named(page, $"start-slowest-{Quick}"));
         Assert.Equal(0, RenderedPage.Count(page, $"start-sluggish-{Quick}"));
+    }
+
+    // The page's words for its two marks come from the thresholds the marks use, so they cannot drift
+    // apart: the outage's five minutes and the sluggish visit's second.
+    [Fact]
+    public async Task The_page_says_the_thresholds_the_marks_use()
+    {
+        var (_, page) = await Get(Features.Operator);
+
+        var outage = TimeWords.Period(TimeSpan.FromMilliseconds(StartRecord.OutageMs));
+        var sluggish = TimeWords.Period(TimeSpan.FromMilliseconds(StartRecord.SluggishMs));
+        Assert.EndsWith($"Down for {outage} or more is marked as an outage, and a first visit of {sluggish} or more is marked.",
+            RenderedPage.Named(page, "starts-intro"));
+        Assert.Equal($"Over {sluggish}", RenderedPage.Named(page, $"start-sluggish-{Slow}"));
     }
 
     // How long the site was down before each start, from the last heartbeat before it: five minutes or

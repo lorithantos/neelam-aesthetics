@@ -21,12 +21,12 @@
 }
 else
 {
-    <p class="muted">
+    <p class="muted" data-testid="starts-intro">
         Each time the site starts (a deploy, a setting changed, or Azure restarting it), it warms its pages
         before anyone needs them; anyone who arrives sooner is shown a "Getting ready" page that refreshes
         itself. While it runs it notes the time about once a minute, so each start can say how long the site
         was down before it. This is how the last @Shown starts went, newest first. Times are UTC. Down for
-        five minutes or more is marked as an outage, and a first visit of a second or more is marked.
+        @StartsView.OutageAfter or more is marked as an outage, and a first visit of @StartsView.SluggishFrom or more is marked.
     </p>
 
     @if (_unreadable is not null)
@@ -77,7 +77,7 @@ else
                                 @StartsView.Visit(start.SlowestVisit)
                                 @if (start.Sluggish)
                                 {
-                                    <span class="sluggish" data-testid="start-sluggish-@start.Id">Over 1 second</span>
+                                    <span class="sluggish" data-testid="start-sluggish-@start.Id">Over @StartsView.SluggishFrom</span>
                                 }
                             </td>
                         </tr>

@@ -57,6 +57,17 @@ public class LocalTimeTests
         Assert.Equal("America/Los_Angeles", settings["Display"]!["DefaultTimeZone"]!.GetValue<string>());
     }
 
+    // The zone a blank setting falls back to is the one appsettings.json ships, so a deployment that
+    // leaves the setting out shows the same times as one that keeps it.
+    [Fact]
+    public void The_shipped_zone_is_the_code_s_default()
+    {
+        var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "appsettings.json")))!;
+        var path = LocalTime.Setting.Split(':');
+
+        Assert.Equal(LocalTime.DefaultZone, settings[path[0]]![path[1]]!.GetValue<string>());
+    }
+
     // What a registered zone may be: one this machine knows, or none. The refusal names what was given.
     [Fact]
     public void A_zone_this_machine_does_not_know_is_a_problem_named_by_its_id()
