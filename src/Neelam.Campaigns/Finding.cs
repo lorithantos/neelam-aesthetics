@@ -9,16 +9,16 @@ public enum Severity
     Blocker,
 }
 
-/// <param name="Rule">Stable rule id, e.g. "tier-names-unique". AI findings start with "ai-".</param>
+/// <param name="Rule">Stable rule id, e.g. "tier-names-unique". LLM findings start with "ai-".</param>
 /// <param name="Location">Where in the email, e.g. "Offer › Tier 2".</param>
 /// <param name="Excerpt">The exact offending text, when the rule can point at it.</param>
 public sealed record Finding(
     Severity Severity, string Rule, string Location, string Message, string? Excerpt = null)
 {
-    /// <summary>Found by the AI proofread, not by a rule: the page tags it "AI" beside how much it matters.</summary>
+    /// <summary>Found by the LLM proofread, not by a rule: the page tags it "LLM" beside how much it matters.</summary>
     public bool IsAi => Rule.StartsWith("ai-", StringComparison.Ordinal);
 
-    /// <summary>Only AI findings can be dismissed by a person; rule-based blockers must be fixed.</summary>
+    /// <summary>Only LLM findings can be dismissed by a person; rule-based blockers must be fixed.</summary>
     public bool IsDismissable => IsAi;
 
     /// <summary>
