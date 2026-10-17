@@ -178,7 +178,7 @@ public static class EditorExport
 
 public sealed class CampaignBlockedException(ReviewReport report)
     : InvalidOperationException(!(report.Proofread || report.DemoApproval is not null)
-        ? "Campaign has not been through the full review (rules and AI proofread)."
+        ? "Campaign has not been through the full review (rules and LLM proofread)."
         : report.WarningsToSee
             ? $"Campaign has {report.Warnings.Count()} thing(s) worth a look that nobody has been shown at export yet."
             : $"Campaign has {report.Blockers.Count()} blocking problem(s): " +

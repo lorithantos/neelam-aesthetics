@@ -195,7 +195,7 @@ app.Services.GetRequiredService<TokenPrefetch>().Report(app.Services.GetRequired
 app.UseStartRecording();
 
 // Why the proofread is off, when it is: the setting's name and state, never a value.
-if (!proofread.Switch.IsOn) app.Logger.LogInformation("The AI proofread is off: {Why}", proofread.Switch.Why);
+if (!proofread.Switch.IsOn) app.Logger.LogInformation("The LLM proofread is off: {Why}", proofread.Switch.Why);
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

@@ -222,6 +222,76 @@ public class LlmExplanationIsDataTests(OtherGlossaryApp app) : IClassFixture<Oth
     }
 }
 
+/// <summary>
+/// "LLM", not "AI", in every word the product says, not only on the pages: the export's refusal, the
+/// startup refusals and the log lines an operator reads. This scans the source the app is built from,
+/// with its comments taken out, so a comment may still say AI and nothing the app says can. The
+/// glossary is not scanned: its explanation of LLM may say AI (owner, 2026-10-10).
+/// </summary>
+public class ProductWordingTests
+{
+    private static readonly string[] Scanned = [".cs", ".razor", ".html", ".js"];
+
+    private static readonly Regex[] CommentPatterns =
+    [
+        new(@"@\*.*?\*@", RegexOptions.Singleline),
+        new(@"/\*.*?\*/", RegexOptions.Singleline),
+        new("<!--.*?-->", RegexOptions.Singleline),
+        // Not after a colon, so an address such as https://... is not taken for a comment.
+        new(@"(?<!:)//.*$", RegexOptions.Multiline),
+    ];
+
+    private static readonly Regex Ai = new(@"\bAI\b");
+
+    [Fact]
+    public void Nothing_the_app_says_calls_the_llm_ai()
+    {
+        var found = SourceFiles()
+            .SelectMany(file => SaysAi(File.ReadAllText(file)).Select(line => $"{Path.GetRelativePath(InfrastructureTests.Root, file)}: {line}"))
+            .ToList();
+
+        Assert.True(found.Count == 0, "Say LLM, not AI: " + string.Join("; ", found));
+    }
+
+    // Built here rather than written out in a scanned file.
+    [Fact]
+    public void The_scan_finds_ai_in_what_is_said_and_passes_comments()
+    {
+        var ai = "A" + "I";
+        Assert.NotEmpty(SaysAi($"throw new X(\"Campaign has not been through the {ai} proofread.\");"));
+        Assert.NotEmpty(SaysAi($"<p>Proofread by {ai}</p>"));
+        Assert.NotEmpty(SaysAi($"var url = \"https://x\"; log.LogWarning(\"The {ai} proofread could not be reached.\");"));
+        Assert.Empty(SaysAi($"/// <summary>The {ai} proofread.</summary>\n// the {ai}'s findings\nvar ai = 1;"));
+        Assert.Empty(SaysAi($"@* What the {ai} found *@ /* the {ai} */ <!-- {ai} -->"));
+        Assert.Empty(SaysAi("\"ai-spelling\", \"FAIL\", \"MAIL\""));
+    }
+
+    [Fact]
+    public void The_scan_covers_the_files_that_matter()
+    {
+        var files = SourceFiles().Select(f => Path.GetRelativePath(InfrastructureTests.Root, f).Replace('\\', '/')).ToList();
+
+        Assert.Contains("src/Neelam.Campaigns/EditorExport.cs", files);
+        Assert.Contains("src/Neelam.Campaigns.Claude/ClaudeProofreader.cs", files);
+        Assert.Contains("src/Neelam.Web/Program.cs", files);
+        Assert.Contains("src/Neelam.Web/Components/Pages/CampaignEdit.razor", files);
+        Assert.Contains("src/Neelam.Web/wwwroot/startup-failed.html", files);
+        Assert.DoesNotContain(files, f => f.Contains("/obj/") || f.Contains("/bin/"));
+    }
+
+    /// <summary>Each line that says AI once the comments are out.</summary>
+    private static IEnumerable<string> SaysAi(string source)
+    {
+        var said = CommentPatterns.Aggregate(source, (text, comment) => comment.Replace(text, ""));
+        return said.Split('\n').Where(line => Ai.IsMatch(line)).Select(line => line.Trim());
+    }
+
+    private static IEnumerable<string> SourceFiles() =>
+        Directory.EnumerateFiles(Path.Combine(InfrastructureTests.Root, "src"), "*", SearchOption.AllDirectories)
+            .Where(f => Scanned.Contains(Path.GetExtension(f)))
+            .Where(f => !f.Split(Path.DirectorySeparatorChar).Any(part => part is "bin" or "obj"));
+}
+
 /// <summary>What the LLM report's line says it found (owner, 2026-10-10: "LLM report, 10 Oct 2:46 PM: 5 things worth a look.").</summary>
 public class ProofreadSummaryTests
 {

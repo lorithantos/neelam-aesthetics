@@ -111,7 +111,7 @@ public sealed partial class ProofreadInstructions
 /// <summary>The proofread's instructions file and the code disagree, so the app does not start; the message lists every problem.</summary>
 public sealed class ProofreadInstructionsException(IReadOnlyList<string> problems)
     : InvalidOperationException(
-        $"The AI proofread's instructions ({ProofreadInstructions.Folder}/{ProofreadInstructions.File}) do not match the code:" +
+        $"The LLM proofread's instructions ({ProofreadInstructions.Folder}/{ProofreadInstructions.File}) do not match the code:" +
         string.Concat(problems.Select(p => $"{Environment.NewLine}- {p}")))
 {
     public IReadOnlyList<string> Problems { get; } = problems;

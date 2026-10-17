@@ -617,7 +617,7 @@ else
         }
         catch (Exception ex)
         {
-            Log.LogError(ex, "The AI proofread of a campaign of {Client} could not be kept.", _client!.Value);
+            Log.LogError(ex, "The LLM proofread of a campaign of {Client} could not be kept.", _client!.Value);
             _proofreadMessage = "The LLM report could not be kept just now. The rules' checks above still stand.";
         }
         finally

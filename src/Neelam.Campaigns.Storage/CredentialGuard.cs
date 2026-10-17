@@ -70,7 +70,7 @@ public static class CredentialGuard
 
         if (offending.Count > 0)
             throw new InvalidOperationException(
-                "Stored credentials are not allowed; this app uses managed identity only, and the AI proofread's key " +
+                "Stored credentials are not allowed; this app uses managed identity only, and the LLM proofread's key " +
                 $"only through Key Vault, in {KeySetting} (on App Service also its {AppServiceCopy} copy, holding the same). " +
                 "Remove: " + string.Join(", ", offending));
     }

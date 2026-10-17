@@ -110,7 +110,7 @@ public sealed class ProofreadSetup
     /// <param name="photos">The fetcher over the app's one photo client (<see cref="SquarePhotoFetcher.HttpClientName"/>).</param>
     public IProofreader Create(SquarePhotoFetcher photos, ILogger<ClaudeProofreader> log)
     {
-        if (!Switch.IsOn) throw new InvalidOperationException("The AI proofread is not switched on: " + Switch.Why);
+        if (!Switch.IsOn) throw new InvalidOperationException("The LLM proofread is not switched on: " + Switch.Why);
         var client = new AnthropicClient
         {
             ApiKey = _options.AnthropicApiKey,

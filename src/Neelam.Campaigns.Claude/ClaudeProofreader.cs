@@ -85,7 +85,7 @@ public sealed class ClaudeProofreader(
         catch (Exception ex)
         {
             // The kind of failure only: an error's text is not ours to log.
-            log.LogWarning("The AI proofread could not be reached: {Error}.", ex.GetType().Name);
+            log.LogWarning("The LLM proofread could not be reached: {Error}.", ex.GetType().Name);
             throw new ProofreadUnavailableException("The LLM could not be reached just now. Try again in a while.", ex);
         }
 
@@ -448,7 +448,7 @@ public sealed class ClaudeProofreader(
     {
         var usage = response.Usage;
         log.LogInformation(
-            "AI proofread: model {Model}, stop {StopReason}, photos sent {PhotosSent}, photos from earlier readings {PhotosRemembered}; " +
+            "LLM proofread: model {Model}, stop {StopReason}, photos sent {PhotosSent}, photos from earlier readings {PhotosRemembered}; " +
             "tokens in {InputTokens}, out {OutputTokens}, cache read {CacheReadTokens}, cache written {CacheWriteTokens}.",
             response.Model.Raw(), response.StopReason?.Raw(), photosSent, photosRemembered,
             usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens ?? 0, usage.CacheCreationInputTokens ?? 0);
