@@ -2,11 +2,11 @@
   "mcpServers": {
     "janet": {
       "type": "http",
-      "url": "http://127.0.0.1:7717/"
+      "url": "http://127.0.0.1:7717/", "headersHelper": "janet mcp-headers"
     },
     "razorgraph": {
       "type": "http",
-      "url": "http://127.0.0.1:7718/"
+      "url": "http://127.0.0.1:7718/", "headersHelper": "janet mcp-headers"
     }
   }
 }
