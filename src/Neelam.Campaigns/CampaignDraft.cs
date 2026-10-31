@@ -11,6 +11,19 @@ public sealed class CampaignDraft
     public string? TemplateName { get; }
 
     /// <summary>
+    /// The template the campaign was made from, or last brought up to (<see cref="TemplateUpdate"/>), by
+    /// its id. Null for a campaign saved before 2026-10-31, which has no template attached. Saved with the
+    /// draft's JSON; never part of the email, so an approval does not rest on it.
+    /// </summary>
+    public Guid? TemplateId { get; init; }
+
+    /// <summary>
+    /// Which version of <see cref="TemplateId"/>: the time that version was saved, which names its save.
+    /// A newer save of the template than this, or this one undone, is a template changed since.
+    /// </summary>
+    public DateTimeOffset? TemplateVersion { get; init; }
+
+    /// <summary>
     /// The client's own name for the campaign, such as "Beauty Bank -- first send", to tell apart
     /// campaigns that share a subject. Hers alone: it is not part of the email, so
     /// <see cref="Build"/> leaves it out, and nothing checks or exports it. Saved with the draft's

@@ -99,7 +99,64 @@ else if (_session is not null)
 
     <KnownItemLists Known="Known" />
     <h1>@Title</h1>
-    <p><a href="campaigns">Back to campaigns</a>@(editor.TemplateName is { } template ? $" · From the template {template}" : "")</p>
+    <p><a href="campaigns">Back to campaigns</a></p>
+
+    @* The template the campaign follows (owner, 2026-10-31): Update to template when the one it was
+       made from has changed, and any of hers can be picked and used at any time. Using one changes the
+       form only; she saves as usual. When something she wrote would be lost, she is asked first. *@
+    var standing = _session.TemplateStatus(_templates);
+    var picked = PickedTemplate;
+    var attached = editor.Draft.TemplateId?.ToString();
+    <div class="field">
+        <label for="template">Template</label>
+        <select id="template" data-testid="template-picker" @bind:get="picked" @bind:set="PickTemplate">
+            <option value="">Choose a template</option>
+            @foreach (var t in _templates)
+            {
+                <option value="@t.Id">@t.Title</option>
+            }
+        </select>
+        @if (standing == TemplateStanding.Changed)
+        {
+            <p class="field-help" data-testid="template-changed">The template @editor.TemplateName has changed since this campaign was made.</p>
+        }
+        else if (standing == TemplateStanding.Gone)
+        {
+            <p class="field-help" data-testid="template-gone">The template @editor.TemplateName no longer exists. This campaign still works as it is, and you can choose another template.</p>
+        }
+        <div class="block-actions">
+            @if (picked.Length > 0 && picked != attached)
+            {
+                <button class="button" data-testid="template-use" disabled="@(errors.Count > 0)" @onclick="UseTemplateAsync">Use this template</button>
+            }
+            else if (standing == TemplateStanding.Changed && picked == attached)
+            {
+                <button class="button" data-testid="template-update" disabled="@(errors.Count > 0)" @onclick="UseTemplateAsync">Update to template</button>
+            }
+        </div>
+        @if (_askTemplate is { } ask)
+        {
+            <section class="card" role="alert" data-testid="template-confirm">
+                <p>Using the template @ask.Template.Name changes what you wrote here:</p>
+                <ul>
+                    @foreach (var label in ask.Update.Dropped)
+                    {
+                        <li data-testid="template-dropped">@label: the template has no place for it, so it goes.</li>
+                    }
+                    @foreach (var label in ask.Update.Replaced)
+                    {
+                        <li data-testid="template-replaced">@label: the template's own text takes the place of yours.</li>
+                    }
+                </ul>
+                <button class="button danger" data-testid="template-confirm-use" disabled="@(errors.Count > 0)" @onclick="ConfirmTemplateAsync">Use the template</button>
+                <button class="button" data-testid="template-keep" @onclick="() => _askTemplate = null">Keep it as it is</button>
+            </section>
+        }
+        @if (_templateMessage is not null)
+        {
+            <p role="status" data-testid="template-message">@_templateMessage</p>
+        }
+    </div>
 
     @if (change != CampaignChange.None)
     {
@@ -648,6 +705,88 @@ else
     private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
+
+    // Her templates, the newest version of each, for the Template picker: read as the page opens, and
+    // again after each template action and Load the latest, so a version saved meanwhile is seen.
+    private IReadOnlyList<SaveRef> _templates = [];
+    // The template she picked, by id; null until she picks one, when the picker shows the one attached,
+    // or with none attached the one of hers with the campaign's template name.
+    private string? _pickedTemplate;
+    // A template that would lose something she wrote, while she is asked.
+    private TemplateChoice? _askTemplate;
+    private string? _templateMessage;
+
+    private string PickedTemplate =>
+        _pickedTemplate
+        ?? (_session!.TemplateStatus(_templates) is TemplateStanding.Current or TemplateStanding.Changed
+            ? _session.Editor.Draft.TemplateId!.Value.ToString()
+            : _session.SuggestedTemplate(_templates)?.Id.ToString())
+        ?? "";
+
+    private void PickTemplate(string? value)
+    {
+        _pickedTemplate = value;
+        _askTemplate = null;
+        _templateMessage = null;
+    }
+
+    private async Task LoadTemplatesAsync() => _templates = _session is null ? [] : await _session.TemplatesAsync();
+
+    // Back to what the campaign on the page has: after the form is replaced from storage.
+    private void ForgetTemplateChoice()
+    {
+        _pickedTemplate = null;
+        _askTemplate = null;
+        _templateMessage = null;
+    }
+
+    // "Use this template" and "Update to template": the picked template's newest version, read now, into
+    // the form at once when nothing she wrote would be lost, otherwise asked first. Nothing is saved.
+    private Task UseTemplateAsync() => ActingAsync(async () =>
+    {
+        _askTemplate = null;
+        _templateMessage = null;
+        if (!Guid.TryParse(PickedTemplate, out var id)) return;
+        try
+        {
+            if (await _session!.ChooseTemplateAsync(id) is { } choice)
+                TemplateUsed(choice, _session.UseTemplate(choice));
+            else
+            {
+                _pickedTemplate = null;
+                _templateMessage = "That template no longer exists. Choose another.";
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            _templateMessage = ex.Message;
+        }
+        await LoadTemplatesAsync();
+    });
+
+    // "Use the template", once asked: applied if what would be lost is still no more than she was shown.
+    private Task ConfirmTemplateAsync() => ActingAsync(async () =>
+    {
+        if (_askTemplate is not { } asked) return;
+        try
+        {
+            TemplateUsed(asked, _session!.UseTemplate(asked, confirmed: true));
+        }
+        catch (InvalidOperationException ex)
+        {
+            _templateMessage = ex.Message;
+        }
+        await LoadTemplatesAsync();
+    });
+
+    private void TemplateUsed(TemplateChoice choice, TemplateChoice? ask)
+    {
+        _askTemplate = ask;
+        if (ask is not null) return;
+        _pickedTemplate = null;
+        _templateMessage = $"The template {choice.Template.Name} is in the form now. Save the campaign to keep it" +
+                           (_session!.Latest is null ? "." : "; leave without saving and the campaign stays as it was.");
+    }
     // In the client's own zone, once it is known.
     private LocalTime? _times;
     private LocalTime Times => _times ?? Workspace.DefaultTimes;
@@ -688,6 +827,7 @@ else
             _session = await DraftSession.StartAsync(store, templateId);
             if (_session is null) _missing = "Template not found";
         }
+        await LoadTemplatesAsync();
         // What the campaign was just opened with is storage's as of now; listening and the timer start
         // once the page is live (OnAfterRenderAsync), never while it is rendered ahead of time.
         _watch = new PageWatch<SaveRef>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
@@ -792,6 +932,8 @@ else
         }
         _session = latest;
         _watch!.Watch(latest);
+        ForgetTemplateChoice();
+        await LoadTemplatesAsync();
         if (latest is not null)
         {
             _message = "The latest version is open.";
@@ -874,6 +1016,7 @@ else
     private Task UndoAsync() => ActingAsync(async () =>
     {
         _confirmingUndo = false;
+        ForgetTemplateChoice();
         bool left;
         try
         {
@@ -900,6 +1043,7 @@ else
     private Task RestoreAsync() => ActingAsync(async () =>
     {
         _confirmingUndo = false;
+        ForgetTemplateChoice();
         _message = await _session!.RestoreAsync()
             ? "The undone save is back and open."
             : "That save can no longer be restored.";
@@ -910,6 +1054,8 @@ else
         _session = await DraftSession.RestoreAsync(_store!, _undone!);
         _watch?.Watch(_session);
         _undone = null;
+        ForgetTemplateChoice();
+        await LoadTemplatesAsync();
         if (_session is null) _missing = "Campaign not found";
         else _message = "The undone save is back and open.";
     });

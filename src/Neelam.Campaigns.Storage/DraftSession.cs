@@ -46,22 +46,12 @@ public sealed class DraftSession : IWatched<SaveRef>
     }
 
     /// <summary>
-    /// The draft as an approval sees it: its JSON with the client's label left out. The label is hers
-    /// alone, never in the email, never checked or exported, so changing it changes nothing approved.
+    /// The draft as an approval sees it: its JSON with the client's label left out, and the template's
+    /// id and version (<see cref="CampaignJson.SerializeContent"/>). The label is hers alone, never in
+    /// the email, never checked or exported, so changing it changes nothing approved; attaching a
+    /// template that changes no block changes nothing approved either (owner, 2026-10-31).
     /// </summary>
-    internal static string ContentOf(CampaignDraft draft)
-    {
-        var label = draft.Label;
-        draft.Label = null;
-        try
-        {
-            return CampaignJson.SerializeDraft(draft);
-        }
-        finally
-        {
-            draft.Label = label;
-        }
-    }
+    internal static string ContentOf(CampaignDraft draft) => CampaignJson.SerializeContent(draft);
 
     /// <summary>The campaign's id; null until a new campaign is first saved.</summary>
     public Guid? Id { get; private set; }
@@ -515,13 +505,84 @@ public sealed class DraftSession : IWatched<SaveRef>
     public static Task<IReadOnlyList<SaveRef>> RecentlyDeletedAsync(CampaignStore store, CancellationToken ct = default) =>
         store.RecentlyDeletedAsync(DocumentKind.Draft, ct);
 
-    /// <summary>A new, unsaved campaign from a template's newest version, or null when the template has no saves.</summary>
+    /// <summary>
+    /// A new, unsaved campaign from a template's newest version, or null when the template has no saves.
+    /// The campaign records the template and that version (2026-10-31).
+    /// </summary>
     public static async Task<DraftSession?> StartAsync(CampaignStore store, Guid templateId, CancellationToken ct = default)
     {
         var template = (await store.HistoryAsync(DocumentKind.Template, templateId, ct)).FirstOrDefault();
         return template is null
             ? null
-            : new DraftSession(store, null, CampaignEditor.Start(await store.LoadTemplateAsync(template, ct)), null);
+            : new DraftSession(store, null,
+                CampaignEditor.Start(await store.LoadTemplateAsync(template, ct), templateId, template.SavedAt), null);
+    }
+
+    /// <summary>
+    /// The client's templates, the newest version of each, by name as the Templates list orders them:
+    /// what the campaign page's Template picker offers. One listing, and no template is read.
+    /// </summary>
+    public async Task<IReadOnlyList<SaveRef>> TemplatesAsync(CancellationToken ct = default) =>
+        (await _store.LatestAsync(DocumentKind.Template, ct))
+            .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    /// <summary>
+    /// Where the campaign on the page stands with its template, given her templates as
+    /// <see cref="TemplatesAsync"/> listed them: none attached, the version it records still the
+    /// newest, a newer one saved (or the one it records undone), or the template gone.
+    /// </summary>
+    public TemplateStanding TemplateStatus(IReadOnlyList<SaveRef> templates)
+    {
+        if (Editor.Draft.TemplateId is not { } id) return TemplateStanding.None;
+        var newest = templates.FirstOrDefault(t => t.Id == id);
+        if (newest is null) return TemplateStanding.Gone;
+        return newest.SavedAt == Editor.Draft.TemplateVersion ? TemplateStanding.Current : TemplateStanding.Changed;
+    }
+
+    /// <summary>
+    /// For a campaign with no template attached, the template to offer first: the one of hers whose
+    /// newest version has the name the campaign records, when exactly one has. Null otherwise; nothing
+    /// is attached until she says.
+    /// </summary>
+    public SaveRef? SuggestedTemplate(IReadOnlyList<SaveRef> templates)
+    {
+        if (Editor.Draft.TemplateId is not null || Editor.TemplateName is not { } name) return null;
+        var named = templates.Where(t => t.Title == name).Take(2).ToList();
+        return named.Count == 1 ? named[0] : null;
+    }
+
+    /// <summary>
+    /// The newest version of one of her templates, read now, and what using it would do to the form as
+    /// it stands; null when the template has no version in use. Changes nothing.
+    /// </summary>
+    public async Task<TemplateChoice?> ChooseTemplateAsync(Guid templateId, CancellationToken ct = default)
+    {
+        var version = await _store.NewestAsync(DocumentKind.Template, templateId, ct);
+        if (version is null) return null;
+        var template = await _store.LoadTemplateAsync(version, ct);
+        return new TemplateChoice(version, template, TemplateUpdate.Of(Editor.Draft, template, templateId, version.SavedAt));
+    }
+
+    /// <summary>
+    /// Puts a template's version into the form (<see cref="TemplateUpdate"/>), worked out again against
+    /// the form as it stands now, and saves nothing: she saves as usual, and leaving without saving keeps
+    /// the campaign as it was. When that would lose something she wrote, it is applied only once she has
+    /// said yes (<paramref name="confirmed"/>) to <paramref name="choice"/>'s question and nothing beyond
+    /// what it named would be lost.
+    /// </summary>
+    /// <returns>Null when applied; otherwise the choice with what would be lost now, to ask her about.</returns>
+    /// <exception cref="InvalidOperationException">The form holds typed text the draft cannot hold yet, which this would lose.</exception>
+    public TemplateChoice? UseTemplate(TemplateChoice choice, bool confirmed = false)
+    {
+        if (Editor.Errors().Count > 0)
+            throw new InvalidOperationException("Fix what is marked first: using the template would lose it.");
+        var update = TemplateUpdate.Of(Editor.Draft, choice.Template, choice.Version.Id, choice.Version.SavedAt);
+        var agreed = confirmed
+                     && update.Dropped.All(choice.Update.Dropped.Contains)
+                     && update.Replaced.All(choice.Update.Replaced.Contains);
+        if (update.LosesAnything && !agreed) return choice with { Update = update };
+        Editor = CampaignEditor.Open(update.Draft);
+        return null;
     }
 
     /// <summary>
@@ -678,6 +739,28 @@ public sealed record CampaignListing(SaveRef Save, string? Label);
 /// <param name="Replaced">The version that was newest at the click and no longer is; it stays stored. Null when hers was still the newest.</param>
 /// <param name="HadApproval">The approval the page's own version had before, which does not go with the new save.</param>
 public sealed record KeptMine(SaveRef Saved, SaveRef? Replaced, Approval? HadApproval);
+
+/// <summary>Where a campaign stands with its template (<see cref="DraftSession.TemplateStatus"/>).</summary>
+public enum TemplateStanding
+{
+    /// <summary>No template attached: saved before campaigns recorded theirs (2026-10-31).</summary>
+    None,
+
+    /// <summary>The version it records is the template's newest.</summary>
+    Current,
+
+    /// <summary>The template has a newer version, or the version it records was undone.</summary>
+    Changed,
+
+    /// <summary>The template has no version in use: every save undone, or swept.</summary>
+    Gone,
+}
+
+/// <summary>A template version she chose for the campaign, and what using it would do.</summary>
+/// <param name="Version">The template's newest version when chosen.</param>
+/// <param name="Template">That version, read.</param>
+/// <param name="Update">What it would do to the form: what would be lost is what she is asked about.</param>
+public sealed record TemplateChoice(SaveRef Version, CampaignTemplate Template, TemplateUpdate Update);
 
 /// <summary>What came of asking for the AI proofread, in words for her: done, or why not.</summary>
 /// <param name="Done">True when the proofread ran and its result is kept with the version.</param>

@@ -77,6 +77,15 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
         _renderer.ThrowIfFailed();
     });
 
+    /// <summary>Chooses <paramref name="value"/> in the one list named <paramref name="testId"/>, as a browser tells the page of a choice.</summary>
+    public Task ChooseAsync(string testId, string value) => _renderer.Dispatcher.InvokeAsync(async () =>
+    {
+        var handler = _renderer.Handler(_root, testId, "onchange")
+            ?? throw new InvalidOperationException($"Nothing named {testId} can be chosen from.");
+        await _renderer.DispatchEventAsync(handler, null, new ChangeEventArgs { Value = value });
+        _renderer.ThrowIfFailed();
+    });
+
     public Task<string> HtmlAsync() => _renderer.Dispatcher.InvokeAsync(() =>
     {
         _renderer.ThrowIfFailed();

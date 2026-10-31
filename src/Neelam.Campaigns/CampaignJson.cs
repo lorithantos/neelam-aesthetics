@@ -23,11 +23,22 @@ public static class CampaignJson
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    public static string SerializeDraft(CampaignDraft d) =>
+    public static string SerializeDraft(CampaignDraft d) => SerializeDraft(d, content: false);
+
+    /// <summary>
+    /// The draft as an approval sees it: its JSON without her label, which is hers alone and never in
+    /// the email, and without the template's id and version, which say where the blocks came from and
+    /// not what they hold (owner, 2026-10-31). Not for saving: it does not read back as the draft.
+    /// </summary>
+    public static string SerializeContent(CampaignDraft d) => SerializeDraft(d, content: true);
+
+    private static string SerializeDraft(CampaignDraft d, bool content) =>
         JsonSerializer.Serialize(new DraftDocument(
             SchemaVersion, d.TemplateName, Save(d.Subject), Save(d.Preheader),
             d.Blocks.Select(Save).ToList(),
-            string.IsNullOrWhiteSpace(d.Label) ? null : d.Label.Trim()), Options);
+            content || string.IsNullOrWhiteSpace(d.Label) ? null : d.Label.Trim(),
+            content ? null : d.TemplateId,
+            content ? null : d.TemplateVersion), Options);
 
     public static CampaignDraft DeserializeDraft(string json)
     {
@@ -38,7 +49,10 @@ public static class CampaignJson
         // Each block is rebuilt empty, the way its template would start it, and then every slot is
         // put back with its origin, so a copy nobody reviewed is still unreviewed.
         var blocks = doc.Blocks.Select(Restore).ToList();
-        var d = new CampaignDraft(doc.TemplateName, blocks) { Label = doc.Label };
+        var d = new CampaignDraft(doc.TemplateName, blocks)
+        {
+            Label = doc.Label, TemplateId = doc.TemplateId, TemplateVersion = doc.TemplateVersion,
+        };
         Restore(d.Subject, doc.Subject);
         Restore(d.Preheader, doc.Preheader);
         return d;
@@ -253,7 +267,11 @@ public static class CampaignJson
         IReadOnlyList<BlockDocument> Blocks,
         // The client's own label (2026-10-09). Optional, and left out when there is none, so drafts
         // saved before it read as unlabelled and the schema stays 2.
-        string? Label = null);
+        string? Label = null,
+        // The template and its version the blocks came from (2026-10-31). Optional in the same way: a
+        // draft saved before has neither, and reads as having no template attached.
+        Guid? TemplateId = null,
+        DateTimeOffset? TemplateVersion = null);
 
     // One saved block: which of the value fields is set follows from its type.
     private sealed record BlockDocument(

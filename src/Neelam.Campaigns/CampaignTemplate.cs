@@ -50,5 +50,9 @@ public sealed record CampaignTemplate
         Blocks = blocks;
     }
 
-    public CampaignDraft Start() => new(Name, Blocks.Select(BlockDraft.From).ToList());
+    /// <summary>A new campaign: the fixed parts filled, everything else empty.</summary>
+    /// <param name="id">The template's id, recorded on the campaign; null when it has none, as before its first save.</param>
+    /// <param name="version">When the version started from was saved, recorded on the campaign.</param>
+    public CampaignDraft Start(Guid? id = null, DateTimeOffset? version = null) =>
+        new(Name, Blocks.Select(BlockDraft.From).ToList()) { TemplateId = id, TemplateVersion = version };
 }

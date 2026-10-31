@@ -41,7 +41,10 @@ public sealed class CampaignEditor
     public IReadOnlyList<BlockEditor> Blocks { get; }
 
     /// <summary>A new campaign from a template: its fixed parts filled, everything else empty.</summary>
-    public static CampaignEditor Start(CampaignTemplate template) => new(template.Start());
+    /// <param name="templateId">The template's id, recorded on the campaign (<see cref="CampaignDraft.TemplateId"/>).</param>
+    /// <param name="version">When the version started from was saved (<see cref="CampaignDraft.TemplateVersion"/>).</param>
+    public static CampaignEditor Start(CampaignTemplate template, Guid? templateId = null, DateTimeOffset? version = null) =>
+        new(template.Start(templateId, version));
 
     /// <summary>A saved draft, every value with the origin it was saved with.</summary>
     public static CampaignEditor Open(CampaignDraft draft) => new(draft);
