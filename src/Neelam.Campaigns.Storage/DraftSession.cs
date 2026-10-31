@@ -97,6 +97,24 @@ public sealed class DraftSession : IWatched<SaveRef>
         }
     }
 
+    /// <summary>
+    /// What the page asks before deleting the campaign (<see cref="DeleteAsync"/>): how many versions go,
+    /// where and for how long it can be restored, and, when any version was approved, that the approval
+    /// is withdrawn, as an undo withdraws it. Proposed wording, the owner's to change.
+    /// </summary>
+    public string DeleteQuestion
+    {
+        get
+        {
+            var what = _versions > 1 ? $"this campaign and all {_versions} of its versions" : "this campaign";
+            var question = $"Delete {what}? It goes from your campaigns. You can restore it from Recently deleted for " +
+                           $"{TimeWords.Period(_store.UndoGracePeriod)}, then it is deleted for good.";
+            return Latest?.Approval is not null || SupersededApproval is not null
+                ? question + " Its approval is withdrawn: restored, it needs approving again."
+                : question;
+        }
+    }
+
     /// <summary>True when the form holds anything not in <see cref="Latest"/>, or nothing is saved yet.</summary>
     public bool HasUnsavedChanges =>
         _saved is null || Editor.Errors().Count > 0 || CampaignJson.SerializeDraft(Editor.Draft) != _saved;
@@ -678,6 +696,29 @@ public sealed class DraftSession : IWatched<SaveRef>
         try
         {
             return await ReopenAsync(ct);
+        }
+        finally
+        {
+            Raise();
+        }
+    }
+
+    /// <summary>
+    /// Deletes the whole campaign, whatever its number of versions (Priya, 2026-10-31: "We need a delete
+    /// for campaigns - it should be able to be undone"): every version in use is undone at one moment
+    /// (<see cref="CampaignStore.DeleteAsync"/>), any unsaved changes are discarded, and the campaign goes
+    /// from her list. <see cref="Restorable"/> then brings it back whole for the grace period, here or from
+    /// Recently deleted; after it the sweep deletes it. Every version goes, a version saved in another tab
+    /// since this page opened included, since all of it comes back together.
+    /// </summary>
+    public async Task DeleteAsync(CancellationToken ct = default)
+    {
+        if (Latest is null || Id is null)
+            throw new InvalidOperationException("There is no saved campaign to delete.");
+        await _store.DeleteAsync(DocumentKind.Draft, Id.Value, ct);
+        try
+        {
+            await ReopenAsync(ct);
         }
         finally
         {

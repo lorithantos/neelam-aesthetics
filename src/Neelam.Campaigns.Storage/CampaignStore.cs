@@ -118,10 +118,13 @@ public sealed class CampaignStore(
     /// content is untouched until the sweep deletes it.
     /// </summary>
     /// <exception cref="InvalidOperationException">The save is already gone.</exception>
-    public async Task<SaveRef> MarkUndoneAsync(SaveRef save, CancellationToken ct = default)
+    public Task<SaveRef> MarkUndoneAsync(SaveRef save, CancellationToken ct = default) =>
+        MarkUndoneAsync(save, clock.GetUtcNow(), ct);
+
+    // The mark at a given time: a campaign deleted whole has every version marked with the same one.
+    private async Task<SaveRef> MarkUndoneAsync(SaveRef save, DateTimeOffset at, CancellationToken ct)
     {
         var blob = await FindAsync(save, ct) ?? throw new InvalidOperationException("That save is already gone.");
-        var at = clock.GetUtcNow();
         // An undone save loses its approval: restored, it comes back unapproved. The row stays, as
         // the record that it was approved, marked withdrawn from the moment of the undo. Withdrawn
         // first, so a failure between the two leaves the save unapproved rather than approved.
@@ -152,10 +155,38 @@ public sealed class CampaignStore(
         var after = await NewestAsync(save.Kind, save.Id, ct);
         if (after is not null && after.SavedAt > save.SavedAt)
         {
-            await RestoreAsync(undone, ct);
+            await ClearMarkAsync(undone, ct);
             return new(false, after);
         }
         return new(true, after, undone);
+    }
+
+    /// <summary>
+    /// Deletes a whole campaign or template the way Undo deletes one save (Priya, 2026-10-31: "it should be
+    /// able to be undone"): every save of it in use is marked undone, all with the same time, newest first,
+    /// each losing its approval as an undone save does. It leaves every list at once, <see cref="RecentlyDeletedAsync"/>
+    /// offers it back for the grace period, <see cref="RestoreAsync"/> brings back every save marked with it,
+    /// and then the sweep deletes them and their proofreads, leaving no record of what they held. A save
+    /// already undone before stays undone. A save that lands while the marks go on is marked too, so nothing
+    /// of it is left in use.
+    /// </summary>
+    /// <remarks>
+    /// Newest first, so a failure part-way leaves the older saves in use with the marked ones above them,
+    /// where Restore offers them, rather than marked saves below one in use, which nothing would offer back.
+    /// </remarks>
+    /// <returns>The saves marked, newest first; none when it had none in use.</returns>
+    public async Task<IReadOnlyList<SaveRef>> DeleteAsync(DocumentKind kind, Guid id, CancellationToken ct = default)
+    {
+        var at = clock.GetUtcNow();
+        var marked = new List<SaveRef>();
+        // Each pass marks what the one before could not have seen; three is plenty for saves a person makes.
+        for (var pass = 0; pass < 3; pass++)
+        {
+            var inUse = InUse(await ListPrefixAsync(kind, $"{Prefix(kind)}/{id:N}/", ct));
+            if (inUse.Count == 0) break;
+            foreach (var save in inUse) marked.Add(await MarkUndoneAsync(save, at, ct));
+        }
+        return marked;
     }
 
     /// <summary>
@@ -328,38 +359,64 @@ public sealed class CampaignStore(
     public DateTimeOffset? RestorableUntil(SaveRef save) => save.UndoneAt + undoGracePeriod;
 
     /// <summary>
-    /// The undone save that Restore would bring back for one campaign or template: the save just
-    /// above the newest one in use (the last one undone), while its grace period lasts. Null when
-    /// there is none, so a save undone and then saved over is not offered back.
+    /// The undone save that Restore would bring back for one campaign or template: among the saves
+    /// undone above the newest one in use, the oldest of those undone last, while its grace period
+    /// lasts. After undos one at a time that is the save just above the newest in use (the last one
+    /// undone); after a whole campaign was deleted, its oldest save, and Restore brings back every save
+    /// marked with it. Null when there is none, so a save undone and then saved over is not offered back.
     /// </summary>
     public async Task<SaveRef?> RestorableAsync(DocumentKind kind, Guid id, CancellationToken ct = default)
     {
-        var undoneAbove = (await ListPrefixAsync(kind, $"{Prefix(kind)}/{id:N}/", ct))
-            .TakeWhile(s => s.UndoneAt is not null).LastOrDefault();
+        var undoneAbove = LastUndone((await ListPrefixAsync(kind, $"{Prefix(kind)}/{id:N}/", ct))
+            .TakeWhile(s => s.UndoneAt is not null).ToList());
         return undoneAbove is not null && CanRestore(undoneAbove) ? undoneAbove : null;
     }
 
     /// <summary>
     /// Every campaign or template with no save in use and one still restorable: for each, the save
-    /// Restore would bring back (as <see cref="RestorableAsync"/> gives it, the last one undone), most
-    /// recently undone first. Read from the blob names and marks; no save's content is read.
+    /// Restore would bring back (as <see cref="RestorableAsync"/> gives it), most recently deleted
+    /// first. Read from the blob names and marks; no save's content is read.
     /// </summary>
     public async Task<IReadOnlyList<SaveRef>> RecentlyDeletedAsync(DocumentKind kind, CancellationToken ct = default) =>
         (await ListPrefixAsync(kind, $"{Prefix(kind)}/", ct))
             .GroupBy(s => s.Id)
             .Where(g => g.All(s => s.UndoneAt is not null))
-            // Newest first within each campaign, so the last undone is the oldest save.
-            .Select(g => g.Last())
+            .Select(g => LastUndone(g.ToList())!)
             .Where(CanRestore)
             .OrderByDescending(s => s.UndoneAt)
             .ToList();
 
+    // Of undone saves listed newest first, the oldest of those with the latest mark: what was undone
+    // last, by one undo or by deleting the whole campaign at once.
+    private static SaveRef? LastUndone(List<SaveRef> undone) =>
+        undone.Count == 0 ? null : undone.Last(s => s.UndoneAt == undone.Max(u => u.UndoneAt));
+
     /// <summary>
-    /// Takes an undo back: clears the save's mark, so it is in use again. False when the save is
-    /// gone, is not undone, or its grace period has passed; the mark is read from storage, not
-    /// from <paramref name="save"/>.
+    /// Takes an undo back: clears the save's mark, so it is in use again, and the mark of every other
+    /// save of its campaign or template undone at the same moment, which is how a campaign deleted whole
+    /// comes back whole. Oldest first, so a failure part-way leaves the rest above the restored ones,
+    /// where Restore offers them again. False when the save is gone, is not undone, or its grace period
+    /// has passed; the marks are read from storage, not from <paramref name="save"/>.
     /// </summary>
     public async Task<bool> RestoreAsync(SaveRef save, CancellationToken ct = default)
+    {
+        var blob = await FindAsync(save, ct);
+        if (blob is null || !TryParse(save.Kind, blob, out var current) || !CanRestore(current))
+            return false;
+        var together = (await ListPrefixAsync(save.Kind, $"{Prefix(save.Kind)}/{save.Id:N}/", ct))
+            .Where(s => s.UndoneAt == current.UndoneAt)
+            .OrderBy(s => s.SavedAt);
+        var restored = false;
+        foreach (var undone in together)
+        {
+            var cleared = await ClearMarkAsync(undone, ct);
+            if (undone.BlobName == save.BlobName) restored = cleared;
+        }
+        return restored;
+    }
+
+    // One save's mark cleared, while it can still be restored, read from storage.
+    private async Task<bool> ClearMarkAsync(SaveRef save, CancellationToken ct)
     {
         var blob = await FindAsync(save, ct);
         if (blob is null || !TryParse(save.Kind, blob, out var current) || !CanRestore(current))

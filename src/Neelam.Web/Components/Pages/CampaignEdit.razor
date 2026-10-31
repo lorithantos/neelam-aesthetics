@@ -60,10 +60,10 @@ else if (_missing is not null)
 else if (_undone is not null)
 {
     <h1>@_undone.Title</h1>
-    <p>This campaign is deleted. You can restore it until
+    <p data-testid="deleted-note">This campaign is deleted. You can restore it until
         @Times.DateAndTime(_store!.RestorableUntil(_undone)!.Value); after that it is removed for good.
         Until then it is also under Recently deleted in your campaigns.</p>
-    <button class="button primary" @onclick="RestoreUndoneAsync">Restore</button>
+    <button class="button primary" data-testid="restore-deleted" @onclick="RestoreUndoneAsync">Restore</button>
     <a class="button" href="campaigns">Back to campaigns</a>
 }
 else if (_session is not null)
@@ -308,18 +308,28 @@ else if (_session is not null)
                 @if (_session.Latest is { } latest)
                 {
                     <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
-                    @* With no version before it, undoing the save deletes the campaign: the button and
-                       the question say so, rather than promising a version that is not there. *@
-                    var deletes = _session.UndoDeletesTheCampaign;
-                    @if (_confirmingUndo)
+                    @* Delete takes the whole campaign, every version, restorable for the grace period
+                       (Priya, 2026-10-31). Undo last save only while there is a version before the
+                       newest to go back to: with none, undoing it would be the same as deleting. *@
+                    @if (_confirmingDelete)
+                    {
+                        <p data-testid="delete-question">@_session.DeleteQuestion</p>
+                        <button class="button danger" data-testid="delete-confirm" @onclick="DeleteAsync">Delete it</button>
+                        <button class="button" data-testid="delete-keep" @onclick="() => _confirmingDelete = false">Keep it</button>
+                    }
+                    else if (_confirmingUndo)
                     {
                         <p>@_session.UndoQuestion</p>
-                        <button class="button danger" data-testid="undo-confirm" @onclick="UndoAsync">@(deletes ? "Delete it" : "Undo it")</button>
+                        <button class="button danger" data-testid="undo-confirm" @onclick="UndoAsync">Undo it</button>
                         <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
                     }
                     else
                     {
-                        <button class="button" data-testid="undo-button" @onclick="() => _confirmingUndo = true">@(deletes ? "Delete campaign" : "Undo last save")</button>
+                        @if (!_session.UndoDeletesTheCampaign)
+                        {
+                            <button class="button" data-testid="undo-button" @onclick="() => _confirmingUndo = true">Undo last save</button>
+                        }
+                        <button class="button" data-testid="delete-button" @onclick="() => _confirmingDelete = true">Delete campaign</button>
                     }
                 }
                 @if (_session.Restorable is not null)
@@ -705,6 +715,7 @@ else
     private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
+    private bool _confirmingDelete;
 
     // Her templates, the newest version of each, for the Template picker: read as the page opens, and
     // again after each template action and Load the latest, so a version saved meanwhile is seen.
@@ -917,7 +928,7 @@ else
     // what is on the page, unsaved edits included. Only ever on her click.
     private Task LoadLatestAsync() => ActingAsync(async () =>
     {
-        _confirmingUndo = false;
+        _confirmingUndo = _confirmingDelete = false;
         _proofreadMessage = null;
         _approver = "";
         var id = _session!.Id!.Value;
@@ -954,7 +965,7 @@ else
         {
             var kept = await _session!.KeepMineAsync();
             _message = DraftSession.KeptMessage(kept, Times);
-            _confirmingUndo = false;
+            _confirmingUndo = _confirmingDelete = false;
             _proofreadMessage = null;
             await ShowTitleAsync(Title);
         }
@@ -972,7 +983,7 @@ else
         // A campaign saved for the first time is watched from now.
         if (isNew) _watch?.Watch(_session);
         _message = DraftSession.SavedMessage(before, saved, Times);
-        _confirmingUndo = false;
+        _confirmingUndo = _confirmingDelete = false;
         // A new version: what was said of the last one's proofread no longer applies.
         _proofreadMessage = null;
         // The address now names the campaign, so a reload opens what was saved. Only the address
@@ -1015,7 +1026,7 @@ else
     // says why and, once the read after it is done, what changed.
     private Task UndoAsync() => ActingAsync(async () =>
     {
-        _confirmingUndo = false;
+        _confirmingUndo = _confirmingDelete = false;
         ForgetTemplateChoice();
         bool left;
         try
@@ -1040,9 +1051,23 @@ else
         if (_undone is null) _missing = "Campaign not found";
     });
 
+    // Delete, as undo, only marks: every version of the campaign, restorable for the grace period here
+    // and under Recently deleted, then swept. The page shows what it shows on opening a deleted campaign.
+    private Task DeleteAsync() => ActingAsync(async () =>
+    {
+        _confirmingDelete = _confirmingUndo = false;
+        ForgetTemplateChoice();
+        await _session!.DeleteAsync();
+        _undone = _session.Restorable;
+        _session = null;
+        _watch?.Watch(null);
+        _message = null;
+        if (_undone is null) _missing = "Campaign not found";
+    });
+
     private Task RestoreAsync() => ActingAsync(async () =>
     {
-        _confirmingUndo = false;
+        _confirmingUndo = _confirmingDelete = false;
         ForgetTemplateChoice();
         _message = await _session!.RestoreAsync()
             ? "The undone save is back and open."
@@ -1057,7 +1082,7 @@ else
         ForgetTemplateChoice();
         await LoadTemplatesAsync();
         if (_session is null) _missing = "Campaign not found";
-        else _message = "The undone save is back and open.";
+        else _message = "The campaign is back and open.";
     });
 
     // At the click, what the approval rests on is read again: the campaign's newest save and its

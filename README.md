@@ -230,6 +230,10 @@ the client's own container (see [Clients and access](#clients-and-access)):
   storage still has it as the newest in use, read at the click, so a tab that has not seen a later
   save can never undo a version in the middle, which Restore would not offer and the sweep would
   delete; a save landing between that read and the mark has the mark taken back.
+  **Deleting a campaign** (2026-10-31) is the same undo applied to every save in use at once: each
+  gets the same `undone` time, so the campaign leaves her list, Recently deleted offers it back for
+  the grace period, Restore clears the mark of every save undone at that moment, and the sweep then
+  deletes them and their proofreads. Nothing else is stored for it.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed

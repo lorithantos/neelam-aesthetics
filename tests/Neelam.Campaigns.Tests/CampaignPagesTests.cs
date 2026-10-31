@@ -351,7 +351,8 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.DoesNotContain("Deleted by a misclick", RecentlyDeleted(after));
     }
 
-    // With no version before it, undoing the save deletes the campaign, and the button says so.
+    // With no version before it there is nothing for Undo last save to go back to, so only Delete
+    // campaign is offered; since 2026-10-31 a campaign of any number of saves can be deleted.
     [Fact]
     public async Task The_only_save_s_undo_is_named_delete()
     {
@@ -368,7 +369,43 @@ public class CampaignPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         await store.SaveDraftAsync(id, "Two saves", DraftFixtures.Finished());
         var (_, twice) = await Get($"/campaigns/{id}", [Features.Campaigns]);
         Assert.Contains(">Undo last save</button>", twice);
-        Assert.DoesNotContain(">Delete campaign</button>", twice);
+        Assert.Contains(">Delete campaign</button>", twice);
+    }
+
+    // A campaign deleted whole leaves the list at once and is offered back once under Recently deleted,
+    // however many versions it had, and Restore there brings all of them back.
+    [Fact]
+    public async Task A_campaign_deleted_whole_is_listed_once_under_recently_deleted_and_restores_whole()
+    {
+        await Get("/campaigns", [Features.Campaigns]);
+        var store = app.Stores.Campaigns(SalonOne.Name, Actor.Demo);
+        var id = Guid.NewGuid();
+        for (var i = 1; i <= 3; i++)
+        {
+            app.Clock.Now += TimeSpan.FromSeconds(1);
+            await store.SaveDraftAsync(id, "A test campaign", DraftFixtures.Finished());
+        }
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        await store.DeleteAsync(DocumentKind.Draft, id);
+
+        var client = app.CreateClient(new() { AllowAutoRedirect = false });
+        client.SignedIn([Features.Campaigns], [SalonOne.GroupId]);
+        var list = WebUtility.HtmlDecode(await (await client.GetAsync("/campaigns")).Content.ReadAsStringAsync());
+        Assert.DoesNotContain("A test campaign", YourCampaigns(list));
+        var cards = Regex.Matches(RecentlyDeleted(list), "<section class=\"card\" aria-label=\"Deleted: A test campaign\">.*?</section>", RegexOptions.Singleline);
+        var card = Assert.Single(cards).Value;
+
+        var token = Regex.Match(card, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+        var response = await client.PostAsync("/campaigns", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["_handler"] = $"restore-{id:N}",
+            ["__RequestVerificationToken"] = token,
+        }));
+
+        Assert.True((int)response.StatusCode is >= 300 and < 400, $"Restore answered {response.StatusCode}.");
+        Assert.Equal(3, (await store.HistoryAsync(DocumentKind.Draft, id)).Count);
+        var (_, after) = await Get("/campaigns", [Features.Campaigns]);
+        Assert.Contains(ListHeading(id, "A test campaign"), YourCampaigns(after));
     }
 
     // The walkthrough could not tell whether the italic "Photo: <name>" under a preview photo went out
