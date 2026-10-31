@@ -172,6 +172,30 @@ public class TemplateEditorTests
         Assert.Equal(DraftFixtures.Membership.Blocks.Select(b => (b.Label, b.Type, b.Required)), built.Blocks.Select(b => (b.Label, b.Type, b.Required)));
     }
 
+    // Priya, 2026-10-31: "There is no preview on the template page". A fixed block shows how it goes
+    // out inside its own card, as the campaign page shows its fixed blocks, following what is typed.
+    // Nothing while its content is not complete (Errors says why), and nothing for a block each
+    // campaign fills.
+    [Fact]
+    public void A_fixed_block_previews_as_it_goes_out_while_it_is_typed()
+    {
+        var editor = Named();
+        var greeting = editor.Add(BlockType.Greeting);
+        var opening = editor.Add(BlockType.Paragraphs);
+
+        Assert.Empty(greeting.FixedPreview);
+        greeting.IsFixed = true;
+        Assert.Empty(greeting.FixedPreview);
+
+        greeting.Text = "Hi Beautiful🤍";
+        var shown = Assert.Single(greeting.FixedPreview);
+        Assert.Equal((BlockKind.Text, "Hi Beautiful🤍"), (shown.Kind, shown.Text));
+
+        greeting.Text = "Hello lovely";
+        Assert.Equal("Hello lovely", Assert.Single(greeting.FixedPreview).Text);
+        Assert.Empty(opening.FixedPreview);
+    }
+
     private static void Fix(EditableBlock block, Action<EditableBlock> fill)
     {
         block.IsFixed = true;

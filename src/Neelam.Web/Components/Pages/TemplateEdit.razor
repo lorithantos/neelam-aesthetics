@@ -130,7 +130,7 @@ else if (_session is not null)
                             case BlockType.Greeting:
                                 <div class="field">
                                     <label for="text-@index">@(block.Type == BlockType.Heading ? "Heading" : "Greeting")</label>
-                                    <input id="text-@index" @bind="block.Text" @bind:event="oninput" />
+                                    <input id="text-@index" data-testid="text-@index" @bind="block.Text" @bind:event="oninput" />
                                 </div>
                                 break;
                             case BlockType.FinePrint:
@@ -151,10 +151,10 @@ else if (_session is not null)
                                     <label for="text-@index">Business name</label>
                                     <input id="text-@index" @bind="block.Text" @bind:event="oninput" />
                                 </div>
-                                <PhotoFields Block="block" Index="index" Photos="_photos" Optional="true" />
+                                <PhotoFields Block="block" Index="index" Photos="_photos" Optional="true" Changed="StateHasChanged" />
                                 break;
                             case BlockType.Image:
-                                <PhotoFields Block="block" Index="index" Photos="_photos" Optional="false" />
+                                <PhotoFields Block="block" Index="index" Photos="_photos" Optional="false" Changed="StateHasChanged" />
                                 break;
                             case BlockType.Button:
                                 <div class="field">
@@ -182,6 +182,15 @@ else if (_session is not null)
                                     <input id="tagline-@index" @bind="block.Tagline" @bind:event="oninput" />
                                 </div>
                                 break;
+                        }
+                        @* How it goes out, beside what is typed, as the campaign page shows a fixed block:
+                           on a phone the whole email's preview is far below, after every block. *@
+                        @if (block.FixedPreview is { Count: > 0 } fixedPreview)
+                        {
+                            <section data-testid="fixed-preview-@index">
+                                <p class="field-help">It goes out like this:</p>
+                                <EmailPreview Blocks="fixedPreview" Library="_photos" />
+                            </section>
                         }
                     }
 
@@ -270,7 +279,7 @@ else if (_session is not null)
                 </section>
             }
 
-            <section class="card">
+            <section class="card" data-testid="template-preview">
                 <h2>Preview</h2>
                 <p class="field-help">The email's blocks as Square will show them. Grey text is what each campaign fills in.</p>
                 <EmailPreview Blocks="editor.Preview()" Library="_photos" />

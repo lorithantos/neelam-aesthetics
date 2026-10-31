@@ -3,7 +3,7 @@
 @implements IHandleEvent
 <div class="field">
     <label for="photo-@Index">Photo@(Optional ? " (optional)" : "")</label>
-    <input id="photo-@Index" list="library-photos-@Index" @bind="Block.PhotoName" @bind:event="oninput" />
+    <input id="photo-@Index" data-testid="photo-@Index" list="library-photos-@Index" @bind="Block.PhotoName" @bind:event="oninput" />
     <datalist id="library-photos-@Index">
         @foreach (var photo in Photos)
         {

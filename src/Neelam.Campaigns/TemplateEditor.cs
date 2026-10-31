@@ -216,6 +216,13 @@ public sealed partial class EditableBlock : IPhotoChoice
     public string PhotoName { get; set; } = "";
     public string PhotoAltText { get; set; } = "";
 
+    /// <summary>
+    /// A fixed block as it will be sent, as it stands, for its own card (the campaign page shows its
+    /// fixed blocks the same way); empty while its content is not complete, and for any other block.
+    /// </summary>
+    public IReadOnlyList<EditorBlock> FixedPreview =>
+        FixedContent().Block is { } block ? EditorExport.PreviewBlocks(new Campaign("", [block])) : [];
+
     internal TemplateBlock ToTemplateBlock() => new(
         Label.Trim(), Type, Required, FixedContent().Block,
         Recurring: Type == BlockType.Offer && Recurring,
