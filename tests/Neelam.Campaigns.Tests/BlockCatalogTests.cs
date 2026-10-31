@@ -60,14 +60,14 @@ public class BlockCatalogTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(Snapshot.Select(b => b.Type), Catalogs.Shipped.All.Select(g => g.Type.ToString()));
     }
 
-    // Every block but Fine print reads exactly as it did when the guide was code.
+    // Every block but Fine print reads exactly as it did when the guide was code, the offer's new name aside.
     [Fact]
     public void Every_other_block_s_guide_is_unchanged()
     {
         Assert.All(Snapshot.Where(b => b.Type != nameof(BlockType.FinePrint)), before =>
         {
             var now = Catalogs.Shipped.For(Enum.Parse<BlockType>(before.Type));
-            Assert.Equal(before.Label, now.Label);
+            if (before.Type != nameof(BlockType.Offer)) Assert.Equal(before.Label, now.Label);
             Assert.Equal(before.Description, now.Description);
             Assert.Equal(before.Checks, now.Checks);
             Assert.Equal(before.Rules, now.Rules);
@@ -89,6 +89,22 @@ public class BlockCatalogTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(before.Label, now.Label);
         Assert.Equal(before.Description, now.Description);
         Assert.Equal(before.Rules.Order(), now.Rules.Order());
+    }
+
+    // Priya, 2026-10-31: "Offers => Tiered Offers". Only what she sees is renamed: the block's type,
+    // which every stored template and draft carries, stays Offer, and a label she gave one of her own
+    // blocks is hers, so a stored template opens with it. A block added from now on is named anew.
+    [Fact]
+    public void The_offer_block_is_shown_as_tiered_offers_and_keeps_its_type()
+    {
+        Assert.Equal("Tiered offers", Catalogs.Shipped.For(BlockType.Offer).Label);
+        Assert.Contains("\"type\": \"Offer\",", CatalogFile(BlockCatalog.BlocksFile));
+
+        var editor = TemplateEditor.Open(DraftFixtures.Membership, Catalogs.Shipped);
+        Assert.Contains(editor.Blocks, b => b.Type == BlockType.Offer && b.Label == "Offer");
+        Assert.Equal("Tiered offers", editor.Add(BlockType.Offer).Label);
+        var saved = CampaignJson.SerializeTemplate(DraftFixtures.Membership);
+        Assert.Equal("Offer", CampaignJson.DeserializeTemplate(saved).Blocks.Single(b => b.Type == BlockType.Offer).Label);
     }
 
     // ---- The rules the checks report

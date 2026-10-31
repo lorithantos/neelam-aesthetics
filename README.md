@@ -89,7 +89,7 @@ new kind of email down into one on request.
 |---|---|---|
 | Heading, Greeting | A line of text | Text checks |
 | Paragraphs | Body text, one entry per paragraph | Text checks |
-| Offer | A tiered offer with typed benefits | Tier names, distinct tiers, prices, benefit values, parallel tiers, terms for a recurring charge; an offer needs a button |
+| Tiered offers (stored as type `Offer`) | A tiered offer with typed benefits | Tier names, distinct tiers, prices, benefit values, parallel tiers, terms for a recurring charge; an offer needs a button |
 | Button | A label and an https link | https only |
 | Sign-off | Valediction, sender, tagline | Text checks |
 | Fine print | Disclaimers and terms | Answers the medical-disclaimer rule |
