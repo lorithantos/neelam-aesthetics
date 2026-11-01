@@ -703,7 +703,7 @@ The owner built a real campaign with Priya on the test site on 2026-10-31 and br
   - **P3** "They can be anything the user wants - so both would be appropriate" (treatments and benefits mixed).
   - **P4** "yes" (dates required).
   - **P5** "this is a violation" (a past end date is a must-fix).
-  - **P6** "This gets added to our known items" (an unknown treatment goes into the known items; whether automatically or on her click is still to confirm).
+  - **P6** "This gets added to our known items" (an unknown treatment goes into the known items; the owner then said in chat "It should be saved automatically", so it is saved with its regular price without a click).
   - **D3** "that's a rule violation" (the template buttons keep waiting while the form holds unstorable text).
   - **D4** "We had that, and the behavior now is fine - it says that updating the template can't save it" (kept as built).
   - **T5** (deleting from a tab that hasn't seen the newest save), answered 2026-11-01: "Allow it, but not if it has been approved. Withdrawal of an approval is still a thing, maybe the mail didn't go out. But we want to, as much as possible, preserve work". Built 2026-11-01 (see the delete above).
