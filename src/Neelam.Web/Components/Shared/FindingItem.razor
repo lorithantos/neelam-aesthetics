@@ -3,7 +3,9 @@
    range, the way to that range. Each part is its own element with a space between: Razor drops the
    space beside an @if, which ran the export list's parts together ("Worth a lookOffer › ..."), so
    the place's link or text is chosen inside its own span. *@
-<li class="finding @(Finding.Severity == Severity.Blocker ? "blocker" : "warning")">
+@* An LLM finding whose quote has left the form stays in its place, greyed and saying "Looks fixed"
+   (owner, 2026-10-31, choice 5a), so the list keeps what is still to look at without a new run. *@
+<li class="@ItemClass">
     @* What the LLM found says so beside how much it matters, "Worth a look · LLM" (owner,
        2026-10-10, option B: "letting them know probably won't hurt"; and "I prefer llm to ai"); a
        rule's finding carries no tag. The list's first such tag opens what "LLM" means (ExplainLlm);
@@ -20,6 +22,9 @@
             {
                 <span data-testid="@($"{Named}-ai-{Finding.SeenKey}")">@Glossary.Llm</span>
             }
+        }@if (LooksFixed)
+        {
+            @(" · ")<span data-testid="@($"{Named}-fixed-{Finding.SeenKey}")">Looks fixed</span>
         }</strong>
     <span class="muted">
         @if (JumpTo is { } jump)
@@ -61,4 +66,11 @@
     /// <summary>Whether this finding's "LLM" tag opens what LLM means: the list's first LLM finding's does.</summary>
     [Parameter]
     public bool ExplainLlm { get; set; }
+
+    /// <summary>An LLM finding carried from an earlier version whose quote is no longer in the form: shown greyed, "Looks fixed".</summary>
+    [Parameter]
+    public bool LooksFixed { get; set; }
+
+    private string ItemClass =>
+        "finding " + (Finding.Severity == Severity.Blocker ? "blocker" : "warning") + (LooksFixed ? " looks-fixed" : "");
 }

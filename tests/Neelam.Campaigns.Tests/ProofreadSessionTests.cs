@@ -72,19 +72,25 @@ public class ProofreadSessionTests
         Assert.Equal([Unclear], reopened.CurrentProofread!.Findings);
     }
 
+    // At the gate, any edit voids the proofread and a new save has none, as before; what the page shows
+    // is the report carried forward (owner, 2026-10-31), which LlmReportTests covers.
     [Fact]
-    public async Task Any_edit_voids_the_proofread_and_a_new_save_has_none()
+    public async Task Any_edit_voids_the_proofread_at_the_gate_and_the_report_is_carried_forward()
     {
         var session = await Saved();
         await Proofread(session, new FakeProofreader(Unclear));
+        var proofread = session.Latest!;
 
         session.Editor.Subject.Text += "!";
         Assert.Null(session.CurrentProofread);
         Assert.Equal("Changed since the last save: save it, then proofread that version.", session.CannotProofread());
+        Assert.Equal((false, proofread.BlobName), (session.Report!.IsCurrent, session.Report.Of.BlobName));
 
         await session.SaveAsync();
         Assert.Null(session.CurrentProofread);
         Assert.Null(session.CannotProofread());
+        Assert.Equal((false, proofread.BlobName), (session.Report!.IsCurrent, session.Report.Of.BlobName));
+        Assert.Equal([Unclear], session.Report.Findings.Select(f => f.Finding));
     }
 
     // The label is never in the email, so it is never proofread.

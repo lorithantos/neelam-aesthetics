@@ -326,6 +326,26 @@ public sealed class CampaignStore(
         return null;
     }
 
+    /// <summary>
+    /// The newest of these saves of one campaign that has an AI proofread kept, with that proofread; null
+    /// when none has. One listing of the campaign's proofreads and one read, however many saves: for the
+    /// LLM report the page carries forward from an earlier version while the newest has none of its own.
+    /// Give the saves in use (<see cref="HistoryAsync"/>), so an undone save's proofread is never used.
+    /// </summary>
+    public async Task<KeptProofread?> NewestProofreadAsync(IReadOnlyList<SaveRef> saves, CancellationToken ct = default)
+    {
+        if (saves.Count == 0) return null;
+        var id = saves[0].Id;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        await foreach (var blob in blobs.ListAsync($"{ProofreadPrefix}{id:N}/", ct)) names.Add(blob.Name);
+        foreach (var save in saves.Where(s => s.Id == id).OrderByDescending(s => s.SavedAt))
+        {
+            var name = ProofreadName(save);
+            if (names.Contains(name)) return new KeptProofread(save, ProofreadJson.Deserialize(await blobs.ReadTextAsync(name, ct)));
+        }
+        return null;
+    }
+
     internal static string ProofreadName(SaveRef save) => $"{ProofreadPrefix}{save.Id:N}/{SaveStamp.Of(save.SavedAt)}.json";
 
     internal const string ProofreadPrefix = "proofread/";

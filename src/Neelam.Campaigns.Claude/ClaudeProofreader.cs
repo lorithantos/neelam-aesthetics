@@ -210,9 +210,9 @@ public sealed class ClaudeProofreader(
         return part.Labels[0];
     }
 
-    // Compared on words only: line breaks, runs of spaces and curly apostrophes aside.
-    private static string Words(string s) =>
-        string.Join(' ', s.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace('’', '\'');
+    // Compared on words only: line breaks, runs of spaces and curly apostrophes aside (shared with the
+    // campaign page, which greys a finding once its quote has left the form).
+    private static string Words(string s) => QuotedText.Words(s);
 
     /// <summary>One photo the proofread will see: sent as an image (fresh) or given as its earlier reading.</summary>
     /// <param name="Id">"p1" first, for a photo sent as an image; the answer's readings name it so.</param>

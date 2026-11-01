@@ -21,12 +21,18 @@ public sealed class DraftSession : IWatched<SaveRef>
     // How many saves of the campaign are in use: undoing the only one takes the campaign off her list.
     private int _versions;
 
-    // The AI proofread kept for Latest, if it has one.
+    // The AI proofread kept for Latest, if it has one: the only one the gate reads.
     private ProofreadRecord? _proofread;
+
+    // The LLM report the page shows (Report): Latest's own, or the newest earlier save's, carried across
+    // edits and saves, with the words of the version it read. Null when no save in use was proofread.
+    private CarriedReport? _report;
+
+    private sealed record CarriedReport(KeptProofread Kept, string VersionWords);
 
     private DraftSession(
         CampaignStore store, Guid? id, CampaignEditor editor, SaveRef? latest, SaveRef? restorable = null, SaveRef? superseded = null,
-        int versions = 0, ProofreadRecord? proofread = null)
+        int versions = 0, CarriedReport? report = null)
     {
         _store = store;
         Id = id;
@@ -35,9 +41,35 @@ public sealed class DraftSession : IWatched<SaveRef>
         Restorable = restorable;
         SupersededApproval = superseded;
         _versions = versions;
-        _proofread = proofread;
+        Carry(report);
         if (latest is not null) MarkSaved();
     }
+
+    // The report to show, and Latest's own proofread when it is that save's.
+    private void Carry(CarriedReport? report)
+    {
+        _report = report;
+        _proofread = report is not null && report.Kept.Save.BlobName == Latest?.BlobName ? report.Kept.Record : null;
+    }
+
+    // The newest proofread of the saves in use, with the words of the save it read: Latest's own draft is
+    // already open (latestDraft); an earlier save's is read once. One listing, and at most two reads.
+    private static async Task<CarriedReport?> ReportAsync(
+        CampaignStore store, IReadOnlyList<SaveRef> history, CampaignDraft latestDraft, CancellationToken ct)
+    {
+        if (await store.NewestProofreadAsync(history, ct) is not { } kept) return null;
+        var draft = history.Count > 0 && kept.Save.BlobName == history[0].BlobName ? latestDraft : await store.LoadDraftAsync(kept.Save, ct);
+        return new CarriedReport(kept, QuotedText.Of(draft));
+    }
+
+    /// <summary>
+    /// The LLM report the page shows, or null when no save in use was proofread: the newest save's own
+    /// while it has one, otherwise the newest earlier save's, carried forward, each finding marked Live
+    /// or LooksFixed against the form as it stands (<see cref="LlmReport"/>). Display only, apart from a
+    /// carried Must fix still to look at, which stops the approval (<see cref="CannotApprove"/>).
+    /// </summary>
+    public LlmReport? Report =>
+        _report is { } r ? LlmReport.Marked(r.Kept, r.VersionWords, Editor.Draft, CurrentProofread is not null) : null;
 
     private void MarkSaved()
     {
@@ -164,14 +196,19 @@ public sealed class DraftSession : IWatched<SaveRef>
         if (status.Review is null || status.Review.Blockers.Any()
             || CurrentProofread?.Findings.Any(f => f.Severity == Severity.Blocker) == true)
             return "Fix everything marked Must fix first.";
+        // A Must fix the LLM found in an earlier version, still not looking fixed (owner, 2026-10-31,
+        // choice 2b): only a fresh proofread of this version, or the fix, lets it through.
+        if (CurrentProofread is null && Report?.StopsApproval == true)
+            return "The LLM's report on an earlier version has a Must fix that doesn't look fixed yet. Fix it, or proofread this version again.";
         return null;
     }
 
     /// <summary>
     /// The AI proofread of <see cref="Latest"/>, while the form still holds exactly that save, her
     /// label aside (the label is never in the email, so it is never proofread). Null once anything else
-    /// is edited, and for a save nobody has had proofread: the result belongs to the saved version it
-    /// read, and any edit voids it (owner, 2026-10-10).
+    /// is edited, and for a save nobody has had proofread: as far as the gate goes, the result belongs to
+    /// the saved version it read, and any edit voids it (owner, 2026-10-10). What the page shows is
+    /// <see cref="Report"/>, which carries it forward across edits and saves (owner, 2026-10-31).
     /// </summary>
     public ProofreadRecord? CurrentProofread =>
         _proofread is null || _savedContent is null || Editor.Errors().Count > 0 || ContentOf(Editor.Draft) != _savedContent
@@ -207,6 +244,8 @@ public sealed class DraftSession : IWatched<SaveRef>
         // The version read, held now: the result is that save's, whatever happens on the page meanwhile.
         var save = Latest!;
         var campaign = Editor.Status(policy, business).Review!.Campaign;
+        // The words of the version read, taken now, while the form is that save.
+        var words = QuotedText.Of(Editor.Draft);
         if (!allowance.TryTake(_store.Client.ToString()))
             return new(false, $"Proofreading with the LLM has run {allowance.PerClientPerDay} times for you today, its daily limit. " +
                 "It can run again tomorrow; the rules' checks above still stand.");
@@ -225,7 +264,7 @@ public sealed class DraftSession : IWatched<SaveRef>
             return new(false, "The LLM could not proofread this version. The rules' checks above still stand.");
         }
         var kept = await _store.SaveProofreadAsync(save, new ProofreadRecord(clock.GetUtcNow(), result.Findings, result.Photos), ct);
-        if (Latest?.BlobName == save.BlobName) _proofread = kept;
+        if (Latest?.BlobName == save.BlobName) Carry(new CarriedReport(new KeptProofread(save, kept), words));
         return new(true, $"LLM report: {ProofreadSummary(kept)}");
     }
 
@@ -478,6 +517,7 @@ public sealed class DraftSession : IWatched<SaveRef>
         Latest = await _store.SaveDraftAsync(id, Editor.Title, Editor.Draft, ct);
         try
         {
+            // Her new save has no proofread; the page's report is carried forward (Report).
             _proofread = null;
             _versions = history.Count + 1;
             MarkSaved();
@@ -628,11 +668,11 @@ public sealed class DraftSession : IWatched<SaveRef>
     {
         var history = await store.HistoryAsync(DocumentKind.Draft, id, ct);
         var latest = history.FirstOrDefault();
-        return latest is null
-            ? null
-            : new DraftSession(store, id, CampaignEditor.Open(await store.LoadDraftAsync(latest, ct)), latest,
-                await store.RestorableAsync(DocumentKind.Draft, id, ct), Superseded(history), history.Count,
-                await store.ProofreadOfAsync(latest, ct));
+        if (latest is null) return null;
+        var draft = await store.LoadDraftAsync(latest, ct);
+        return new DraftSession(store, id, CampaignEditor.Open(draft), latest,
+            await store.RestorableAsync(DocumentKind.Draft, id, ct), Superseded(history), history.Count,
+            await ReportAsync(store, history, draft, ct));
     }
 
     // The newest earlier version with an approval, when the newest itself has none.
@@ -671,7 +711,8 @@ public sealed class DraftSession : IWatched<SaveRef>
         Latest = await _store.SaveDraftAsync(Id.Value, Editor.Title, Editor.Draft, ct);
         try
         {
-            // A new version, which nobody has had proofread yet.
+            // A new version, which nobody has had proofread yet. The report shown stays, carried
+            // forward as the earlier version's (Report), so the page keeps what is still to look at.
             _proofread = null;
             _versions++;
             MarkSaved();
@@ -784,11 +825,12 @@ public sealed class DraftSession : IWatched<SaveRef>
         if (Latest is null)
         {
             _saved = _savedContent = null;
-            _proofread = null;
+            Carry(null);
             return false;
         }
-        Editor = CampaignEditor.Open(await _store.LoadDraftAsync(Latest, ct));
-        _proofread = await _store.ProofreadOfAsync(Latest, ct);
+        var draft = await _store.LoadDraftAsync(Latest, ct);
+        Editor = CampaignEditor.Open(draft);
+        Carry(await ReportAsync(_store, history, draft, ct));
         MarkSaved();
         return true;
     }

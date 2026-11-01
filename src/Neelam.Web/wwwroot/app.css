@@ -283,6 +283,15 @@ h1:focus {
     color: var(--error-text);
 }
 
+/* An LLM finding that looks fixed stays in its place, greyed, and its
+   label says "Looks fixed", so it is never told by colour alone. */
+.finding.looks-fixed,
+.finding.looks-fixed strong {
+    color: var(--text-muted);
+    border-color: var(--border);
+    background: var(--bg);
+}
+
 .button:disabled,
 .button[aria-disabled="true"] {
     opacity: 0.5;

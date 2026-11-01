@@ -73,10 +73,13 @@ else if (_session is not null)
     var status = editor.Status(_policy, Business);
     var approval = _session.CurrentApproval;
     var cannotApprove = _session.CannotApprove(_policy, Business);
-    // The AI proofread of this saved version, while the form still holds it; its findings are listed
-    // with the rules', and the export takes them as it takes theirs.
+    // The AI proofread of this saved version, while the form still holds it: the export takes its
+    // findings as it takes the rules'.
     var proofread = _session.CurrentProofread;
     IReadOnlyList<Finding> proofreadFindings = proofread?.Findings ?? [];
+    // The LLM report shown (owner, 2026-10-31): this version's, or an earlier one's carried forward,
+    // each finding greyed once its quote has left the form. Listed with the rules'.
+    var report = _session.Report;
     // One gate for both forms of the export: the copy blocks and the assistant's JSON come from
     // the same report, so neither exists without the other, and both carry the approval that
     // report was made with (DraftSession.DemoExportReport: the approval in force, never the
@@ -382,19 +385,28 @@ else if (_session is not null)
                 @* One summary of everything listed, the rules' and the AI proofread's alike (owner,
                    2026-10-10: "'The rules find nothing to fix.' this is confusing" beside the AI's
                    findings); each AI finding says so beside how much it matters. *@
-                @{ var listed = status.Findings.Concat(proofreadFindings).OrderByDescending(f => f.Severity).ToList(); }
-                <p data-testid="checks-summary">@DraftSession.ChecksSummary(listed, soFar: status.Missing.Count > 0)</p>
+                @* A rule's finding goes once fixed, as the checks re-run; an LLM finding stays in its
+                   place, greyed, once its quote has left the form (owner, 2026-10-31), and only those
+                   still to look at are counted. *@
+                @{
+                    var llmListed = report?.Findings ?? [];
+                    var listed = status.Findings.Select(f => (Finding: f, LooksFixed: false))
+                        .Concat(llmListed.Select(f => (f.Finding, f.LooksFixed)))
+                        .OrderByDescending(x => x.Finding.Severity).ToList();
+                    var shownFindings = listed.Select(x => x.Finding).ToList();
+                }
+                <p data-testid="checks-summary">@DraftSession.ChecksSummary(listed.Where(x => !x.LooksFixed).Select(x => x.Finding), soFar: status.Missing.Count > 0)</p>
                 <ul class="findings" data-testid="checks-findings">
                     @for (var i = 0; i < listed.Count; i++)
                     {
-                        <FindingItem Finding="listed[i]" ExplainLlm="@(i == FirstLlm(listed))" />
+                        <FindingItem Finding="listed[i].Finding" LooksFixed="listed[i].LooksFixed" ExplainLlm="@(i == FirstLlm(shownFindings))" />
                     }
                 </ul>
                 @if (!ProofreadOffered)
                 {
                     <p class="muted" data-testid="checks-llm-off">These are the instant rules. Proofreading with the <Llm TestId="llm-term-checks" /> is not switched on yet.</p>
                 }
-                else if (proofread is null)
+                else if (report is null)
                 {
                     <p class="muted" data-testid="checks-before-proofread">These are the instant rules. The <Llm TestId="llm-term-checks" /> reads a saved version when you ask it to, below.</p>
                 }
@@ -404,34 +416,45 @@ else if (_session is not null)
             {
                 @* Proofreading with the LLM, on the demo, on her click only (owner, 2026-10-10): never per
                    keystroke or by itself. "Proofread" is the click; what it leaves is the version's LLM
-                   report (owner, 2026-10-10: one word was doing two jobs). The report is the saved
-                   version's; any edit voids it. A refusal or a failure is said plainly here and changes
+                   report (owner, 2026-10-10: one word was doing two jobs). The report stays across
+                   edits and saves (owner, 2026-10-31: "fixing ONE LLM issue clears the entire list"):
+                   from an earlier version, it says how many are still to look at and how many look
+                   fixed, and she proofreads once at the end. Approval and export still count only this
+                   version's own proofread. A refusal or a failure is said plainly here and changes
                    nothing else: the rules stand on their own. *@
                 <section class="card" aria-labelledby="proofread-title" data-testid="proofread">
                     <h2 id="proofread-title" data-testid="proofread-title"><Llm TestId="llm-term-report" /> report</h2>
-                    @if (proofread is not null)
+                    @if (report is { IsCurrent: true })
                     {
-                        <p data-testid="proofread-status">LLM report, @Times.DateAndTime(proofread.At): @DraftSession.ProofreadSummary(proofread) Editing clears this version's LLM report.</p>
-                    }
-                    else if (_session.CannotProofread(_policy, Business) is { } notYet)
-                    {
-                        <p class="field-help" data-testid="proofread-status">@notYet</p>
+                        <p data-testid="proofread-status">LLM report, @Times.DateAndTime(report.Record.At): @DraftSession.ProofreadSummary(report.Record) What you fix greys out here as you go; proofread again when you're done.</p>
                     }
                     else
                     {
-                        <p class="field-help" data-testid="proofread-status">No LLM report for this version yet. The LLM reads it once, when you click, photos included, the way a careful editor would. Any change after needs a new save and a new proofread.</p>
-                        <button class="button primary" data-testid="proofread-button" disabled="@_proofreading" @onclick="ProofreadAsync">@(_proofreading ? "Proofreading…" : "Proofread with the LLM")</button>
+                        @if (report is not null)
+                        {
+                            <p data-testid="proofread-carried">LLM report from an earlier version, @Times.DateAndTime(report.Record.At): @report.CarriedSummary()</p>
+                        }
+                        @if (_session.CannotProofread(_policy, Business) is { } notYet)
+                        {
+                            <p class="field-help" data-testid="proofread-status">@notYet</p>
+                        }
+                        else
+                        {
+                            <p class="field-help" data-testid="proofread-status">No LLM report for this version yet. The LLM reads it once, when you click, photos included, the way a careful editor would. Any change after needs a new save and a new proofread.</p>
+                            <button class="button primary" data-testid="proofread-button" disabled="@_proofreading" @onclick="ProofreadAsync">@(_proofreading ? "Proofreading…" : "Proofread with the LLM")</button>
+                        }
                     }
                     @if (_proofreadMessage is not null)
                     {
                         <p role="status" data-testid="proofread-message">@_proofreadMessage</p>
                     }
-                    @if (proofread is { Photos.Count: > 0 })
+                    @if (report is { Photos.Count: > 0 })
                     {
                         <ul class="findings" data-testid="proofread-photos">
-                            @foreach (var photo in proofread.Photos)
+                            @foreach (var photo in report.Photos)
                             {
-                                <li class="finding @(photo.Checked ? "" : "warning")"><strong>@photo.Name</strong> <span>@photo.Note</span></li>
+                                var photoClass = "finding" + (photo.Photo.Checked ? "" : " warning") + (photo.LooksFixed ? " looks-fixed" : "");
+                                <li class="@photoClass"><strong>@(photo.LooksFixed ? $"{photo.Photo.Name} · Looks fixed" : photo.Photo.Name)</strong> <span>@photo.Photo.Note</span></li>
                             }
                         </ul>
                     }

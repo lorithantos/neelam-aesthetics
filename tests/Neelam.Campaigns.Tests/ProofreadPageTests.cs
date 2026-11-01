@@ -105,7 +105,7 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 
         Assert.Equal(0, RenderedPage.Count(page, "proofread-button"));
         // When, in her zone and the page's own format ("3 Oct 2026, 5:00 AM PDT"), then what it found.
-        Assert.Matches(@"^LLM report, \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [AP]M [A-Z]+: 1 thing worth a look\. Editing clears this version's LLM report\.$",
+        Assert.Matches(@"^LLM report, \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [AP]M [A-Z]+: 1 thing worth a look\. What you fix greys out here as you go; proofread again when you're done\.$",
             RenderedPage.Named(page, "proofread-status"));
         Assert.Contains(Unclear.Message, RenderedPage.Named(page, "checks-findings"));
         Assert.Equal("Principals toasting Couldn't check this photo: it is not a Square photo in your image library.",
@@ -300,7 +300,7 @@ public class ProofreadPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
 public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<ProofreadDemoApp>
 {
     private static readonly Finding Unclear = new(Severity.Warning, "ai-clarity", "Offer", "Could read two ways. Suggest: say per visit.", "per visit");
-    private const string FoundOne = "1 thing worth a look. Editing clears this version's LLM report.";
+    private const string FoundOne = "1 thing worth a look. What you fix greys out here as you go; proofread again when you're done.";
 
     private async Task<SaveRef> Saved()
     {
@@ -349,6 +349,33 @@ public class ProofreadClickTests(ProofreadDemoApp app) : IClassFixture<Proofread
         Assert.Equal("Nothing has to be fixed. 1 thing is worth a look.", RenderedPage.Named(html, "checks-summary"));
         Assert.Equal("LLM", RenderedPage.Named(html, $"finding-ai-{Unclear.SeenKey}"));
         Assert.Equal(0, RenderedPage.Count(html, "checks-before-proofread"));
+    }
+
+    // The owner, 2026-10-31: "fixing ONE LLM issue clears the entire list". Fixed in the form, one
+    // finding greys in its place with "Looks fixed", the other stays, and only what is still to look at
+    // is counted; the report says it is an earlier version's and to proofread again when done.
+    [Fact]
+    public async Task Fixing_one_llm_finding_greys_it_in_place_and_keeps_the_rest()
+    {
+        var save = await app.Stores.Campaigns(DemoApp.Client, Actor.Demo).SaveDraftAsync(Guid.NewGuid(), "Hello", ProofreadPageTests.Plain());
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        var fixedOne = new Finding(Severity.Blocker, "ai-spelling", "Subject line", "Misspelt.", "note from the clinic");
+        var other = new Finding(Severity.Warning, "ai-clarity", "Headline", "Could be clearer.", "opening hours");
+        await using var page = await OpenCampaignPage.OpenAsync(app, save.Id, new FakeProofreader(fixedOne, other));
+        await page.ClickAsync("proofread-button");
+
+        await page.TypeAsync("subject", "A letter from the clinic");
+
+        var html = await page.HtmlAsync();
+        Assert.Equal("Looks fixed", RenderedPage.Named(html, $"finding-fixed-{fixedOne.SeenKey}"));
+        Assert.Equal(0, RenderedPage.Count(html, $"finding-fixed-{other.SeenKey}"));
+        var listed = RenderedPage.Named(html, "checks-findings");
+        Assert.True(listed.IndexOf("Misspelt.", StringComparison.Ordinal) < listed.IndexOf("Could be clearer.", StringComparison.Ordinal));
+        Assert.Equal("Nothing has to be fixed. 1 thing is worth a look.", RenderedPage.Named(html, "checks-summary"));
+        var carried = RenderedPage.Named(html, "proofread-carried");
+        Assert.StartsWith("LLM report from an earlier version, ", carried);
+        Assert.EndsWith(": 1 still to look at, 1 looks fixed. Proofread again when you're done.", carried);
+        Assert.Equal("Changed since the last save: save it, then proofread that version.", RenderedPage.Named(html, "proofread-status"));
     }
 
     // A failure is the click's alone to say: nothing was kept, so the line above still offers the proofread.

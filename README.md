@@ -34,7 +34,10 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   (`Proofread/proofread.json`), cached as the request's one fixed prefix; the email, the business
   and the photos are content, never instructions. The key lives in Key Vault and reaches the site
   only as an App Service Key Vault reference: the single exception to "no secrets". On the demo it
-  runs on her click for a saved version, and any edit voids its result; a client gets 20 a day.
+  runs on her click for a saved version, and any edit voids its result at the gate; a client gets
+  20 a day. The page keeps showing the newest report across edits and saves, each LLM finding
+  greyed "Looks fixed" once its quote has left the form, so she proofreads once at the end
+  (owner, 2026-10-31); a carried Must fix still to look at stops the approval until then.
   "Proofread" is the click ("Proofread with the LLM"); what it leaves is that version's **LLM
   report** (owner, 2026-10-10). Wherever a page says "LLM", a tap on the word explains it, in
   words kept as data (`Catalog/glossary.json`).
