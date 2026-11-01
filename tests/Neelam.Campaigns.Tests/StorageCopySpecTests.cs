@@ -60,6 +60,20 @@ public class StorageCopySpecTests
         Assert.Equal(known.OrderBy(p => p), seen.Distinct().OrderBy(p => p));
     }
 
+    // A dead save is marked by UndoMark.Key; a rule that names any other key would copy undone saves.
+    [Fact]
+    public void EveryContainersDropRuleIsTheUndoMark()
+    {
+        var rules = Spec().GetProperty("containers").EnumerateArray()
+            .SelectMany(c => c.GetProperty("rules").EnumerateArray())
+            .Where(r => r.TryGetProperty("dropIfMetadata", out _))
+            .ToList();
+
+        Assert.NotEmpty(rules);
+        foreach (var rule in rules)
+            Assert.Equal(UndoMark.Key, rule.GetProperty("dropIfMetadata").GetString());
+    }
+
     [Fact]
     public void TheTablesAndTheSettingsContainerAreTheOnesTheStoreUses()
     {
