@@ -21,8 +21,8 @@ public class CampaignDeleteTests
     private TestRecords Records => _records ??= new(_clock);
     private CampaignStore Store => Records.Campaigns(_blobs, Grace);
 
-    // Three versions a minute apart, the newest approved and the middle one proofread.
-    private async Task<IReadOnlyList<SaveRef>> ThreeVersionsAsync(Guid? id = null)
+    // Three versions a minute apart, the middle one proofread and, unless asked otherwise, the newest approved.
+    private async Task<IReadOnlyList<SaveRef>> ThreeVersionsAsync(Guid? id = null, bool approved = true)
     {
         var saves = new List<SaveRef>();
         for (var i = 0; i < 3; i++)
@@ -31,7 +31,7 @@ public class CampaignDeleteTests
             saves.Add(await Store.SaveDraftAsync(id ?? Id, $"Version {i + 1}", DraftFixtures.Finished()));
         }
         await Store.SaveProofreadAsync(saves[1], new ProofreadRecord(_clock.Now, [], []));
-        await Store.ApproveAsync(saves[2], "Priya");
+        if (approved) await Store.ApproveAsync(saves[2], "Priya");
         return saves;
     }
 
@@ -174,7 +174,7 @@ public class CampaignDeleteTests
     // ---- The campaign page's session
 
     [Fact]
-    public async Task The_question_says_what_goes_for_how_long_and_that_an_approval_is_withdrawn()
+    public async Task The_question_says_what_goes_and_for_how_long()
     {
         _clock.Now = Start;
         var one = Guid.NewGuid();
@@ -182,25 +182,82 @@ public class CampaignDeleteTests
         Assert.Equal("Delete this campaign? It goes from your campaigns. You can restore it from Recently deleted for a day, " +
                      "then it is deleted for good.", (await DraftSession.OpenAsync(Store, one))!.DeleteQuestion);
 
-        await ThreeVersionsAsync();
+        await ThreeVersionsAsync(approved: false);
         Assert.Equal("Delete this campaign and all 3 of its versions? It goes from your campaigns. You can restore it from " +
-                     "Recently deleted for a day, then it is deleted for good. Its approval is withdrawn: restored, it needs " +
-                     "approving again.", (await DraftSession.OpenAsync(Store, Id))!.DeleteQuestion);
-
-        // An earlier version's approval counts too: deleting withdraws it as well.
-        _clock.Now = Start.AddMinutes(4);
-        await Store.SaveDraftAsync(Id, "Version 4", DraftFixtures.Finished());
-        Assert.EndsWith("Its approval is withdrawn: restored, it needs approving again.",
-            (await DraftSession.OpenAsync(Store, Id))!.DeleteQuestion);
+                     "Recently deleted for a day, then it is deleted for good.", (await DraftSession.OpenAsync(Store, Id))!.DeleteQuestion);
 
         var hours = Records.Campaigns(_blobs, TimeSpan.FromHours(12));
         Assert.Contains("for 12 hours,", (await DraftSession.OpenAsync(hours, one))!.DeleteQuestion);
     }
 
+    private const string KeptNewest =
+        "This campaign was approved, so it is kept as a record and can't be deleted. If the email didn't go out, use Withdraw approval first.";
+    private const string KeptEarlier = "This campaign was approved, so it is kept as a record and can't be deleted.";
+
+    // The owner, 2026-10-31: "No, these are recorded". A campaign with an approved version is kept: the
+    // page says why in place of Delete, and what to do when the email didn't go out, and the session
+    // refuses with the same words. Nothing is marked.
+    [Fact]
+    public async Task A_campaign_with_an_approved_version_cannot_be_deleted()
+    {
+        var saves = await ThreeVersionsAsync();
+        var session = (await DraftSession.OpenAsync(Store, Id))!;
+        Assert.Equal(KeptNewest, session.CannotDelete);
+        Assert.Equal(KeptNewest, (await Assert.ThrowsAsync<InvalidOperationException>(() => session.DeleteAsync())).Message);
+
+        // An earlier version's approval counts too; the page has no Withdraw approval for it.
+        _clock.Now = Start.AddMinutes(4);
+        await Store.SaveDraftAsync(Id, "Version 4", DraftFixtures.Finished());
+        var later = (await DraftSession.OpenAsync(Store, Id))!;
+        Assert.Equal(KeptEarlier, later.CannotDelete);
+        Assert.Equal(KeptEarlier, (await Assert.ThrowsAsync<InvalidOperationException>(() => later.DeleteAsync())).Message);
+
+        Assert.Equal(4, (await Store.HistoryAsync(DocumentKind.Draft, Id)).Count);
+        Assert.All(saves, s => Assert.DoesNotContain("undone", _blobs.Blobs[s.BlobName].Metadata.Keys));
+        Assert.Empty(await Store.RecentlyDeletedAsync(DocumentKind.Draft));
+    }
+
+    // The owner, 2026-11-01, on a tab that has not seen the newest save: "Allow it, but not if it has been
+    // approved". Tab B opens; tab A saves a new version and approves it; B, which shows neither, is refused
+    // at the click, from storage as it is then, and nothing is marked.
+    [Fact]
+    public async Task A_tab_that_has_not_seen_a_newer_approved_save_is_refused_at_the_click()
+    {
+        _clock.Now = Start;
+        await Store.SaveDraftAsync(Id, "Version 1", DraftFixtures.Finished());
+        var tabB = (await DraftSession.OpenAsync(Store, Id))!;
+        Assert.Null(tabB.CannotDelete);
+
+        _clock.Now = Start.AddMinutes(1);
+        var tabA = (await DraftSession.OpenAsync(Store, Id))!;
+        await tabA.SaveAsync();
+        await tabA.ApproveAsync("Priya");
+
+        Assert.Null(tabB.CannotDelete);
+        Assert.Equal(KeptNewest, (await Assert.ThrowsAsync<InvalidOperationException>(() => tabB.DeleteAsync())).Message);
+        Assert.Equal(2, (await Store.HistoryAsync(DocumentKind.Draft, Id)).Count);
+        Assert.Empty(await Store.RecentlyDeletedAsync(DocumentKind.Draft));
+    }
+
+    // The owner, 2026-11-01: "Withdrawal of an approval is still a thing, maybe the mail didn't go out".
+    // A withdrawn approval keeps nothing, withdrawn on this page or in another tab since it opened.
+    [Fact]
+    public async Task A_withdrawn_approval_no_longer_keeps_the_campaign()
+    {
+        var saves = await ThreeVersionsAsync();
+        var stale = (await DraftSession.OpenAsync(Store, Id))!;
+        Assert.Equal(KeptNewest, stale.CannotDelete);
+        await Store.WithdrawApprovalAsync(saves[2]);
+
+        Assert.Null((await DraftSession.OpenAsync(Store, Id))!.CannotDelete);
+        await stale.DeleteAsync();
+        Assert.Empty(await Store.HistoryAsync(DocumentKind.Draft, Id));
+    }
+
     [Fact]
     public async Task Deleting_from_the_page_leaves_it_restorable_and_restore_opens_the_newest_version()
     {
-        var saves = await ThreeVersionsAsync();
+        var saves = await ThreeVersionsAsync(approved: false);
         _clock.Now = Start.AddMinutes(5);
         var session = (await DraftSession.OpenAsync(Store, Id))!;
 
@@ -260,6 +317,59 @@ public class CampaignDeletePageTests(DemoApp app) : IClassFixture<DemoApp>
         html = await twice.HtmlAsync();
         Assert.Equal("Delete campaign", RenderedPage.Named(html, "delete-button"));
         Assert.Equal("Undo last save", RenderedPage.Named(html, "undo-button"));
+    }
+
+    // The owner, 2026-10-31: "Let's put it in the save block (which would include Save/Delete) and let's
+    // make it very clear that this is dangerous". Delete is in the Save card, in a part of its own below
+    // Save and Undo, in the destructive style, and says in words what it does, not by colour alone.
+    [Fact]
+    public async Task Delete_sits_apart_in_the_save_card_and_says_it_is_dangerous()
+    {
+        await using var page = await OpenCampaignPage.OpenAsync(app, await SavedAsync(2), StalePages.Clock(app));
+        var html = await page.HtmlAsync();
+
+        var zone = RenderedPage.Named(html, "delete-zone");
+        Assert.Equal("Danger: deleting takes the whole campaign, every version, off your list. Delete campaign", zone);
+        Assert.Equal("button danger", RenderedPage.Attribute(html, "delete-button", "class"));
+        Assert.Equal("button", RenderedPage.Attribute(html, "delete-button", "type"));
+        Assert.DoesNotContain("Save campaign", zone);
+        Assert.DoesNotContain("Undo last save", zone);
+        // In the Save card, after Save and Undo last save.
+        var save = RenderedPage.Named(html, "save-card");
+        Assert.True(save.IndexOf("Save campaign", StringComparison.Ordinal) < save.IndexOf("Undo last save", StringComparison.Ordinal));
+        Assert.True(save.IndexOf("Undo last save", StringComparison.Ordinal) < save.IndexOf("Danger:", StringComparison.Ordinal));
+        Assert.EndsWith(zone, save);
+    }
+
+    // The owner, 2026-10-31: "No, these are recorded". In place of Delete, the page says why, plainly.
+    [Fact]
+    public async Task An_approved_campaign_offers_no_delete_and_says_why()
+    {
+        var id = Guid.NewGuid();
+        await Store.SaveDraftAsync(id, "Approved campaign, version 1", DraftFixtures.Finished());
+        await Store.ApproveAsync(await Store.SaveDraftAsync(id, "Approved campaign, version 2", DraftFixtures.Finished()), "Priya");
+        await using var page = await OpenCampaignPage.OpenAsync(app, id, StalePages.Clock(app));
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(0, RenderedPage.Count(html, "delete-button"));
+        Assert.Equal("This campaign was approved, so it is kept as a record and can't be deleted. " +
+                     "If the email didn't go out, use Withdraw approval first.", RenderedPage.Named(html, "delete-refused"));
+        Assert.Equal("Withdraw approval", RenderedPage.Named(html, "withdraw-button"));
+    }
+
+    // Withdrawn on the page, the approval keeps nothing: Delete is offered again.
+    [Fact]
+    public async Task After_withdraw_approval_delete_is_offered_again()
+    {
+        var id = Guid.NewGuid();
+        await Store.ApproveAsync(await Store.SaveDraftAsync(id, "Approved campaign", DraftFixtures.Finished()), "Priya");
+        await using var page = await OpenCampaignPage.OpenAsync(app, id, StalePages.Clock(app));
+
+        await page.ClickAsync("withdraw-button");
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(0, RenderedPage.Count(html, "delete-refused"));
+        Assert.Equal("Delete campaign", RenderedPage.Named(html, "delete-button"));
     }
 
     [Fact]

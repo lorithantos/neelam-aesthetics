@@ -270,6 +270,19 @@ h1:focus {
     border-color: var(--danger-hover);
 }
 
+/* A destructive action set apart at the foot of its card (the campaign's
+   Delete): a rule and space above it, and a line saying what it does, so
+   it is never next to Save and never told by colour alone. */
+.delete-zone {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 2px solid var(--danger);
+}
+
+.delete-warning {
+    color: var(--error-text);
+}
+
 .button:disabled,
 .button[aria-disabled="true"] {
     opacity: 0.5;
@@ -357,6 +370,17 @@ summary:focus-visible,
 @media (min-width: 48rem) {
     .workspace {
         grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    }
+
+    /* The template page's whole-email preview stays in view beside the
+       blocks while they scroll (owner, 2026-10-31: "make it easier to find
+       even on a computer"); a preview taller than the window scrolls
+       inside its card. */
+    .preview-beside {
+        position: sticky;
+        top: 1rem;
+        max-height: calc(100vh - 2rem);
+        overflow-y: auto;
     }
 }
 

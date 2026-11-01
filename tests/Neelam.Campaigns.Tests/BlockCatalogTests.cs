@@ -91,18 +91,19 @@ public class BlockCatalogTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(before.Rules.Order(), now.Rules.Order());
     }
 
-    // Priya, 2026-10-31: "Offers => Tiered Offers". Only what she sees is renamed: the block's type,
+    // Priya, 2026-10-31: "Offers => Tiered Offers", made singular by the owner ("singular",
+    // 2026-10-31). Only what she sees is renamed: the block's type,
     // which every stored template and draft carries, stays Offer, and a label she gave one of her own
     // blocks is hers, so a stored template opens with it. A block added from now on is named anew.
     [Fact]
-    public void The_offer_block_is_shown_as_tiered_offers_and_keeps_its_type()
+    public void The_offer_block_is_shown_as_tiered_offer_and_keeps_its_type()
     {
-        Assert.Equal("Tiered offers", Catalogs.Shipped.For(BlockType.Offer).Label);
+        Assert.Equal("Tiered offer", Catalogs.Shipped.For(BlockType.Offer).Label);
         Assert.Contains("\"type\": \"Offer\",", CatalogFile(BlockCatalog.BlocksFile));
 
         var editor = TemplateEditor.Open(DraftFixtures.Membership, Catalogs.Shipped);
         Assert.Contains(editor.Blocks, b => b.Type == BlockType.Offer && b.Label == "Offer");
-        Assert.Equal("Tiered offers", editor.Add(BlockType.Offer).Label);
+        Assert.Equal("Tiered offer", editor.Add(BlockType.Offer).Label);
         var saved = CampaignJson.SerializeTemplate(DraftFixtures.Membership);
         Assert.Equal("Offer", CampaignJson.DeserializeTemplate(saved).Blocks.Single(b => b.Type == BlockType.Offer).Label);
     }

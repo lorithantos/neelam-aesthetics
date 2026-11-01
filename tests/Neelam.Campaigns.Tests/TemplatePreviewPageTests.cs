@@ -39,6 +39,23 @@ public class TemplatePreviewPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Contains("‹Headline: written for each campaign›", RenderedPage.Named(html, "template-preview"));
     }
 
+    // The owner, 2026-10-31: "No change - but maybe make it easier to find even on a computer". A link
+    // near the top goes to the whole email's preview, on this page's own address so it only moves down.
+    [Fact]
+    public async Task A_link_at_the_top_goes_to_the_whole_email_s_preview()
+    {
+        await using var page = await OpenMembershipAsync();
+        var html = await page.HtmlAsync();
+
+        Assert.Equal("See the whole email's preview", RenderedPage.Named(html, "preview-link"));
+        var href = RenderedPage.Attribute(html, "preview-link", "href");
+        Assert.Matches("^templates/[0-9a-f-]{36}#template-preview$", href);
+        Assert.Equal("template-preview", RenderedPage.Attribute(html, "template-preview", "id"));
+        // Before the first block.
+        Assert.True(html.IndexOf("data-testid=\"preview-link\"", StringComparison.Ordinal)
+                    < html.IndexOf("Blocks, top to bottom", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Both_previews_follow_what_is_typed()
     {

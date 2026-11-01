@@ -89,7 +89,7 @@ new kind of email down into one on request.
 |---|---|---|
 | Heading, Greeting | A line of text | Text checks |
 | Paragraphs | Body text, one entry per paragraph | Text checks |
-| Tiered offers (stored as type `Offer`) | A tiered offer with typed benefits | Tier names, distinct tiers, prices, benefit values, parallel tiers, terms for a recurring charge; an offer needs a button |
+| Tiered offer (stored as type `Offer`) | A tiered offer with typed benefits | Tier names, distinct tiers, prices, benefit values, parallel tiers, terms for a recurring charge; an offer needs a button |
 | Button | A label and an https link | https only |
 | Sign-off | Valediction, sender, tagline | Text checks |
 | Fine print | Disclaimers and terms | Answers the medical-disclaimer rule |
@@ -233,7 +233,8 @@ the client's own container (see [Clients and access](#clients-and-access)):
   **Deleting a campaign** (2026-10-31) is the same undo applied to every save in use at once: each
   gets the same `undone` time, so the campaign leaves her list, Recently deleted offers it back for
   the grace period, Restore clears the mark of every save undone at that moment, and the sweep then
-  deletes them and their proofreads. Nothing else is stored for it.
+  deletes them and their proofreads. Nothing else is stored for it. A campaign with an approved
+  version is kept as a record and can't be deleted (owner, 2026-10-31: "No, these are recorded").
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed

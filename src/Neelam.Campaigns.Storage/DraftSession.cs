@@ -99,21 +99,38 @@ public sealed class DraftSession : IWatched<SaveRef>
 
     /// <summary>
     /// What the page asks before deleting the campaign (<see cref="DeleteAsync"/>): how many versions go,
-    /// where and for how long it can be restored, and, when any version was approved, that the approval
-    /// is withdrawn, as an undo withdraws it. Proposed wording, the owner's to change.
+    /// and where and for how long it can be restored (owner, 2026-10-31: "All good"). A campaign with an
+    /// approved version is never deleted (<see cref="CannotDelete"/>), so the question has no approval to
+    /// speak of.
     /// </summary>
     public string DeleteQuestion
     {
         get
         {
             var what = _versions > 1 ? $"this campaign and all {_versions} of its versions" : "this campaign";
-            var question = $"Delete {what}? It goes from your campaigns. You can restore it from Recently deleted for " +
-                           $"{TimeWords.Period(_store.UndoGracePeriod)}, then it is deleted for good.";
-            return Latest?.Approval is not null || SupersededApproval is not null
-                ? question + " Its approval is withdrawn: restored, it needs approving again."
-                : question;
+            return $"Delete {what}? It goes from your campaigns. You can restore it from Recently deleted for " +
+                   $"{TimeWords.Period(_store.UndoGracePeriod)}, then it is deleted for good.";
         }
     }
+
+    /// <summary>
+    /// Why the campaign cannot be deleted, said on the page in place of Delete, or null when it can: a
+    /// version in use carries an approval that stands, the newest's or an earlier one's (owner, 2026-10-31,
+    /// "No, these are recorded"). An approval someone withdrew no longer stands, so it keeps nothing.
+    /// </summary>
+    public string? CannotDelete => KeptAsRecord(Latest, SupersededApproval is not null);
+
+    // Why a campaign is kept, given its newest save in use and whether an earlier one carries an approval
+    // that stands; null when neither does. The newest save's approval has a way out on the page, Withdraw
+    // approval (owner, 2026-11-01: "Withdrawal of an approval is still a thing, maybe the mail didn't go
+    // out"), so the words name it; an earlier version's approval has no such button yet.
+    private static string? KeptAsRecord(SaveRef? newest, bool earlierApproved) =>
+        newest?.Approval is not null
+            ? "This campaign was approved, so it is kept as a record and can't be deleted. " +
+              "If the email didn't go out, use Withdraw approval first."
+            : earlierApproved
+                ? "This campaign was approved, so it is kept as a record and can't be deleted."
+                : null;
 
     /// <summary>True when the form holds anything not in <see cref="Latest"/>, or nothing is saved yet.</summary>
     public bool HasUnsavedChanges =>
@@ -709,12 +726,19 @@ public sealed class DraftSession : IWatched<SaveRef>
     /// (<see cref="CampaignStore.DeleteAsync"/>), any unsaved changes are discarded, and the campaign goes
     /// from her list. <see cref="Restorable"/> then brings it back whole for the grace period, here or from
     /// Recently deleted; after it the sweep deletes it. Every version goes, a version saved in another tab
-    /// since this page opened included, since all of it comes back together.
+    /// since this page opened included, since all of it comes back together (owner, 2026-11-01: "Allow it,
+    /// but not if it has been approved"). A campaign with a version whose approval stands is kept: decided
+    /// from storage as it is at the click, every version in use included, those this page has not seen,
+    /// never from what the page holds. An approval someone withdrew keeps nothing.
     /// </summary>
+    /// <exception cref="InvalidOperationException">There is no saved campaign, or a version of it is approved.</exception>
     public async Task DeleteAsync(CancellationToken ct = default)
     {
         if (Latest is null || Id is null)
             throw new InvalidOperationException("There is no saved campaign to delete.");
+        var history = await _store.HistoryAsync(DocumentKind.Draft, Id.Value, ct);
+        if (KeptAsRecord(history.FirstOrDefault(), history.Skip(1).Any(s => s.Approval is not null)) is { } why)
+            throw new InvalidOperationException(why);
         await _store.DeleteAsync(DocumentKind.Draft, Id.Value, ct);
         try
         {

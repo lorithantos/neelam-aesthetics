@@ -296,7 +296,7 @@ else if (_session is not null)
         </div>
 
         <aside class="workspace-side">
-            <section class="card">
+            <section class="card" data-testid="save-card">
                 <h2>Save</h2>
                 <p class="field-help">A campaign can be saved unfinished. Each save is a new version.</p>
                 <Problems Messages="errors" />
@@ -308,34 +308,51 @@ else if (_session is not null)
                 @if (_session.Latest is { } latest)
                 {
                     <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
-                    @* Delete takes the whole campaign, every version, restorable for the grace period
-                       (Priya, 2026-10-31). Undo last save only while there is a version before the
-                       newest to go back to: with none, undoing it would be the same as deleting. *@
-                    @if (_confirmingDelete)
-                    {
-                        <p data-testid="delete-question">@_session.DeleteQuestion</p>
-                        <button class="button danger" data-testid="delete-confirm" @onclick="DeleteAsync">Delete it</button>
-                        <button class="button" data-testid="delete-keep" @onclick="() => _confirmingDelete = false">Keep it</button>
-                    }
-                    else if (_confirmingUndo)
+                    @* Undo last save only while there is a version before the newest to go back to:
+                       with none, undoing it would be the same as deleting. *@
+                    @if (_confirmingUndo)
                     {
                         <p>@_session.UndoQuestion</p>
                         <button class="button danger" data-testid="undo-confirm" @onclick="UndoAsync">Undo it</button>
                         <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
                     }
-                    else
+                    else if (!_session.UndoDeletesTheCampaign)
                     {
-                        @if (!_session.UndoDeletesTheCampaign)
-                        {
-                            <button class="button" data-testid="undo-button" @onclick="() => _confirmingUndo = true">Undo last save</button>
-                        }
-                        <button class="button" data-testid="delete-button" @onclick="() => _confirmingDelete = true">Delete campaign</button>
+                        <button class="button" data-testid="undo-button" @onclick="() => (_confirmingUndo, _confirmingDelete) = (true, false)">Undo last save</button>
                     }
                 }
                 @if (_session.Restorable is not null)
                 {
                     <p class="field-help">The last undo can be taken back until @Times.DateAndTime(_session.RestorableUntil!.Value).</p>
                     <button class="button" @onclick="RestoreAsync">Restore undone save</button>
+                }
+                @* Delete takes the whole campaign, every version, restorable for the grace period
+                   (Priya, 2026-10-31). In the Save card, last and set apart, in the destructive style and
+                   saying so in words, not colour alone (owner, 2026-10-31: "let's make it very clear that
+                   this is dangerous"). A campaign with an approved version is kept as a record (owner,
+                   2026-10-31: "No, these are recorded"), and the page says so in its place. *@
+                @if (_session.Latest is not null)
+                {
+                    @if (_session.CannotDelete is { } kept)
+                    {
+                        <p class="field-help delete-zone" data-testid="delete-refused">@kept</p>
+                    }
+                    else
+                    {
+                        <div class="delete-zone" role="group" aria-label="Delete campaign" data-testid="delete-zone">
+                            @if (_confirmingDelete)
+                            {
+                                <p data-testid="delete-question">@_session.DeleteQuestion</p>
+                                <button type="button" class="button danger" data-testid="delete-confirm" @onclick="DeleteAsync">Delete it</button>
+                                <button type="button" class="button" data-testid="delete-keep" @onclick="() => _confirmingDelete = false">Keep it</button>
+                            }
+                            else
+                            {
+                                <p class="delete-warning"><strong>Danger:</strong> deleting takes the whole campaign, every version, off your list.</p>
+                                <button type="button" class="button danger" data-testid="delete-button" @onclick="() => (_confirmingDelete, _confirmingUndo) = (true, false)">Delete campaign</button>
+                            }
+                        </div>
+                    }
                 }
             </section>
 
@@ -1053,11 +1070,20 @@ else
 
     // Delete, as undo, only marks: every version of the campaign, restorable for the grace period here
     // and under Recently deleted, then swept. The page shows what it shows on opening a deleted campaign.
+    // Refused when a version is approved, read again at the click: the page says why.
     private Task DeleteAsync() => ActingAsync(async () =>
     {
         _confirmingDelete = _confirmingUndo = false;
+        try
+        {
+            await _session!.DeleteAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            _message = ex.Message;
+            return;
+        }
         ForgetTemplateChoice();
-        await _session!.DeleteAsync();
         _undone = _session.Restorable;
         _session = null;
         _watch?.Watch(null);

@@ -153,7 +153,7 @@ public class TemplateEditorTests
         editor.Add(BlockType.Heading).Label = "Headline";
         Fix(editor.Add(BlockType.Greeting), b => b.Text = Target.Block<GreetingBlock>("Greeting").Text);
         editor.Add(BlockType.Paragraphs).Label = "Opening";
-        // A new offer block is called "Tiered offers"; Neelam's template calls hers "Offer".
+        // A new offer block is called "Tiered offer"; Neelam's template calls hers "Offer".
         var offer = editor.Add(BlockType.Offer);
         (offer.Label, offer.Recurring, offer.Marker) = ("Offer", true, "🤍");
         Fix(editor.Add(BlockType.Paragraphs), b => (b.Label, b.Paragraphs) =
@@ -276,7 +276,7 @@ public class TemplateEditorTests
         editor.Add(BlockType.Offer);
 
         var advice = Assert.Single(editor.Advice());
-        Assert.Equal((Severity.Blocker, "cta-required", "Tiered offers"), (advice.Severity, advice.Rule, advice.Location));
+        Assert.Equal((Severity.Blocker, "cta-required", "Tiered offer"), (advice.Severity, advice.Rule, advice.Location));
 
         var button = editor.Add(BlockType.Button);
         button.Required = false;
