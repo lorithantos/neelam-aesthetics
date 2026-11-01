@@ -286,6 +286,10 @@ for them. A client's people only sign in and work on their campaigns.
   staging, which would wipe what they are looking at. The clear call is in the refresh
   envelope. The copy is Janet's `storage_copy_plan` then `storage_copy_apply`, driven by
   `infra/storage-copy.json`, which `StorageCopySpecTests` holds to the store's constants.
+  The first refresh deletes staging's hand-seeded sample content (template, photos, known
+  items) with no soft delete, and after a clear staging is empty: redo the seeding steps if
+  sample content is wanted. The settings container's operator data (`_standard-baseline/`,
+  `_standard-ladders/`, `_starts/`) is deliberately not copied, because it is not per-client.
 - **What the client offers is the client's.** The procedures and medications to offer, and
   their usual prices, are a catalog in the client's own container
   (`{client}/catalog/{stamp}.json`). The operator sees it only under a support grant, like the
