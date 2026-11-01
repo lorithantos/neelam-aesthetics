@@ -29,6 +29,8 @@
 
   <ItemGroup>
     <None Include="..\..\docs\assistant-export.schema.json" Link="assistant-export.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The storage copy spec Janet reads; the tests hold it to the store's own constants. -->
+    <None Include="..\..\infra\storage-copy.json" Link="storage-copy.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

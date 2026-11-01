@@ -47,7 +47,7 @@ public sealed record LibraryImage(
 /// </remarks>
 public sealed class ImageLibrary(IBlobBackend clientContainer, TimeProvider clock, ActivityTrail activity)
 {
-    private const string Prefix = "images/";
+    internal const string Prefix = "images/";
     private const string NameKey = "name";
     private const string AltKey = "alt";
     private const string AddedKey = "added";

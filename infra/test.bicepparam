@@ -1,4 +1,4 @@
-// The test deployment for development: a separate resource group, made-up clients, no client data.
+// The test deployment for development: a separate resource group, made-up clients. Staging can hold a temporary, owner-approved copy of Priya's live data (README "Staging copy").
 using 'main.bicep'
 
 param prefix = 'neelamtest'

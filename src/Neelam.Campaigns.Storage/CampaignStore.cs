@@ -328,7 +328,7 @@ public sealed class CampaignStore(
 
     internal static string ProofreadName(SaveRef save) => $"{ProofreadPrefix}{save.Id:N}/{SaveStamp.Of(save.SavedAt)}.json";
 
-    private const string ProofreadPrefix = "proofread/";
+    internal const string ProofreadPrefix = "proofread/";
 
     // Every approval row of one campaign, in this client's partition: withdrawn ones and those of
     // undone or deleted saves included.

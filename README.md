@@ -277,8 +277,15 @@ for them. A client's people only sign in and work on their campaigns.
 - **At the Azure level the operator holds no data role either.** Shared keys are off and denied
   by policy, so even the subscription Owner cannot read blobs without first granting themselves
   a role, and the Activity Log records that. Local development runs against a separate test
-  deployment that holds no client data, where the developer holds data access through the
-  template; production grants no developer access.
+  deployment, where the developer holds data access through the template; production grants
+  no developer access. That deployment holds no client data except the staging copy below.
+- **Staging copy (temporary, owner-approved).** Staging can hold a copy of Priya's live data,
+  made with her knowledge. Only live data is copied (a deleted save leaves no record, even in
+  a copy), nothing is ever copied back, and she does not see staging. Refresh it before
+  testing and clear it when the tests are done: do not refresh while anyone is testing on
+  staging, which would wipe what they are looking at. The clear call is in the refresh
+  envelope. The copy is Janet's `storage_copy_plan` then `storage_copy_apply`, driven by
+  `infra/storage-copy.json`, which `StorageCopySpecTests` holds to the store's constants.
 - **What the client offers is the client's.** The procedures and medications to offer, and
   their usual prices, are a catalog in the client's own container
   (`{client}/catalog/{stamp}.json`). The operator sees it only under a support grant, like the
@@ -348,7 +355,7 @@ deployment used in development.
   may name a blob, but it never holds a save's contents. Locally, without the setting, nothing
   is sent.
 - Locally the app signs in as the developer (`az login`) and points at the **test deployment**,
-  whose made-up clients hold no client data. There the template gives the developer named by
+  whose clients are made up (staging may also hold the temporary copy described above). There the template gives the developer named by
   `developerPrincipalId` in `infra/test.bicepparam` *Storage Blob Data Contributor* and *Storage
   Table Data Contributor* on the whole account. The template honours it only when
   `environmentName` is `Test`, and `main.bicepparam` never sets it, so production grants no

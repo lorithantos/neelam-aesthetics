@@ -8,7 +8,8 @@
 // account keys, connection strings and account SAS tokens do not work at all; the web app reaches
 // storage with its system-assigned identity and RBAC roles on exactly its containers and tables
 // (storage.bicep). The only person ever granted data access is the developer, and only on the test
-// deployment, whose clients are made up (developerPrincipalId); production grants no person data access.
+// deployment, whose clients are made up apart from a temporary, owner-approved copy of Priya's live
+// data on staging (developerPrincipalId); production grants no person data access.
 //
 // Saves are date/time-stamped blobs and deleting one must leave no record of it, so blob
 // versioning, soft delete, change feed and point-in-time restore are all off. A delete is final.
