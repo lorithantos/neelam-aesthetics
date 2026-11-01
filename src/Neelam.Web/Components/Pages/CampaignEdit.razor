@@ -98,7 +98,7 @@ else if (_session is not null)
     // Checked by the LLM: then nothing is marked "Not checked by the LLM yet", and the JSON says proofread.
     var exportProofread = exportReport?.Proofread == true;
     var assistant = exportReport is null ? null : AssistantExport.Offer(exportReport, exportReport.DemoApproval,
-        new AssistantExportContext(_session.Id, editor.Label, editor.TemplateName, name => ImageLibrary.Find(_photos, name)?.SquareUrl));
+        new AssistantExportContext(_session.Id, editor.Label, _session.TemplateNameNow(_templates), name => ImageLibrary.Find(_photos, name)?.SquareUrl));
 
     <KnownItemLists Known="Known" />
     <h1>@Title</h1>
@@ -119,13 +119,15 @@ else if (_session is not null)
                 <option value="@t.Id">@t.Title</option>
             }
         </select>
+        @* The template by its id alone, its name as it is now (owner, 2026-11-01: "renaming a template
+           should not change the campaigns. We should use an ID instead of the name"). *@
         @if (standing == TemplateStanding.Changed)
         {
-            <p class="field-help" data-testid="template-changed">The template @editor.TemplateName has changed since this campaign was made.</p>
+            <p class="field-help" data-testid="template-changed">The template @_session.TemplateNameNow(_templates) has changed since this campaign was made.</p>
         }
         else if (standing == TemplateStanding.Gone)
         {
-            <p class="field-help" data-testid="template-gone">The template @editor.TemplateName no longer exists. This campaign still works as it is, and you can choose another template.</p>
+            <p class="field-help" data-testid="template-gone">The template this campaign was made from no longer exists. This campaign still works as it is, and you can choose another template.</p>
         }
         <div class="block-actions">
             @if (picked.Length > 0 && picked != attached)
@@ -785,11 +787,13 @@ else
     private TemplateChoice? _askTemplate;
     private string? _templateMessage;
 
+    // With none attached (a campaign saved before campaigns recorded theirs, until the one-time update
+    // links it), nothing is picked: no template is guessed from a name.
     private string PickedTemplate =>
         _pickedTemplate
         ?? (_session!.TemplateStatus(_templates) is TemplateStanding.Current or TemplateStanding.Changed
             ? _session.Editor.Draft.TemplateId!.Value.ToString()
-            : _session.SuggestedTemplate(_templates)?.Id.ToString())
+            : null)
         ?? "";
 
     private void PickTemplate(string? value)
@@ -867,7 +871,12 @@ else
     private bool _canReview;
     private string _approver = "";
 
-    private string Title => _session is null ? "Campaign" : _session.Editor.Title;
+    // An untitled campaign is named for its template as that is named now, looked up by id.
+    private string Title =>
+        _session is null ? "Campaign"
+        : _session.Editor.Draft.Subject.HasValue ? _session.Editor.Title
+        : _session.TemplateNameNow(_templates) is { } template ? $"Untitled campaign from {template}"
+        : "Untitled campaign";
 
     protected override async Task OnInitializedAsync()
     {

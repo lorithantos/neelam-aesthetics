@@ -102,26 +102,23 @@ public class DraftSessionTemplateTests
         Assert.Null(await session.ChooseTemplateAsync(id));
     }
 
-    // A campaign saved before templates were recorded: none attached, and the one template of hers
-    // with its template's name offered first; with two of that name, neither.
+    // A campaign saved before templates were recorded: none attached, and none guessed from the name it
+    // saved (owner, 2026-11-01: "We should use an ID instead of the name"); the one-time update links it
+    // (TemplateLinkTests).
     [Fact]
-    public async Task With_no_template_attached_the_one_of_hers_with_its_name_is_offered_first()
+    public async Task With_no_template_attached_none_is_guessed_from_its_name()
     {
         var campaign = await SaveDraft(Guid.NewGuid(), DraftFixtures.Finished());
-        var named = Guid.NewGuid();
-        await SaveTemplate(named, Membership);
+        await SaveTemplate(Guid.NewGuid(), Membership);
         await SaveTemplate(Guid.NewGuid(), new CampaignTemplate("Thank you", Membership.Blocks));
         var session = (await DraftSession.OpenAsync(Store, campaign.Id))!;
 
         var templates = await session.TemplatesAsync();
 
         Assert.Equal(TemplateStanding.None, session.TemplateStatus(templates));
-        Assert.Equal(named, session.SuggestedTemplate(templates)!.Id);
+        Assert.Null(session.TemplateNameNow(templates));
         // As the Templates list orders them: by name.
         Assert.Equal(["Membership announcement", "Thank you"], templates.Select(t => t.Title));
-
-        await SaveTemplate(Guid.NewGuid(), Membership);
-        Assert.Null(session.SuggestedTemplate(await session.TemplatesAsync()));
     }
 
     // Using a template changes the form and nothing in storage: leaving without saving keeps the old

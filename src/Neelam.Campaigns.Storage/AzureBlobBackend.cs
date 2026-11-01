@@ -64,6 +64,23 @@ public sealed class AzureBlobBackend : IBlobBackend
         }
     }
 
+    // If-Match on the listed ETag, as for DeleteIfUnchangedAsync: a blob changed since is left alone.
+    public async Task<bool> SetMetadataIfUnchangedAsync(
+        string name, IReadOnlyDictionary<string, string> metadata, string etag, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(etag);
+        try
+        {
+            await _container.GetBlobClient(name).SetMetadataAsync(
+                new Dictionary<string, string>(metadata), new BlobRequestConditions { IfMatch = new ETag(etag) }, cancellationToken);
+            return true;
+        }
+        catch (RequestFailedException ex) when (ex.Status is 404 or 412)
+        {
+            return false;
+        }
+    }
+
     public async Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default)
     {
         var result = await _container.GetBlobClient(name)

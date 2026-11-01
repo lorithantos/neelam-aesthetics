@@ -11,9 +11,18 @@ public enum DocumentKind { Draft, Template }
 /// from the approvals table (<see cref="IApprovalStore"/>) for one campaign's history
 /// (<see cref="CampaignStore.HistoryAsync"/>); lists across campaigns leave it null.
 /// </param>
+/// <param name="Template">
+/// For a draft saved before campaigns recorded their template: the template it was linked to afterwards
+/// by the one-time update (<see cref="CampaignStore.LinkTemplatesAsync"/>), from the blob's own metadata,
+/// so the save's content and stamp, and the approvals keyed by it, stay exactly as they were. Null for
+/// every other save; a draft's own JSON wins when it records a template (<see cref="CampaignStore.LoadDraftAsync"/>).
+/// </param>
 public sealed record SaveRef(
     DocumentKind Kind, Guid Id, DateTimeOffset SavedAt, string Title, string BlobName, DateTimeOffset? UndoneAt = null,
-    Approval? Approval = null);
+    Approval? Approval = null, TemplateLink? Template = null);
+
+/// <summary>A template a campaign's save was linked to by id, and the version it was made from when that could be known.</summary>
+public sealed record TemplateLink(Guid Id, DateTimeOffset? Version);
 
 /// <summary>What came of an undo allowed only on the newest version in use.</summary>
 /// <param name="Done">True when it was undone; false when the version was not the newest in use at the click.</param>
@@ -107,8 +116,14 @@ public sealed class CampaignStore(
     public async Task<IReadOnlyList<SaveRef>> LatestAsync(DocumentKind kind, CancellationToken ct = default) =>
         (await ListAsync(kind, ct)).GroupBy(s => s.Id).Select(g => g.First()).ToList();
 
+    /// <summary>
+    /// A draft save, read. One saved before campaigns recorded their template, and linked to one since
+    /// (<see cref="SaveRef.Template"/>), comes back with that template's id and version, as if saved with
+    /// them; the next save writes them into its own JSON.
+    /// </summary>
     public async Task<CampaignDraft> LoadDraftAsync(SaveRef save, CancellationToken ct = default) =>
-        CampaignJson.DeserializeDraft(await blobs.ReadTextAsync(Expect(save, DocumentKind.Draft), ct));
+        CampaignJson.DeserializeDraft(await blobs.ReadTextAsync(Expect(save, DocumentKind.Draft), ct),
+            save.Template?.Id, save.Template?.Version);
 
     public async Task<CampaignTemplate> LoadTemplateAsync(SaveRef save, CancellationToken ct = default) =>
         CampaignJson.DeserializeTemplate(await blobs.ReadTextAsync(Expect(save, DocumentKind.Template), ct));
@@ -494,6 +509,58 @@ public sealed class CampaignStore(
         return deleted;
     }
 
+    /// <summary>
+    /// The one-time update for campaigns saved before they recorded their template by id (owner,
+    /// 2026-11-01: "We can run an update when the new one is deployed to main"). Each draft save, undone
+    /// ones included, whose JSON records no template id and that is not linked already, is matched by the
+    /// template name its JSON records against her templates' current names: exactly one template of that
+    /// name links it, by id, with the version that was the template's newest when the campaign was first
+    /// saved (null when none is in use from before then). The link is written into the save's own
+    /// metadata, only while the blob is as listed, so its content, stamp and approvals stay exactly as
+    /// they were, and an undo marked meanwhile is never overwritten (that save is reported to retry).
+    /// Run it again and nothing linked before is touched. With <paramref name="apply"/> false nothing is
+    /// written: the report says what would be done.
+    /// </summary>
+    public async Task<TemplateLinkReport> LinkTemplatesAsync(bool apply, CancellationToken ct = default)
+    {
+        var byName = (await LatestAsync(DocumentKind.Template, ct)).ToLookup(t => t.Title, StringComparer.Ordinal);
+        var versions = new Dictionary<Guid, IReadOnlyList<SaveRef>>();
+        var saves = new List<(SaveRef Save, BlobEntry Blob)>();
+        await foreach (var blob in blobs.ListAsync($"{Prefix(DocumentKind.Draft)}/", ct))
+        {
+            if (TryParse(DocumentKind.Draft, blob, out var save)) saves.Add((save, blob));
+        }
+
+        var report = new TemplateLinkReport(apply);
+        foreach (var campaign in saves.GroupBy(s => s.Save.Id))
+        {
+            var firstSaved = campaign.Min(s => s.Save.SavedAt);
+            foreach (var (save, blob) in campaign.OrderBy(s => s.Save.SavedAt))
+            {
+                if (save.Template is not null) { report.AlreadyLinked++; continue; }
+                var draft = CampaignJson.DeserializeDraft(await blobs.ReadTextAsync(save.BlobName, ct));
+                if (draft.TemplateId is not null) { report.AlreadyLinked++; continue; }
+                var named = draft.TemplateName is { } name ? byName[name].ToList() : [];
+                if (named.Count != 1)
+                {
+                    (named.Count == 0 ? report.NoMatch : report.Ambiguous).Add(save.Id);
+                    continue;
+                }
+                var template = named[0];
+                if (!versions.TryGetValue(template.Id, out var history))
+                    versions[template.Id] = history = await HistoryAsync(DocumentKind.Template, template.Id, ct);
+                var version = history.FirstOrDefault(v => v.SavedAt <= firstSaved)?.SavedAt;
+                if (!apply) { report.Linked.Add(save.Id); continue; }
+
+                var metadata = new Dictionary<string, string>(blob.Metadata) { [TemplateIdKey] = template.Id.ToString("N") };
+                if (version is { } v) metadata[TemplateVersionKey] = SaveStamp.Of(v);
+                if (await blobs.SetMetadataIfUnchangedAsync(save.BlobName, metadata, blob.ETag, ct)) report.Linked.Add(save.Id);
+                else report.Retry.Add(save.Id);
+            }
+        }
+        return report;
+    }
+
     // The grace period runs from the mark; at its end the save belongs to the sweep.
     private bool CanRestore(SaveRef save) => UndoMark.Restorable(save.UndoneAt, undoGracePeriod, clock.GetUtcNow());
 
@@ -557,9 +624,20 @@ public sealed class CampaignStore(
 
         var title = blob.Metadata.TryGetValue(TitleKey, out var t) ? Uri.UnescapeDataString(t) : "(untitled)";
         // Approvals are the approvals table's, never the blob's: HistoryAsync adds them.
-        save = new SaveRef(kind, id, at, title, blob.Name, UndoMark.Read(blob.Metadata));
+        save = new SaveRef(kind, id, at, title, blob.Name, UndoMark.Read(blob.Metadata), Template: LinkOf(blob.Metadata));
         return true;
     }
+
+    // The template a save was linked to afterwards, by id; a value not written by this app is ignored.
+    private static TemplateLink? LinkOf(IReadOnlyDictionary<string, string> metadata)
+    {
+        if (!metadata.TryGetValue(TemplateIdKey, out var id) || !Guid.TryParseExact(id, "N", out var templateId)) return null;
+        DateTimeOffset? version = metadata.TryGetValue(TemplateVersionKey, out var v) && SaveStamp.TryRead(v + ".json", out var at) ? at : null;
+        return new TemplateLink(templateId, version);
+    }
+
+    internal const string TemplateIdKey = "templateid";
+    internal const string TemplateVersionKey = "templateversion";
 
     private static string Expect(SaveRef save, DocumentKind kind) =>
         save.Kind == kind

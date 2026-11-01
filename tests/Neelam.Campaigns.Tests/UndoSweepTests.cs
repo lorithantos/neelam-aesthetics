@@ -303,6 +303,10 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default) =>
             throw Unreachable();
 
+        public Task<bool> SetMetadataIfUnchangedAsync(
+            string name, IReadOnlyDictionary<string, string> metadata, string etag, CancellationToken cancellationToken = default) =>
+            throw Unreachable();
+
         public Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default) => throw Unreachable();
 
         public Task<bool> DeleteIfUnchangedAsync(string name, string etag, CancellationToken cancellationToken = default) =>

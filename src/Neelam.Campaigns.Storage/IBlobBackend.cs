@@ -30,6 +30,14 @@ public interface IBlobBackend
     Task<bool> SetMetadataAsync(
         string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Replaces the blob's metadata only if it is still the version listed with <paramref name="etag"/>,
+    /// leaving its content as it is. False if it is gone or has changed since (an undo marked meanwhile,
+    /// say), in which case it is left as it is.
+    /// </summary>
+    Task<bool> SetMetadataIfUnchangedAsync(
+        string name, IReadOnlyDictionary<string, string> metadata, string etag, CancellationToken cancellationToken = default);
+
     /// <summary>Deletes the blob. False if it was already gone.</summary>
     Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default);
 

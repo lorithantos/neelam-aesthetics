@@ -241,6 +241,9 @@ the client's own container (see [Clients and access](#clients-and-access)):
   the grace period, Restore clears the mark of every save undone at that moment, and the sweep then
   deletes them and their proofreads. Nothing else is stored for it. A campaign with an approved
   version is kept as a record and can't be deleted (owner, 2026-10-31: "No, these are recorded").
+  A campaign refers to its template by id; one saved before it recorded the id is linked once,
+  by the template link update, in its save's metadata (`templateid`, `templateversion`: ids,
+  never content), so the save itself, its history and its approvals stay as they were.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed

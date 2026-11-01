@@ -615,16 +615,14 @@ public sealed class DraftSession : IWatched<SaveRef>
     }
 
     /// <summary>
-    /// For a campaign with no template attached, the template to offer first: the one of hers whose
-    /// newest version has the name the campaign records, when exactly one has. Null otherwise; nothing
-    /// is attached until she says.
+    /// The name of the template the campaign is attached to, as that template's newest version has it
+    /// now, from her templates as <see cref="TemplatesAsync"/> listed them; null with none attached, or
+    /// when that template no longer exists. The campaign refers to its template by id alone (owner,
+    /// 2026-11-01: "renaming a template should not change the campaigns. We should use an ID instead of
+    /// the name"): the name it saved is never shown or matched on.
     /// </summary>
-    public SaveRef? SuggestedTemplate(IReadOnlyList<SaveRef> templates)
-    {
-        if (Editor.Draft.TemplateId is not null || Editor.TemplateName is not { } name) return null;
-        var named = templates.Where(t => t.Title == name).Take(2).ToList();
-        return named.Count == 1 ? named[0] : null;
-    }
+    public string? TemplateNameNow(IReadOnlyList<SaveRef> templates) =>
+        Editor.Draft.TemplateId is { } id ? templates.FirstOrDefault(t => t.Id == id)?.Title : null;
 
     /// <summary>
     /// The newest version of one of her templates, read now, and what using it would do to the form as

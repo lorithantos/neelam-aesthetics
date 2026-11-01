@@ -126,6 +126,12 @@ builder.Services.AddSingleton(services => new ClientStores(
     services.GetRequiredService<IApprovalStore>(), services.GetRequiredService<ActivityRecorder>(),
     services.GetRequiredService<CampaignSignals>()));
 builder.Services.AddHostedService<UndoSweep>();
+// The one-time update linking campaigns saved before they recorded their template by id (owner,
+// 2026-11-01): off unless TemplateLinks:Mode says Report (writes nothing) or Apply; idempotent.
+builder.Services.AddOptions<TemplateLinkOptions>()
+    .Bind(builder.Configuration.GetSection(TemplateLinkOptions.Section))
+    .ValidateOnStart();
+builder.Services.AddHostedService<TemplateLinkUpdate>();
 
 // Warms the app as it starts, off the startup path: storage's first token and connections, then every
 // client page requested once from the app itself (owner, 2026-10-10: "Once she hits the site ...

@@ -72,6 +72,16 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         return true;
     }
 
+    public async Task<bool> SetMetadataIfUnchangedAsync(
+        string name, IReadOnlyDictionary<string, string> metadata, string etag, CancellationToken cancellationToken = default)
+    {
+        if (BeforeSetMetadata is { } before) await before(name);
+        if (!Blobs.TryGetValue(name, out var blob) || ETagOf(name) != etag) return false;
+        Blobs[name] = (blob.Blob, new Dictionary<string, string>(metadata));
+        Renew(name);
+        return true;
+    }
+
     public async Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default)
     {
         if (BeforeDelete is { } before) await before(name);

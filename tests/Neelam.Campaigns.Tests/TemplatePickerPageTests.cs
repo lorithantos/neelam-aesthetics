@@ -64,8 +64,9 @@ public class TemplatePickerPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Single(await Store.HistoryAsync(DocumentKind.Draft, campaign.Id));
     }
 
-    // Saved before campaigns recorded their template: none attached, hers with its template's name
-    // chosen to start with, and nothing attached until she presses.
+    // Saved before campaigns recorded their template: none attached, none guessed from the name it saved
+    // (owner, 2026-11-01: "We should use an ID instead of the name"), and the page works as it is; she can
+    // choose one, and nothing is attached until she presses.
     [Fact]
     public async Task A_campaign_with_no_template_attached_takes_one_on_Use_this_template_and_keeps_it_on_save()
     {
@@ -75,10 +76,13 @@ public class TemplatePickerPageTests(DemoApp app) : IClassFixture<DemoApp>
         await using var page = await OpenCampaignPage.OpenAsync(app, campaign.Id, new SteppingClock(app.Clock.Now));
 
         var html = await page.HtmlAsync();
-        Assert.Equal(template.ToString(), RenderedPage.Attribute(html, "template-picker", "value"));
+        Assert.Equal("", RenderedPage.Attribute(html, "template-picker", "value"));
         Assert.Equal(0, RenderedPage.Count(html, "template-changed"));
+        Assert.Equal(0, RenderedPage.Count(html, "template-gone"));
         Assert.Equal(0, RenderedPage.Count(html, "template-update"));
+        Assert.Equal(0, RenderedPage.Count(html, "template-use"));
 
+        await page.ChooseAsync("template-picker", template.ToString());
         await page.ClickAsync("template-use");
 
         html = await page.HtmlAsync();

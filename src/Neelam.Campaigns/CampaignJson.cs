@@ -27,20 +27,27 @@ public static class CampaignJson
 
     /// <summary>
     /// The draft as an approval sees it: its JSON without her label, which is hers alone and never in
-    /// the email, and without the template's id and version, which say where the blocks came from and
-    /// not what they hold (owner, 2026-10-31). Not for saving: it does not read back as the draft.
+    /// the email, and without the template's id, version and name, which say where the blocks came from
+    /// and not what they hold (owner, 2026-10-31; the name since 2026-11-01: "renaming a template should
+    /// not change the campaigns"). Not for saving: it does not read back as the draft.
     /// </summary>
     public static string SerializeContent(CampaignDraft d) => SerializeDraft(d, content: true);
 
     private static string SerializeDraft(CampaignDraft d, bool content) =>
         JsonSerializer.Serialize(new DraftDocument(
-            SchemaVersion, d.TemplateName, Save(d.Subject), Save(d.Preheader),
+            SchemaVersion, content ? null : d.TemplateName, Save(d.Subject), Save(d.Preheader),
             d.Blocks.Select(Save).ToList(),
             content || string.IsNullOrWhiteSpace(d.Label) ? null : d.Label.Trim(),
             content ? null : d.TemplateId,
             content ? null : d.TemplateVersion), Options);
 
-    public static CampaignDraft DeserializeDraft(string json)
+    public static CampaignDraft DeserializeDraft(string json) => DeserializeDraft(json, null, null);
+
+    /// <summary>
+    /// A draft, with the template it was linked to afterwards (<paramref name="linkedTemplate"/>, from
+    /// outside its JSON) when its JSON records none; the JSON's own template wins.
+    /// </summary>
+    public static CampaignDraft DeserializeDraft(string json, Guid? linkedTemplate, DateTimeOffset? linkedVersion)
     {
         var doc = JsonSerializer.Deserialize<DraftDocument>(json, Options)
                   ?? throw new InvalidDataException("Empty draft document.");
@@ -49,9 +56,12 @@ public static class CampaignJson
         // Each block is rebuilt empty, the way its template would start it, and then every slot is
         // put back with its origin, so a copy nobody reviewed is still unreviewed.
         var blocks = doc.Blocks.Select(Restore).ToList();
+        var linked = doc.TemplateId is null && linkedTemplate is not null;
         var d = new CampaignDraft(doc.TemplateName, blocks)
         {
-            Label = doc.Label, TemplateId = doc.TemplateId, TemplateVersion = doc.TemplateVersion,
+            Label = doc.Label,
+            TemplateId = linked ? linkedTemplate : doc.TemplateId,
+            TemplateVersion = linked ? linkedVersion : doc.TemplateVersion,
         };
         Restore(d.Subject, doc.Subject);
         Restore(d.Preheader, doc.Preheader);
