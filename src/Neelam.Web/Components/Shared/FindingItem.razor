@@ -45,6 +45,22 @@
     {
         @(" ")<a class="caps-link" href="@link">Change this line's range</a>
     }
+    @* A suggested fix (owner, 2026-10-31, answer 3b), where the list offers one (Fix) and the finding
+       is not already fixed: the words, and "Use this", which changes the form only; or why not. *@
+    @if (Fix is { } fix && Finding.Suggestion is { } suggestion && !LooksFixed)
+    {
+        <span class="suggestion">
+            @(" ")<span data-testid="@($"{Named}-suggestion-{Finding.SeenKey}")">Suggested: "@suggestion"</span>
+            @if (fix == FixOutcome.Applied)
+            {
+                @(" ")<button type="button" class="button" data-testid="@($"{Named}-use-{Finding.SeenKey}")" @onclick="() => Use.InvokeAsync(Finding)">Use this</button>
+            }
+            else
+            {
+                @(" ")<span class="field-help" data-testid="@($"{Named}-by-hand-{Finding.SeenKey}")">@(fix == FixOutcome.Fixed ? SuggestedFix.FixedText : SuggestedFix.ByHand)</span>
+            }
+        </span>
+    }
 </li>
 
 @code {
@@ -70,6 +86,17 @@
     /// <summary>An LLM finding carried from an earlier version whose quote is no longer in the form: shown greyed, "Looks fixed".</summary>
     [Parameter]
     public bool LooksFixed { get; set; }
+
+    /// <summary>
+    /// What using its suggested fix would do (<see cref="SuggestedFix.Check"/>), in the list that offers
+    /// fixes; null in a list that offers none, such as the warnings before export.
+    /// </summary>
+    [Parameter]
+    public FixOutcome? Fix { get; set; }
+
+    /// <summary>"Use this": the page puts the suggestion into the form.</summary>
+    [Parameter]
+    public EventCallback<Finding> Use { get; set; }
 
     private string ItemClass =>
         "finding " + (Finding.Severity == Severity.Blocker ? "blocker" : "warning") + (LooksFixed ? " looks-fixed" : "");

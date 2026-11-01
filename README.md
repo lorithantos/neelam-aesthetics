@@ -38,6 +38,9 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   20 a day. The page keeps showing the newest report across edits and saves, each LLM finding
   greyed "Looks fixed" once its quote has left the form, so she proofreads once at the end
   (owner, 2026-10-31); a carried Must fix still to look at stops the approval until then.
+  A finding can carry a suggested fix, the exact words for its quote (the LLM's, or a rule's
+  where it is certain), shown beside it with "Use this", which puts it into the form unsaved
+  (`SuggestedFix`); prices and benefit amounts are never changed as text.
   "Proofread" is the click ("Proofread with the LLM"); what it leaves is that version's **LLM
   report** (owner, 2026-10-10). Wherever a page says "LLM", a tap on the word explains it, in
   words kept as data (`Catalog/glossary.json`).

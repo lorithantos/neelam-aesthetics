@@ -146,10 +146,13 @@ public static class CampaignReview
         // take her straight to the limits to change them, and which box: the end its first amount
         // outside them is past.
         var outside = check.Standing == BenefitStanding.OutsideLimits;
+        // A near miss offers the line it nearly is, set as a benefit, never as text (answer 3b, choice b).
         return message is null ? null : new(Severity.Warning, "known-item", where, message, Excerpt: written)
         {
             KnownLine = outside ? check.Line?.Id : null,
             KnownCap = outside && check.Outside is [var first, ..] ? FindingPlace.CapBox(first) : null,
+            Suggestion = check.Standing == BenefitStanding.NearMiss ? check.Suggestion : null,
+            SuggestedBenefit = check.Standing == BenefitStanding.NearMiss ? check.Suggested : null,
         };
     }
 
@@ -157,10 +160,12 @@ public static class CampaignReview
     {
         var w = (written ?? "").Trim();
         if (known.Count == 0 || w.Length == 0 || KnownItemMatch.IsKnown(w, known)) return null;
-        var message = KnownItemMatch.NearMiss(w, known) is { } near
+        var near = KnownItemMatch.NearMiss(w, known);
+        var message = near is not null
             ? $"Did you mean '{near}'? It's in your known items."
             : $"'{w}' isn't one of your known {kinds}.";
-        return new(Severity.Warning, "known-item", where, message, Excerpt: w);
+        // A near miss offers the known name in its place (answer 3b, choice a).
+        return new(Severity.Warning, "known-item", where, message, Excerpt: w) { Suggestion = near };
     }
 
     /// <summary>
@@ -183,12 +188,16 @@ public static class CampaignReview
         foreach (var (written, number) in PhoneNumber.FindIn(fragment.Text))
         {
             if (registered.Contains(number) || !reported.Add((fragment.Location, number))) continue;
-            // Never in brackets: a formatted number has its own, "((425) 773-5261)".
+            // Never in brackets: a formatted number has its own, "((425) 773-5261)". With exactly one
+            // registered, that one is offered in its place (answer 3b, choice d).
             yield return new(Severity.Warning, "phone-registered", fragment.Location,
                 (registered.Count == 1
                     ? $"{written} isn't your registered number, {registered}."
                     : $"{written} isn't one of your registered numbers: {registered}.") + " Check it before sending.",
-                Excerpt: written);
+                Excerpt: written)
+            {
+                Suggestion = registered.Count == 1 ? registered[0].ToString() : null,
+            };
         }
     }
 
@@ -491,12 +500,40 @@ public static class CampaignReview
                 var touchesAfter = i + 1 < runes.Count && Rune.IsLetterOrDigit(runes[i + 1]);
                 if (touchesBefore || touchesAfter)
                 {
+                    // The text with a space wherever an emoji touches a word, offered in its place
+                    // (answer 3b, choice c).
                     yield return new(Severity.Warning, "emoji-spacing", f.Location,
-                        $"An emoji touches a word in \"{f.Text}\"; add a space.");
+                        $"An emoji touches a word in \"{f.Text}\"; add a space.", Excerpt: f.Text)
+                    {
+                        Suggestion = EmojiSpaced(f.Text),
+                    };
                     break;
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// <paramref name="text"/> with a space between each emoji and a letter or digit it touches: an emoji
+    /// with its joiners and variation selectors is one, and two emoji side by side stay together.
+    /// </summary>
+    public static string EmojiSpaced(string text)
+    {
+        var spaced = new StringBuilder(text.Length + 4);
+        var previous = ' ';
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (IsJoiner(rune))
+            {
+                spaced.Append(rune.ToString());
+                continue;
+            }
+            var kind = IsEmoji(rune) ? 'e' : Rune.IsLetterOrDigit(rune) ? 'w' : ' ';
+            if ((kind, previous) is ('e', 'w') or ('w', 'e')) spaced.Append(' ');
+            spaced.Append(rune.ToString());
+            previous = kind;
+        }
+        return spaced.ToString();
     }
 
     private static IEnumerable<Finding> EmojiBudget(IReadOnlyList<TextFragment> text, CampaignPolicy policy)

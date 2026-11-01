@@ -5,8 +5,8 @@ namespace Neelam.Campaigns.Storage;
 
 /// <summary>
 /// A save's AI proofread as its blob holds it, version 1: when it ran, each finding's severity
-/// ("must-fix" or "worth-a-look", as the page says them), rule, place, message and quoted text, and
-/// how each photo was dealt with.
+/// ("must-fix" or "worth-a-look", as the page says them), rule, place, message, quoted text and, since
+/// 2026-11-01, an optional suggestion, and how each photo was dealt with.
 /// </summary>
 internal static class ProofreadJson
 {
@@ -24,7 +24,7 @@ internal static class ProofreadJson
             Version,
             record.At,
             record.Findings.Select(f => new StoredFinding(
-                f.Severity == Severity.Blocker ? MustFix : WorthALook, f.Rule, f.Location, f.Message, f.Excerpt)).ToList(),
+                f.Severity == Severity.Blocker ? MustFix : WorthALook, f.Rule, f.Location, f.Message, f.Excerpt, f.Suggestion)).ToList(),
             record.Photos.Select(p => new StoredPhoto(p.Name, p.Note, p.Checked)).ToList()),
         Options);
 
@@ -51,7 +51,7 @@ internal static class ProofreadJson
                     WorthALook => Severity.Warning,
                     _ => throw new InvalidOperationException("A kept proofread has a finding of no known severity."),
                 },
-                f.Rule, f.Location, f.Message, f.Excerpt)).ToList(),
+                f.Rule, f.Location, f.Message, f.Excerpt) { Suggestion = f.Suggestion }).ToList(),
             (document.Photos ?? []).Select(p => new PhotoCheck(p.Name, p.Note, p.Checked)).ToList());
     }
 
@@ -60,7 +60,8 @@ internal static class ProofreadJson
 
     private sealed record Document(int Version, DateTimeOffset At, IReadOnlyList<StoredFinding>? Findings, IReadOnlyList<StoredPhoto>? Photos);
 
-    private sealed record StoredFinding(string Severity, string Rule, string Location, string Message, string? Excerpt);
+    // Suggestion is optional (2026-11-01, answer 3b): a record kept before has none, and still loads.
+    private sealed record StoredFinding(string Severity, string Rule, string Location, string Message, string? Excerpt, string? Suggestion = null);
 
     private sealed record StoredPhoto(string Name, string Note, bool Checked);
 }

@@ -562,8 +562,26 @@ public sealed class BenefitEditor
     internal BenefitEditor(Slot<Benefit> slot)
     {
         _slot = slot;
-        if (!slot.HasValue) return;
-        switch (slot.Value)
+        if (slot.HasValue) Load(slot.Value);
+    }
+
+    /// <summary>
+    /// Puts <paramref name="benefit"/> in this line, every field as if she had typed it, as a suggested
+    /// fix does when she clicks "Use this" (<see cref="SuggestedFix"/>): a change she chose, so a copied
+    /// line counts as reviewed, as any change to it does.
+    /// </summary>
+    public void Use(Benefit benefit)
+    {
+        (_amount, _percent, _appliesTo, _quantity, _item, _per, _condition, _minimum, _toward) = ("", "", "", "", "", "", "", "", "");
+        _wording = FreeWording.Complimentary;
+        _error = null;
+        Load(benefit);
+        _slot.Set(benefit);
+    }
+
+    private void Load(Benefit benefit)
+    {
+        switch (benefit)
         {
             case BirthdayCredit b:
                 (_kind, _amount) = ("birthday-credit", Number(b.Amount));

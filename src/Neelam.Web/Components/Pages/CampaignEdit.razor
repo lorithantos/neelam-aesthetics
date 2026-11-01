@@ -399,9 +399,14 @@ else if (_session is not null)
                 <ul class="findings" data-testid="checks-findings">
                     @for (var i = 0; i < listed.Count; i++)
                     {
-                        <FindingItem Finding="listed[i].Finding" LooksFixed="listed[i].LooksFixed" ExplainLlm="@(i == FirstLlm(shownFindings))" />
+                        <FindingItem Finding="listed[i].Finding" LooksFixed="listed[i].LooksFixed" ExplainLlm="@(i == FirstLlm(shownFindings))"
+                                     Fix="SuggestedFix.Check(editor, listed[i].Finding)" Use="UseFix" />
                     }
                 </ul>
+                @if (_fixMessage is not null)
+                {
+                    <p role="status" data-testid="fix-message">@_fixMessage</p>
+                }
                 @if (!ProofreadOffered)
                 {
                     <p class="muted" data-testid="checks-llm-off">These are the instant rules. Proofreading with the <Llm TestId="llm-term-checks" /> is not switched on yet.</p>
@@ -707,6 +712,19 @@ else
 
     private bool _proofreading;
     private string? _proofreadMessage;
+    private string? _fixMessage;
+
+    // "Use this" beside a finding (owner, 2026-10-31, answer 3b): the suggestion goes into the form,
+    // unsaved. An LLM finding then greys at once; a rule's goes as the checks run again on this render.
+    private void UseFix(Finding finding)
+    {
+        _fixMessage = SuggestedFix.Apply(_session!.Editor, finding) switch
+        {
+            FixOutcome.Applied => "Changed in the form. Save the campaign to keep it.",
+            FixOutcome.Fixed => SuggestedFix.FixedText,
+            _ => "The words it quotes aren't in that part any more. " + SuggestedFix.ByHand,
+        };
+    }
 
     // Her click, and only that, runs the proofread, of the saved version as it stands. It never throws
     // here: an exception on this interactive page would end the connection and her unsaved work with it.
@@ -969,7 +987,7 @@ else
     private Task LoadLatestAsync() => ActingAsync(async () =>
     {
         _confirmingUndo = _confirmingDelete = false;
-        _proofreadMessage = null;
+        _proofreadMessage = _fixMessage = null;
         _approver = "";
         var id = _session!.Id!.Value;
         var latest = await DraftSession.OpenAsync(_store!, id);
@@ -1024,8 +1042,8 @@ else
         if (isNew) _watch?.Watch(_session);
         _message = DraftSession.SavedMessage(before, saved, Times);
         _confirmingUndo = _confirmingDelete = false;
-        // A new version: what was said of the last one's proofread no longer applies.
-        _proofreadMessage = null;
+        // A new version: what was said of the last one's proofread, or of a fix put in, no longer applies.
+        _proofreadMessage = _fixMessage = null;
         // The address now names the campaign, so a reload opens what was saved. Only the address
         // changes: navigating would load the page afresh, at the top and without the saved line.
         if (isNew) await ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{saved.Id}").AbsoluteUri);

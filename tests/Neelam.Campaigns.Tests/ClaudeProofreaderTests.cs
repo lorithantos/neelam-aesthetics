@@ -369,7 +369,33 @@ public class ClaudeProofreaderTests
         Assert.Equal("ai-spelling", f.Rule);
         Assert.Equal("Opening", f.Location);
         Assert.Equal("Septembr", f.Excerpt);
-        Assert.Equal("Misspelt month. Suggest: September", f.Message);
+        // The suggestion is its own (answer 3b), no longer folded into the message.
+        Assert.Equal("Misspelt month.", f.Message);
+        Assert.Equal("September", f.Suggestion);
+    }
+
+    // An empty suggestion is none: the fix is not a change of the quoted words.
+    [Fact]
+    public async Task An_empty_suggestion_is_none()
+    {
+        var rig = Proofreader(() => Message("""
+            {"findings":[{"severity":"worth-a-look","category":"clarity","block":"b3","quote":"Septembr",
+              "problem":"Add the dates to the text too.","suggestion":"  "}],"photos":[]}
+            """));
+
+        var f = Assert.Single((await rig.Proofreader.ProofreadAsync(BackToSchool(), Business())).Findings);
+
+        Assert.Null(f.Suggestion);
+        Assert.Equal("Add the dates to the text too.", f.Message);
+    }
+
+    // The instructions, which are data, say what a suggestion is: the exact words for the quote, or none.
+    [Fact]
+    public void The_instructions_say_the_suggestion_replaces_the_quote_exactly_or_is_empty()
+    {
+        var text = ProofreadInstructions.Shipped(AppContext.BaseDirectory).SystemPrompt;
+        Assert.Contains("\"suggestion\" must be the exact words to put in place of \"quote\"", text);
+        Assert.Contains("leave \"suggestion\" empty", text);
     }
 
     [Theory]

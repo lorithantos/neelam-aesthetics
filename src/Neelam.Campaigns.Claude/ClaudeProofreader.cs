@@ -173,7 +173,9 @@ public sealed class ClaudeProofreader(
             var severity = f!.Severity == ProofreadInstructions.MustFix ? Severity.Blocker : Severity.Warning;
             var category = instructions.Categories.Contains(f.Category ?? "", StringComparer.Ordinal) ? f.Category : "other";
             var quote = f.Quote ?? "";
-            var message = string.IsNullOrWhiteSpace(f.Suggestion) ? f.Problem ?? "" : $"{f.Problem} Suggest: {f.Suggestion}";
+            // The suggestion is the words to put in place of the quote, shown beside the finding with
+            // "Use this" (answer 3b), no longer folded into the message.
+            var message = f.Problem ?? "";
             var part = parts.FirstOrDefault(p => p.Id == f.Block);
             if (string.IsNullOrWhiteSpace(quote) || !text.Contains(Words(quote), StringComparison.OrdinalIgnoreCase))
             {
@@ -182,7 +184,10 @@ public sealed class ClaudeProofreader(
                     ? " (Quoted from the photo: check it there.)"
                     : " (The quote is not in the email; check by hand.)";
             }
-            return new Finding(severity, $"ai-{category}", Locate(f.Block, quote, campaign, part), message, quote);
+            return new Finding(severity, $"ai-{category}", Locate(f.Block, quote, campaign, part), message, quote)
+            {
+                Suggestion = string.IsNullOrWhiteSpace(f.Suggestion) ? null : f.Suggestion.Trim(),
+            };
         }).ToList();
 
         var readings = new Dictionary<string, PhotoReading>(StringComparer.Ordinal);

@@ -38,6 +38,22 @@ public sealed record Finding(
     public string? KnownCap { get; init; }
 
     /// <summary>
+    /// The words to put in place of <see cref="Excerpt"/>, when the fix is a change of those words
+    /// (owner, 2026-10-31, answer 3b: a suggested fix beside each finding, used with one click,
+    /// <see cref="SuggestedFix"/>): the LLM's, or a rule's where the fix is certain. Null when there is
+    /// none. Not part of <see cref="SeenKey"/>, and never exported: the assistant JSON writes a finding
+    /// as its place and message alone.
+    /// </summary>
+    public string? Suggestion { get; init; }
+
+    /// <summary>
+    /// With <see cref="Suggestion"/>, for a benefit line that nearly matches one of hers: the line itself,
+    /// set as a benefit rather than as text, so its amounts stay structured. Null on every other finding;
+    /// not part of <see cref="SeenKey"/>, and never exported or stored.
+    /// </summary>
+    public Benefit? SuggestedBenefit { get; init; }
+
+    /// <summary>
     /// What says she has been shown this finding at export (owner, 2026-10-09): a hash of its rule,
     /// place and message, so the same finding has the same key on every visit and a changed one a new
     /// key. Only the hash is ever stored: never the finding's text.

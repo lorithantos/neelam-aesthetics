@@ -177,8 +177,10 @@ public enum BenefitStanding
 /// <param name="Suggestion">For a near miss: the line it nearly is, at the amounts written.</param>
 /// <param name="Line">The known benefit line it is, or nearly is; null for a tier's line or none.</param>
 /// <param name="Outside">For <see cref="BenefitStanding.OutsideLimits"/>: each amount outside its limit.</param>
+/// <param name="Suggested">For a near miss: <paramref name="Suggestion"/> as the benefit itself, so a fix can set it.</param>
 public sealed record BenefitCheck(
-    BenefitStanding Standing, string? Suggestion = null, KnownBenefit? Line = null, IReadOnlyList<OutsideLimit>? Outside = null)
+    BenefitStanding Standing, string? Suggestion = null, KnownBenefit? Line = null, IReadOnlyList<OutsideLimit>? Outside = null,
+    Benefit? Suggested = null)
 {
     public static BenefitCheck Known { get; } = new(BenefitStanding.Known);
     public static BenefitCheck NotKnown { get; } = new(BenefitStanding.NotKnown);
@@ -306,13 +308,12 @@ public sealed class KnownItems
         if (KnownItemMatch.NearMiss(written.Pattern(), sameKind.Select(k => k.Benefit.Pattern())) is { } pattern)
         {
             var line = sameKind.First(k => k.Benefit.Pattern().Trim() == pattern);
-            return new(BenefitStanding.NearMiss,
-                Suggestion: line.Benefit.WithAmounts(written.Amounts).WordedLike(written).Describe(), Line: line);
+            var suggested = line.Benefit.WithAmounts(written.Amounts).WordedLike(written);
+            return new(BenefitStanding.NearMiss, Suggestion: suggested.Describe(), Line: line, Suggested: suggested);
         }
-        return KnownItemMatch.NearMiss(sentence, compared) is { } near
-            ? new(BenefitStanding.NearMiss,
-                Suggestion: tierLines.First(b => b.Describe().Trim() == near).WordedLike(written).Describe())
-            : BenefitCheck.NotKnown;
+        if (KnownItemMatch.NearMiss(sentence, compared) is not { } near) return BenefitCheck.NotKnown;
+        var tierLine = tierLines.First(b => b.Describe().Trim() == near).WordedLike(written);
+        return new(BenefitStanding.NearMiss, Suggestion: tierLine.Describe(), Suggested: tierLine);
     }
 
     /// <summary>
