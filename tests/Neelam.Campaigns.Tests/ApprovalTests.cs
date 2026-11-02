@@ -95,6 +95,45 @@ public class ApprovalTests
         Assert.DoesNotContain(_container.Blobs.Values, b => b.Metadata.ContainsKey("approvedby"));
     }
 
+    // Her Filler Promo, which runs to December 31, 2026, on its last day and on the day after.
+    private static readonly BusinessContext LastDay = new("Neelam Aesthetics") { Today = new DateOnly(2026, 12, 31) };
+    private static readonly BusinessContext DayAfter = LastDay with { Today = new DateOnly(2027, 1, 1) };
+
+    // P5 at approval (owner: "this is a violation"): a promotion whose end date has passed cannot be
+    // approved; the same version on its last day can.
+    [Fact]
+    public async Task A_promotion_that_has_ended_cannot_be_approved()
+    {
+        var session = await SavedFinished(PromotionTests.FillerPromo().Draft);
+
+        Assert.Equal("Fix everything marked Must fix first.", session.CannotApprove(business: DayAfter));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.ApproveAsync("Priya", business: DayAfter));
+        Assert.Empty(Records.Approvals.Rows);
+        Assert.Null(session.CannotApprove(business: LastDay));
+    }
+
+    // Time alone never stops an approved version from exporting (owner, 2026-11-02: "There might be a
+    // legitimate reason to re-export. Local archives, for example"): approved on its last day, it still
+    // exports the day after, with nothing about the date among the export's findings.
+    [Fact]
+    public async Task An_approved_version_still_exports_after_its_promotion_has_ended()
+    {
+        var session = await SavedFinished(PromotionTests.FillerPromo().Draft);
+        await session.ApproveAsync("Priya", business: LastDay);
+        await session.WarningsSeenAtExportAsync(business: LastDay);
+
+        var report = session.DemoExportReport(business: DayAfter);
+
+        Assert.NotNull(report);
+        Assert.DoesNotContain(report.Findings, f => f.Rule == "promotion-dates");
+        Assert.Empty(session.WarningsBeforeExport(business: DayAfter));
+        // The checks still find it, with what the page says of it for the version approved.
+        var ended = Assert.Single(session.Editor.Status(business: DayAfter).Findings, f => f.Rule == "promotion-dates");
+        Assert.Equal(Severity.Blocker, ended.Severity);
+        Assert.Equal("This promotion ended on December 31, 2026. The approved version can still be exported, for example for your records.",
+            ended.OnceApproved);
+    }
+
     private async Task<Guid> SavedTemplate()
     {
         var id = Guid.NewGuid();

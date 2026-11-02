@@ -392,9 +392,13 @@ else if (_session is not null)
                 @* A rule's finding goes once fixed, as the checks re-run; an LLM finding stays in its
                    place, greyed, once its quote has left the form (owner, 2026-10-31), and only those
                    still to look at are counted. *@
+                @* A finding about the day it is, not the email (a promotion that has ended since), is a
+                   Must fix until the version is approved, then only information: time alone never stops
+                   an approved version from exporting (owner, 2026-11-02). *@
                 @{
+                    var sinceApproved = status.Findings.Where(f => approval is not null && f.OnceApproved is not null).ToList();
                     var llmListed = report?.Findings ?? [];
-                    var listed = status.Findings.Select(f => (Finding: f, LooksFixed: false))
+                    var listed = status.Findings.Where(f => approval is null || f.OnceApproved is null).Select(f => (Finding: f, LooksFixed: false))
                         .Concat(llmListed.Select(f => (f.Finding, f.LooksFixed)))
                         .OrderByDescending(x => x.Finding.Severity).ToList();
                     var shownFindings = listed.Select(x => x.Finding).ToList();
@@ -407,6 +411,15 @@ else if (_session is not null)
                                      Fix="SuggestedFix.Check(editor, listed[i].Finding)" Use="UseFix" />
                     }
                 </ul>
+                @if (sinceApproved.Count > 0)
+                {
+                    <ul class="findings" data-testid="checks-since-approved">
+                        @foreach (var note in sinceApproved)
+                        {
+                            <li class="finding">@note.OnceApproved</li>
+                        }
+                    </ul>
+                }
                 @if (_fixMessage is not null)
                 {
                     <p role="status" data-testid="fix-message">@_fixMessage</p>

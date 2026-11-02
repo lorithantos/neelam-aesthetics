@@ -37,7 +37,9 @@ public sealed record BusinessContext(string Name, string? Description = null)
     /// <summary>
     /// The day it is for the client, in her own time zone (<see cref="LocalTime.Today"/>), so a
     /// promotion whose end date has passed is a Must fix (owner, 2026-10-31, P5: "this is a violation").
-    /// Null when the day is not known, as for a template's advice: then no date is held to it.
+    /// Null when the day is not known, as for a template's advice: then no date is held to it. A
+    /// finding that reads it holds the email to the day, not to what it says, so it carries
+    /// <see cref="Finding.OnceApproved"/>: it stops an approval, never an approved version's export.
     /// </summary>
     public DateOnly? Today { get; init; }
 
@@ -125,6 +127,12 @@ public static class CampaignGate
     /// "Worth a look" findings were shown at export is the approval's
     /// (<see cref="Approval.WarningsSeen"/>), since both belong to the one save.
     /// </summary>
+    /// <remarks>
+    /// A finding about the day it is rather than the email (<see cref="Finding.OnceApproved"/>) is left
+    /// out: it stopped the approval if it held then, and time alone never stops an approved version
+    /// from exporting (owner, 2026-11-02: "There might be a legitimate reason to re-export. Local
+    /// archives, for example").
+    /// </remarks>
     /// <param name="proofread">
     /// The AI proofread of this exact save, when she asked for one (owner, 2026-10-10: on the demo it
     /// runs on her click, for a saved version): its findings join the rules' and count as theirs do,
@@ -137,9 +145,10 @@ public static class CampaignGate
     {
         ArgumentNullException.ThrowIfNull(approval);
         var rules = CampaignReview.Check(campaign, policy, business);
+        var findings = rules.Findings.Where(f => f.OnceApproved is null).ToList();
         return rules with
         {
-            Findings = proofread is null ? rules.Findings : [.. rules.Findings, .. proofread],
+            Findings = proofread is null ? findings : [.. findings, .. proofread],
             Proofread = proofread is not null,
             DemoApproval = approval,
             WarningsSeen = approval.WarningsSeen,

@@ -261,6 +261,8 @@ public class PromotionTests
         Assert.Equal(Severity.Blocker, finding.Severity);
         Assert.Equal("Promotion › Ends", finding.Location);
         Assert.Equal("The promotion ends on October 31, 2026, before it starts on November 1, 2026; change either date.", finding.Message);
+        // About the email, not the day: it stops an approved version's export as much as an approval.
+        Assert.Null(finding.OnceApproved);
         PromotionOf(editor).Ends.Text = "2026-11-01";
         Assert.DoesNotContain(Findings(editor), f => f.Rule == "promotion-dates");
     }
@@ -630,6 +632,53 @@ public class PromotionPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         promotion.Ends.Text = today.AddDays(-2).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         await using var page = await OpenCampaignPage.OpenAsync(app, await SavedAsync(editor.Draft), FakeProofreader.Clean);
 
-        Assert.Contains("which has already passed; change the end date.", RenderedPage.Named(await page.HtmlAsync(), "checks-findings"));
+        var html = await page.HtmlAsync();
+        Assert.Contains("which has already passed; change the end date.", RenderedPage.Named(html, "checks-findings"));
+        // And it stops the approval.
+        Assert.Contains("Fix everything marked Must fix first.", html);
+        Assert.Equal(0, RenderedPage.Count(html, "approve-button"));
+    }
+
+    // A Filler Promo that ran until two days before the site's day, saved, as the page would build it.
+    private (CampaignDraft Draft, DateOnly Ends) Ended()
+    {
+        var editor = PromotionTests.FillerPromo();
+        var promotion = editor.Blocks.OfType<PromotionBlockEditor>().Single().Promotion;
+        var today = LocalTime.For(LocalTime.DefaultZone).Today(app.Clock.GetUtcNow());
+        var ends = today.AddDays(-2);
+        promotion.Starts.Text = today.AddDays(-30).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        promotion.Ends.Text = ends.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        return (editor.Draft, ends);
+    }
+
+    // Time alone never stops an approved version from exporting (owner, 2026-11-02: "There might be a
+    // legitimate reason to re-export. Local archives, for example"). Approved while it ran, the
+    // promotion's end is said as information, not as a Must fix, and the export is there.
+    [Fact]
+    public async Task An_approved_promotion_that_has_since_ended_still_exports_and_says_so()
+    {
+        var (draft, ends) = Ended();
+        var store = app.Stores.Campaigns(DemoApp.Client, Actor.Demo);
+        var save = await store.SaveDraftAsync(Guid.NewGuid(), "Filler Promo", draft);
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        // Approved while it ran: the store records it as the page's click did then.
+        await store.ApproveAsync(save, "Priya");
+        await using var page = await OpenCampaignPage.OpenAsync(app, save.Id, FakeProofreader.Clean);
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(1, RenderedPage.Count(html, "approved"));
+        var day = ends.ToString("MMMM d, yyyy", System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+        Assert.Equal($"This promotion ended on {day}. The approved version can still be exported, for example for your records.",
+            RenderedPage.Named(html, "checks-since-approved"));
+        Assert.DoesNotContain("which has already passed", RenderedPage.Named(html, "checks-findings"));
+        // Whatever is worth a look depends on her known items, which another test here adds to; going on
+        // past it is one click, and then the export is there.
+        if (RenderedPage.Count(html, "export-anyway") > 0)
+        {
+            await page.ClickAsync("export-anyway");
+            html = await page.HtmlAsync();
+        }
+        Assert.Equal(1, RenderedPage.Count(html, "export"));
+        Assert.Equal(1, RenderedPage.Count(html, "assistant-download"));
     }
 }

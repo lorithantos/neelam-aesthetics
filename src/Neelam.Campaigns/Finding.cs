@@ -54,6 +54,17 @@ public sealed record Finding(
     public Benefit? SuggestedBenefit { get; init; }
 
     /// <summary>
+    /// Set only on a finding that holds the email to the day it is rather than to what it says, such
+    /// as a promotion whose end date has passed: what the page says instead, as information, for a
+    /// version already approved. Approval honours the finding like any other (P5: "this is a
+    /// violation"), but time alone never stops an approved version from exporting (owner, 2026-11-02:
+    /// "There might be a legitimate reason to re-export. Local archives, for example"), so
+    /// <see cref="CampaignGate.DemoReview"/> leaves it out. Null on every other finding; not part of
+    /// <see cref="SeenKey"/>, and never exported.
+    /// </summary>
+    public string? OnceApproved { get; init; }
+
+    /// <summary>
     /// What says she has been shown this finding at export (owner, 2026-10-09): a hash of its rule,
     /// place and message, so the same finding has the same key on every visit and a changed one a new
     /// key. Only the hash is ever stored: never the finding's text.

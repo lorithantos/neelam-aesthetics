@@ -56,6 +56,13 @@ Campaign ──► CampaignReview (rules: instant, not dismissable)  ─┐
   change to the client's own label, which is never in the email; undoing a save withdraws its
   approval; an approval can be withdrawn. Approving takes the `Campaigns.Review` feature. Until
   sign-in exists the approver types their name.
+- **Time alone never stops an approved version from exporting** (owner, 2026-11-02: "There might
+  be a legitimate reason to re-export. Local archives, for example"). A finding about the day it is
+  rather than the email, today only a promotion whose end date has passed, carries
+  `Finding.OnceApproved`: it is a Must fix that stops the approval like any other, but
+  `CampaignGate.DemoReview` leaves it out for the approved version, and the page says it as
+  information instead ("This promotion ended on December 31, 2026. The approved version can still
+  be exported, for example for your records.").
 - **"Worth a look" is shown at export, never a block** (owner, 2026-10-09: "This is handholding,
   not handcuffs"). Before the first export of an approved version, every warning is listed with a
   link to its field, and one button, "Export anyway", goes on. That is recorded with the version's
@@ -484,7 +491,8 @@ added to her known items with that price, the save line saying "Added X to your 
 $5,100." Benefit lines are held as a tier's benefits are. Two rules of the block's own are Must fix:
 `promotion-price`, a promotion price at or above the regular price (or not above $0); and
 `promotion-dates`, an end before the start, or an end date already past in her own time zone (P5:
-"this is a violation"; a start already past says nothing).
+"this is a violation"; a start already past says nothing). The end already past stops an approval,
+never an approved version's export (see "Time alone never stops an approved version").
 
 Tier names are also read on **ladders** (owner, 2026-10-09: "precious metals, gemstones, and
 colors are all things that imply they should be different"). A ladder is data: a name and words,

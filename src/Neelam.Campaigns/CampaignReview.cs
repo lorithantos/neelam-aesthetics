@@ -424,7 +424,9 @@ public static class CampaignReview
     /// <summary>
     /// A promotion's dates run forwards: an end before the start is a Must fix. An end already past,
     /// in the client's own time zone, is a Must fix too (owner, 2026-10-31, P5: "this is a violation");
-    /// a start already past says nothing, since a promotion may be sent while it runs.
+    /// a start already past says nothing, since a promotion may be sent while it runs. The end already
+    /// past stops an approval, but is only information for a version already approved (owner,
+    /// 2026-11-02: "There might be a legitimate reason to re-export"), so it carries what to say then.
     /// </summary>
     private static IEnumerable<Finding> PromotionDates(string label, Promotion promotion, DateOnly? today)
     {
@@ -434,7 +436,10 @@ public static class CampaignReview
         // Its last day may be today; the day after, it has ended. Unknown today: nothing is said.
         if (today is { } day && promotion.Ends < day)
             yield return new(Severity.Blocker, "promotion-dates", $"{label} › Ends",
-                $"The promotion ends on {DayText(promotion.Ends)}, which has already passed; change the end date.");
+                $"The promotion ends on {DayText(promotion.Ends)}, which has already passed; change the end date.")
+            {
+                OnceApproved = $"This promotion ended on {DayText(promotion.Ends)}. The approved version can still be exported, for example for your records.",
+            };
     }
 
     // "December 31, 2026", in US English whatever the server's culture.
