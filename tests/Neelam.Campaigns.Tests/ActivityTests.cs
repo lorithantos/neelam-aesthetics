@@ -383,10 +383,10 @@ public class ActivityTests
         await library.AddFromSquareAsync(Photo, PhotoAddress);
         await library.DeleteListedAsync(Photo);
         var known = await KnownItemsSession.OpenAsync(new InMemoryKnownItems(), Records.Recorder.For(Salon, Asha));
-        known.NewTreatment = KnownTreatment;
+        known.NewTreatment.Name = KnownTreatment;
         await known.AddTreatmentAsync();
         known.StartEdit(known.Items.All[0]);
-        known.EditTreatment = KnownTreatment + " plus";
+        known.EditTreatment!.Name = KnownTreatment + " plus";
         await known.SaveEditAsync();
         await known.RemoveAsync(known.Items.All[0]);
 

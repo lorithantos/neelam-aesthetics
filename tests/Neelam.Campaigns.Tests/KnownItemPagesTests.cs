@@ -30,6 +30,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             foreach (var salon in new[] { SalonOne, SalonTwo })
                 await app.Stores.Campaigns(salon.Name, Actor.Demo).SaveDraftAsync(Finished, "WE’RE TURNING ONE!", DraftFixtures.Finished());
             await app.KnownItems.AddAsync(SalonOne.Name, new KnownTreatment(KnownItem.NewId(), "Wellness injection"));
+            await app.KnownItems.AddAsync(SalonOne.Name, new KnownTreatment(KnownItem.NewId(), "Full-Face Facial Balancing", 5100m));
             await app.KnownItems.AddAsync(SalonOne.Name, new KnownBenefit(KnownItem.NewId(), new BirthdayCredit(75m)));
             await app.KnownItems.AddAsync(SalonOne.Name, new KnownTier(KnownItem.NewId(), "Diamond Member", 499m, [new BirthdayCredit(100m)]));
         }
@@ -54,6 +55,10 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Contains("What Salon One writes again and again, spelled once.", page);
         Assert.Contains("<span>Wellness injection</span>", page);
+        // A treatment's regular price beside its name when it has one, and a box to give a new one hers.
+        Assert.Contains("<span>Full-Face Facial Balancing, regularly $5,100</span>", page);
+        Assert.Contains("Regular price, in dollars (optional)", page);
+        Assert.Contains("id=\"new-treatment-price\"", page);
         // A benefit line with its usual amount, and no limit on it: any amount is fine.
         Assert.Contains("<span>$75 birthday credit during your birth month — usually $75, any amount</span>", page);
         // The price as the campaign shows it: a tier is a monthly price.
@@ -160,17 +165,17 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (store, records) = (new InMemoryKnownItems(), new TestRecords(TimeProvider.System));
         var page = await Open(store, records);
 
-        page.NewTreatment = "Wellness injection";
+        page.NewTreatment.Name = "Wellness injection";
         await page.AddTreatmentAsync();
         var item = page.Items.Treatments[0];
         page.StartEdit(item);
-        page.EditTreatment = "Wellness Injection";
+        page.EditTreatment!.Name = "Wellness Injection";
         await page.SaveEditAsync();
         await page.RemoveAsync(page.Items.Treatments[0]);
         await KnownItemsSession.SaveFromCampaignAsync(store, records.Recorder.For(SalonOne.Name, Priya),
             new KnownTreatment(KnownItem.NewId(), "Botox"));
         // Refused: already known. Nothing is recorded for it.
-        page.NewTreatment = "botox";
+        page.NewTreatment.Name = "botox";
         await page.AddTreatmentAsync();
 
         var events = records.Activity.Events;
@@ -195,14 +200,14 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (store, client) = (new InMemoryKnownItems(), SalonOne.Name);
         var page = await Open(store);
 
-        page.NewTreatment = " Wellness injection ";
+        page.NewTreatment.Name = " Wellness injection ";
         Assert.True(await page.AddTreatmentAsync());
         Assert.Equal("Added \"Wellness injection\".", page.Message);
-        Assert.Equal("", page.NewTreatment);
+        Assert.Equal("", page.NewTreatment.Name);
         var added = Assert.Single(page.Items.Treatments);
 
         page.StartEdit(added);
-        page.EditTreatment = "Wellness Injection";
+        page.EditTreatment!.Name = "Wellness Injection";
         Assert.True(await page.SaveEditAsync());
         Assert.Null(page.Editing);
         Assert.Equal("Wellness Injection", Assert.Single((await store.ForClientAsync(client)).Treatments).Name);
@@ -462,7 +467,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("Benefit 1: fill it in, or remove it.", page.Errors);
         Assert.Equal("Gold", page.NewTier.Name);
 
-        page.NewTreatment = "  ";
+        page.NewTreatment.Name = "  ";
         Assert.False(await page.AddTreatmentAsync());
         Assert.Contains("Fill in the treatment's name.", page.Errors);
         Assert.Empty(page.Items.All);

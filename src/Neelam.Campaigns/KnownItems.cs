@@ -33,10 +33,21 @@ public abstract record KnownItem(string Id)
 }
 
 /// <summary>A treatment or service, by the name every campaign should spell it with.</summary>
-public sealed record KnownTreatment(string Id, string Name) : KnownItem(Id)
+/// <param name="RegularPrice">
+/// What it usually costs, optional (owner, 2026-10-31, answer 9a: a promotion line picks a treatment
+/// and its regular price, so the saving is worked out rather than typed). Null for a treatment kept
+/// without one, which every treatment from before had.
+/// </param>
+public sealed record KnownTreatment(string Id, string Name, decimal? RegularPrice = null) : KnownItem(Id)
 {
     public override KnownItemKind Kind => KnownItemKind.Treatment;
     public override string Text => Name;
+
+    /// <summary>The regular price as the form shows it, such as 5100 or 149.50; blank when there is none.</summary>
+    public string RegularPriceText => RegularPrice?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+
+    /// <summary>As her list shows it: "Full-Face Facial Balancing, regularly $5,100", or the name alone.</summary>
+    public string Shown => RegularPrice is { } price ? $"{Name}, regularly {Dollars.Text(price)}" : Name;
 }
 
 /// <summary>
@@ -372,8 +383,9 @@ public static class KnownItemRules
             problems.Add("A known item's id is 32 hex digits.");
         switch (item)
         {
-            case KnownTreatment t when string.IsNullOrWhiteSpace(t.Name):
-                problems.Add("Fill in the treatment's name.");
+            case KnownTreatment t:
+                if (string.IsNullOrWhiteSpace(t.Name)) problems.Add("Fill in the treatment's name.");
+                if (t.RegularPrice is <= 0) problems.Add("A treatment's regular price needs to be above zero.");
                 break;
             case KnownTier t:
                 if (string.IsNullOrWhiteSpace(t.Name)) problems.Add("Fill in the tier's name.");

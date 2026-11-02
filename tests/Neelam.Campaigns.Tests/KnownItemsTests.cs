@@ -30,7 +30,91 @@ public class KnownItemsTests
 
     // ---- Storage: one table, a partition per client
 
-    public static TheoryData<KnownItem> EachKind => new() { Wellness, TenOff, FiveToTen, Platinum };
+    public static TheoryData<KnownItem> EachKind => new() { Wellness, Balancing, TenOff, FiveToTen, Platinum };
+
+    private static readonly KnownTreatment Balancing = new(KnownItem.NewId(), "Full-Face Facial Balancing", 5100m);
+
+    // A treatment's regular price (answer 9a) is an optional Price column, text as a tier's is: there
+    // with a price, absent without one, exact with cents.
+    [Fact]
+    public void A_treatment_row_keeps_its_regular_price_exactly_or_has_none()
+    {
+        Assert.Equal("5100", KnownItemTable.FromItem(SalonOne, Balancing).GetString("Price"));
+        Assert.False(KnownItemTable.FromItem(SalonOne, Wellness).ContainsKey("Price"));
+
+        var cents = Balancing with { RegularPrice = 149.50m };
+        var row = KnownItemTable.FromItem(SalonOne, cents);
+        Assert.Equal("149.50", row.GetString("Price"));
+        Assert.Equal(149.50m, Assert.IsType<KnownTreatment>(KnownItemTable.ToItem(SalonOne, row)).RegularPrice);
+    }
+
+    // A treatment row written before regular prices existed has no Price column: it reads as a
+    // treatment with none, so nothing needs migrating.
+    [Fact]
+    public void A_treatment_row_from_before_regular_prices_reads_as_having_none()
+    {
+        var old = new TableEntity(SalonOne.Value, Wellness.Id) { ["Kind"] = "Treatment", ["Text"] = "Wellness injection" };
+
+        var read = Assert.IsType<KnownTreatment>(KnownItemTable.ToItem(SalonOne, old));
+
+        Assert.Equal("Wellness injection", read.Name);
+        Assert.Null(read.RegularPrice);
+    }
+
+    // A regular price that is not an amount above zero makes the row malformed: left out and logged
+    // by its key, as a tier with a bad price is, while the good rows stay.
+    [Theory]
+    [InlineData("lots")]
+    [InlineData("0")]
+    [InlineData("-5")]
+    public void A_treatment_row_with_a_bad_regular_price_is_left_out(string price)
+    {
+        var bad = new TableEntity(SalonOne.Value, KnownItem.NewId()) { ["Kind"] = "Treatment", ["Text"] = "Secret", ["Price"] = price };
+        var log = new ListLogger<KnownItemTable>();
+
+        var items = KnownItemTable.ReadAll(SalonOne, [KnownItemTable.FromItem(SalonOne, Balancing), bad], log);
+
+        Assert.Equal([Balancing.Id], items.All.Select(i => i.Id));
+        Assert.Contains(bad.RowKey, Assert.Single(log.Entries).Message);
+    }
+
+    // The store keeps a regular price only above zero; none at all is fine.
+    [Fact]
+    public void A_treatment_s_regular_price_is_above_zero_when_it_has_one()
+    {
+        Assert.Equal(["A treatment's regular price needs to be above zero."],
+            KnownItemRules.Problems(Balancing with { RegularPrice = 0m }, KnownItems.None));
+        Assert.NotEmpty(KnownItemRules.Problems(Balancing with { RegularPrice = -1m }, KnownItems.None));
+        Assert.Empty(KnownItemRules.Problems(Balancing, KnownItems.None));
+        Assert.Empty(KnownItemRules.Problems(Wellness, KnownItems.None));
+    }
+
+    // The page's treatment form: a name and an optional regular price, typed as she writes it
+    // ("5,100" or "$5,100"), added, shown with it, and changed.
+    [Fact]
+    public async Task A_treatment_is_added_and_changed_with_its_regular_price()
+    {
+        var store = new InMemoryKnownItems();
+        var session = await KnownItemsSession.OpenAsync(store, Trail);
+
+        session.NewTreatment.Name = " Full-Face Facial Balancing ";
+        session.NewTreatment.RegularPrice = "$5,100";
+        Assert.True(await session.AddTreatmentAsync());
+        var added = Assert.Single(session.Items.Treatments);
+        Assert.Equal(("Full-Face Facial Balancing", 5100m), (added.Name, added.RegularPrice));
+        Assert.Equal("Full-Face Facial Balancing, regularly $5,100", added.Shown);
+        Assert.Equal("", session.NewTreatment.RegularPrice);
+
+        session.StartEdit(added);
+        Assert.Equal("5100", session.EditTreatment!.RegularPrice);
+        session.EditTreatment.RegularPrice = "lots";
+        Assert.False(await session.SaveEditAsync());
+        Assert.Equal(["\"lots\" is not an amount in dollars, such as 149 or 149.50."], session.Errors);
+        session.EditTreatment.RegularPrice = "";
+        Assert.True(await session.SaveEditAsync());
+        Assert.Null(Assert.Single(session.Items.Treatments).RegularPrice);
+        Assert.Equal("Full-Face Facial Balancing", Assert.Single(session.Items.Treatments).Shown);
+    }
 
     [Theory]
     [MemberData(nameof(EachKind))]
@@ -798,17 +882,17 @@ public class KnownItemsTests
         var session = await KnownItemsSession.OpenAsync(store, Trail, log);
         store.FailWrites = true;
 
-        session.NewTreatment = "Hydrafacial";
+        session.NewTreatment.Name = "Hydrafacial";
         Assert.False(await session.AddTreatmentAsync());
         Assert.Equal([KnownItemsSession.SaveFailed], session.Errors);
-        Assert.Equal("Hydrafacial", session.NewTreatment);
+        Assert.Equal("Hydrafacial", session.NewTreatment.Name);
 
         session.StartEdit(Wellness);
-        session.EditTreatment = "Wellness injections";
+        session.EditTreatment!.Name = "Wellness injections";
         Assert.False(await session.SaveEditAsync());
         Assert.Equal([KnownItemsSession.SaveFailed], session.Errors);
         Assert.Equal(Wellness.Id, session.Editing!.Id);
-        Assert.Equal("Wellness injections", session.EditTreatment);
+        Assert.Equal("Wellness injections", session.EditTreatment!.Name);
 
         await session.RemoveAsync(Wellness);
         Assert.Equal([KnownItemsSession.RemoveFailed], session.Errors);
@@ -828,7 +912,7 @@ public class KnownItemsTests
         var session = await KnownItemsSession.OpenAsync(store, Trail, log);
         store.FailReads = true;
 
-        session.NewTreatment = "Hydrafacial";
+        session.NewTreatment.Name = "Hydrafacial";
         Assert.True(await session.AddTreatmentAsync());
 
         Assert.Equal("Added \"Hydrafacial\".", session.Message);
@@ -905,6 +989,9 @@ public class KnownItemsTests
         Assert.Equal(expected.Text, actual.Text);
         switch (expected)
         {
+            case KnownTreatment t:
+                Assert.Equal(t.RegularPrice, ((KnownTreatment)actual).RegularPrice);
+                break;
             case KnownBenefit b:
                 Assert.Equal(b.Benefit, ((KnownBenefit)actual).Benefit);
                 Assert.Equal(b.SetLimits, ((KnownBenefit)actual).SetLimits);

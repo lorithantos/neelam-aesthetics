@@ -38,17 +38,21 @@ else if (_session is not null)
             @foreach (var item in items.Treatments)
             {
                 <li>
-                    @if (_session.Editing?.Id == item.Id)
+                    @if (_session.Editing?.Id == item.Id && _session.EditTreatment is { } editing)
                     {
                         <div class="field">
                             <label for="edit-treatment">Name</label>
-                            <input id="edit-treatment" @bind="_session.EditTreatment" @bind:event="oninput" />
+                            <input id="edit-treatment" @bind="editing.Name" @bind:event="oninput" />
+                        </div>
+                        <div class="field">
+                            <label for="edit-treatment-price">Regular price, in dollars (optional)</label>
+                            <input id="edit-treatment-price" inputmode="decimal" @bind="editing.RegularPrice" @bind:event="oninput" />
                         </div>
                         @EditActions
                     }
                     else
                     {
-                        <span>@item.Name</span>
+                        <span>@item.Shown</span>
                         @ItemActions(item)
                     }
                 </li>
@@ -56,8 +60,13 @@ else if (_session is not null)
         </ul>
         <div class="field">
             <label for="new-treatment">Add a treatment</label>
-            <input id="new-treatment" @bind="_session.NewTreatment" @bind:event="oninput" />
+            <input id="new-treatment" @bind="_session.NewTreatment.Name" @bind:event="oninput" />
             <span class="field-help">Spelled the way every campaign should spell it, such as "Wellness injection".</span>
+        </div>
+        <div class="field">
+            <label for="new-treatment-price">Regular price, in dollars (optional)</label>
+            <input id="new-treatment-price" inputmode="decimal" @bind="_session.NewTreatment.RegularPrice" @bind:event="oninput" />
+            <span class="field-help">What it usually costs, such as 5,100.</span>
         </div>
         <button class="button primary" @onclick="() => _session.AddTreatmentAsync()">Add treatment</button>
     </section>

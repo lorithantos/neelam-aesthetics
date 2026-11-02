@@ -138,6 +138,10 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         };
         switch (item)
         {
+            case KnownTreatment { RegularPrice: { } regular }:
+                // Text, as a tier's price is; a treatment kept without one has no Price column.
+                row["Price"] = regular.ToString(CultureInfo.InvariantCulture);
+                break;
             case KnownBenefit b:
                 // The usual amounts are the benefit's own; the limits, when any is set, beside it.
                 row["Benefit"] = CampaignJson.SerializeBenefits([b.Benefit]);
@@ -163,7 +167,7 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         var text = row.GetString("Text") ?? throw new InvalidDataException($"Known item {row.RowKey} has no text.");
         return row.GetString("Kind") switch
         {
-            nameof(KnownItemKind.Treatment) => new KnownTreatment(row.RowKey, text),
+            nameof(KnownItemKind.Treatment) => new KnownTreatment(row.RowKey, text, RegularPrice(row)),
             nameof(KnownItemKind.Benefit) => BenefitLine(row),
             nameof(KnownItemKind.Tier) => new KnownTier(row.RowKey, text,
                 decimal.Parse(Required(row, "Price"), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture),
@@ -196,6 +200,19 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         if (line.LimitProblems().Count > 0)
             throw new InvalidDataException($"Known item {row.RowKey} has limits that do not hold.");
         return line;
+    }
+
+    /// <summary>
+    /// A treatment's regular price, from its optional Price column. A row with none (every row from
+    /// before regular prices existed) is a treatment with no price, so nothing needs migrating. A
+    /// price that is not an amount above zero makes the row malformed, left out by <see cref="ReadAll"/>
+    /// like a tier with a bad price.
+    /// </summary>
+    private static decimal? RegularPrice(TableEntity row)
+    {
+        if (row.GetString("Price") is not { } text) return null;
+        var price = decimal.Parse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture);
+        return price > 0 ? price : throw new InvalidDataException($"Known item {row.RowKey} has a regular price of zero.");
     }
 
     private static string Required(TableEntity row, string property) =>

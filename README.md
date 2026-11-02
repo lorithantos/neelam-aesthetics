@@ -323,6 +323,8 @@ for them. A client's people only sign in and work on their campaigns.
   treat the two as the same benefit, against her known items and between tiers. Dollars off
   ("$50 off 30+ units") and a credit ("$50 credit toward your next appointment") are kinds too,
   from the back-to-school email (owner, 2026-10-09: "Otherwise, yes, add the benefit types").
+  A treatment may carry its regular price, optional (owner, 2026-10-31, for promotions: "savings
+  can be automatically calculated"), shown beside it: "Full-Face Facial Balancing, regularly $5,100".
 - **So is how strict the checks are.** The restricted terms, medical terms and emoji limit that
   `CampaignPolicy` holds today become each client's own policy, in their container at
   `{client}/policy/{stamp}.json`. These are the client's decisions: they see and control them,

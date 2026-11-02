@@ -54,7 +54,8 @@ public sealed class KnownItemsSession
 
     // ---- Adding ----
 
-    public string NewTreatment { get; set; } = "";
+    /// <summary>The new treatment's name and optional regular price.</summary>
+    public KnownTreatmentForm NewTreatment { get; private set; } = new();
 
     /// <summary>The new line's kind, words and usual amounts.</summary>
     public BenefitEditor NewBenefit { get; private set; } = BenefitEditor.Standalone();
@@ -66,8 +67,10 @@ public sealed class KnownItemsSession
 
     public async Task<bool> AddTreatmentAsync(CancellationToken ct = default)
     {
-        if (!await ChangeAsync(new KnownTreatment(KnownItem.NewId(), NewTreatment.Trim()), adding: true, ct)) return false;
-        NewTreatment = "";
+        var (treatment, errors) = NewTreatment.ToItem(KnownItem.NewId());
+        if (treatment is null) return Refuse([.. errors]);
+        if (!await ChangeAsync(treatment, adding: true, ct)) return false;
+        NewTreatment = new KnownTreatmentForm();
         return true;
     }
 
@@ -94,7 +97,7 @@ public sealed class KnownItemsSession
     /// <summary>The item open for changing, or null.</summary>
     public KnownItem? Editing { get; private set; }
 
-    public string EditTreatment { get; set; } = "";
+    public KnownTreatmentForm? EditTreatment { get; private set; }
     public BenefitEditor? EditBenefit { get; private set; }
     public AmountLimitsForm? EditLimits { get; private set; }
     public KnownTierForm? EditTier { get; private set; }
@@ -103,7 +106,7 @@ public sealed class KnownItemsSession
     {
         Editing = item;
         (Message, Errors) = (null, []);
-        EditTreatment = item is KnownTreatment t ? t.Name : "";
+        EditTreatment = item is KnownTreatment t ? KnownTreatmentForm.Of(t) : null;
         EditBenefit = item is KnownBenefit b ? BenefitEditor.Standalone(b.Benefit) : null;
         EditLimits = item is KnownBenefit line ? AmountLimitsForm.Of(line) : null;
         EditTier = item is KnownTier tier ? KnownTierForm.Of(tier) : null;
@@ -112,7 +115,7 @@ public sealed class KnownItemsSession
     public void CancelEdit()
     {
         Editing = null;
-        (EditBenefit, EditLimits, EditTier, EditTreatment) = (null, null, null, "");
+        (EditBenefit, EditLimits, EditTier, EditTreatment) = (null, null, null, null);
         Errors = [];
     }
 
@@ -123,7 +126,9 @@ public sealed class KnownItemsSession
         switch (editing)
         {
             case KnownTreatment:
-                changed = new KnownTreatment(editing.Id, EditTreatment.Trim());
+                var (treatment, wrong) = EditTreatment!.ToItem(editing.Id);
+                if (treatment is null) return Refuse([.. wrong]);
+                changed = treatment;
                 break;
             case KnownBenefit:
                 var (line, problems) = EditLimits!.ToItem(editing.Id, EditBenefit!, "Fill in the benefit.");
