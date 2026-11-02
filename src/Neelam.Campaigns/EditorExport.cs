@@ -115,6 +115,8 @@ public static class EditorExport
                         case BlockType.Spacer: Add(new(BlockKind.Spacer, "")); break;
                         // An offer is its name as a heading, then text, so its placeholder is too.
                         case BlockType.Offer: Add(new(BlockKind.Heading, p.Text)); break;
+                        // So is a promotion: its name as a heading, then text.
+                        case BlockType.Promotion: Add(new(BlockKind.Heading, p.Text)); break;
                         default: Text([p.Text]); break;
                     }
                     break;
@@ -135,6 +137,10 @@ public static class EditorExport
                     Add(new(BlockKind.Heading, o.Offer.Name));
                     Text(OfferText(o.Offer, o.Marker));
                     break;
+                case PromotionBlock p:
+                    Add(new(BlockKind.Heading, p.Promotion.Name));
+                    Text(PromotionText(p.Promotion));
+                    break;
             }
         }
         Flush();
@@ -150,6 +156,33 @@ public static class EditorExport
         foreach (var tier in offer.Tiers)
             yield return TierText(tier.Name, PriceText(tier.MonthlyPrice, offer.IsRecurring), tier.Benefits.Select(b => b.Describe()), marker);
         if (offer.TermsUrl is not null) yield return TermsText(offer.TermsUrl);
+    }
+
+    // A promotion is laid out as an offer is: its name as a heading (above), then its summary if any,
+    // each line on its own, and the dates it runs, as her Filler Promo email set them out by hand.
+    private static IEnumerable<string> PromotionText(Promotion promotion)
+    {
+        if (promotion.Summary is not null) yield return promotion.Summary;
+        foreach (var line in promotion.Lines) yield return line.Describe();
+        yield return DatesText(promotion.Starts, promotion.Ends, promotion.Audience);
+    }
+
+    /// <summary>
+    /// The dates a promotion runs, and who it is for when not everyone, as one line: "Offer valid
+    /// November 1 – December 31, 2026." or "Offer valid September 1 – 30, 2026, for teachers &amp; school
+    /// faculty." The month and year are said once when they are shared; one day is said alone.
+    /// </summary>
+    public static string DatesText(DateOnly starts, DateOnly ends, string? audience) =>
+        $"Offer valid {Range(starts, ends)}{(string.IsNullOrWhiteSpace(audience) ? "" : $", for {audience.Trim().TrimEnd('.')}")}.";
+
+    // US English whatever the server's culture, with an en dash between the days, as her fine print had it.
+    private static string Range(DateOnly starts, DateOnly ends)
+    {
+        static string Month(DateOnly d) => d.ToString("MMMM", System.Globalization.CultureInfo.InvariantCulture);
+        if (starts == ends) return $"{Month(starts)} {starts.Day}, {starts.Year}";
+        if (starts.Year != ends.Year) return $"{Month(starts)} {starts.Day}, {starts.Year} – {Month(ends)} {ends.Day}, {ends.Year}";
+        if (starts.Month != ends.Month) return $"{Month(starts)} {starts.Day} – {Month(ends)} {ends.Day}, {ends.Year}";
+        return $"{Month(starts)} {starts.Day} – {ends.Day}, {ends.Year}";
     }
 
     // The pieces of an offer's wording, shared with the editor's preview of an unfinished draft

@@ -42,6 +42,8 @@ public sealed record CampaignTemplate
             // time's offer again.
             if (b.Type == BlockType.Offer && b.Fixed is not null)
                 throw new ArgumentException($"\"{b.Label}\": an offer is never fixed by a template.", nameof(blocks));
+            if (b.Type == BlockType.Promotion && b.Fixed is not null)
+                throw new ArgumentException($"\"{b.Label}\": a promotion is never fixed by a template.", nameof(blocks));
             if (b.Fixed is { } f && (f.Type != b.Type || f.Label != b.Label))
                 throw new ArgumentException($"\"{b.Label}\": its fixed content is a different block.", nameof(blocks));
         }

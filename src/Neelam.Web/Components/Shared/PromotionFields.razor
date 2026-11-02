@@ -1,0 +1,163 @@
+@* A promotion being written (owner, 2026-10-31, answer 9a and P1-P6): its name, the dates it runs,
+   who it is for if not everyone, and its lines in her order, each a treatment at a promotion price
+   beside its regular price, or a typed benefit. A treatment is picked from her known treatments as
+   she types, and its regular price is filled in from hers when the box is empty (P1); she can change
+   it, and the checks point out a price other than hers. The saving is worked out, never typed. A
+   treatment new to her list is added to her known items when the campaign is saved (P6), as the
+   page says then. Modelled on OfferFields; removing a line is a plain button that asks first. *@
+@implements IHandleEvent
+<div class="field">
+    <label for="promotion-name-@Index">Promotion name</label>
+    <input id="promotion-name-@Index" @bind="Promotion.Name.Text" @bind:event="oninput" />
+    <span class="field-help">Shown as the promotion's heading, such as "Filler Promo".</span>
+</div>
+<div class="field">
+    <label for="promotion-summary-@Index">Summary (optional)</label>
+    <textarea id="promotion-summary-@Index" @bind="Promotion.Summary.Text" @bind:event="oninput"></textarea>
+    <span class="field-help">A sentence or two before the lines, if you like.</span>
+</div>
+<div class="field">
+    <label for="promotion-starts-@Index">Starts</label>
+    <input id="promotion-starts-@Index" type="date" value="@Promotion.Starts.Text" @oninput="e => Promotion.Starts.Text = e.Value as string ?? string.Empty" />
+    @if (Promotion.Starts.Error is { } startsError)
+    {
+        <span class="field-help" role="alert">@startsError</span>
+    }
+</div>
+<div class="field">
+    <label for="promotion-ends-@Index">Ends</label>
+    <input id="promotion-ends-@Index" type="date" value="@Promotion.Ends.Text" @oninput="e => Promotion.Ends.Text = e.Value as string ?? string.Empty" />
+    @if (Promotion.Ends.Error is { } endsError)
+    {
+        <span class="field-help" role="alert">@endsError</span>
+    }
+</div>
+<div class="field">
+    <label for="promotion-audience-@Index">Who it is for (optional)</label>
+    <input id="promotion-audience-@Index" @bind="Promotion.Audience.Text" @bind:event="oninput" />
+    <span class="field-help">Leave it empty for everyone. Such as "teachers &amp; school faculty": the email says "Offer valid ..., for teachers &amp; school faculty."</span>
+</div>
+
+<h4>Lines</h4>
+@if (Promotion.Lines.Count == 0)
+{
+    <p class="muted">No lines yet.</p>
+}
+@for (var l = 0; l < Promotion.Lines.Count; l++)
+{
+    var lineNumber = l + 1;
+    var line = Promotion.Lines[l];
+    var id = $"{Index}-l{l}";
+    <section class="card tier" aria-label="Line @lineNumber">
+        <div class="block-card-head">
+            <h4>Line @lineNumber</h4>
+            <div class="block-actions">
+                <button class="button" aria-label="Remove line @lineNumber" @onclick="() => _confirmingRemove = line">Remove line</button>
+            </div>
+        </div>
+        @if (ReferenceEquals(_confirmingRemove, line))
+        {
+            <p role="alert">
+                Remove line @lineNumber?
+                <button class="button danger" @onclick="() => RemoveLine(line)">Remove it</button>
+                <button class="button" @onclick="() => _confirmingRemove = null">Keep it</button>
+            </p>
+        }
+        @switch (line)
+        {
+            case PricedTreatmentEditor priced:
+                <div class="field">
+                    <label for="line-treatment-@id">Treatment</label>
+                    <input id="line-treatment-@id" list="@KnownItemLists.Treatments" value="@priced.Treatment.Text"
+                           @oninput="e => priced.SetTreatment(e.Value as string ?? string.Empty, Known)" />
+                    @if (Known.Treatments.Count > 0)
+                    {
+                        <span class="field-help">Your known treatments are suggested as you type; picking one fills in its regular price.</span>
+                    }
+                </div>
+                <div class="field">
+                    <label for="line-price-@id">Promotion price, in dollars</label>
+                    <input id="line-price-@id" inputmode="decimal" @bind="priced.Price.Text" @bind:event="oninput" />
+                    @if (priced.Price.Error is { } priceError)
+                    {
+                        <span class="field-help" role="alert">@priceError</span>
+                    }
+                </div>
+                <div class="field">
+                    <label for="line-regular-@id">Regular price, in dollars</label>
+                    <input id="line-regular-@id" inputmode="decimal" @bind="priced.RegularPrice.Text" @bind:event="oninput" />
+                    @if (priced.RegularPrice.Error is { } regularError)
+                    {
+                        <span class="field-help" role="alert">@regularError</span>
+                    }
+                </div>
+                @if (priced.Sentence is { } sentence)
+                {
+                    <p class="field-help" data-testid="line-sentence-@id">The email says: @sentence</p>
+                }
+                break;
+            case BenefitLineEditor benefitLine:
+                <BenefitFields Benefit="benefitLine.Benefit" Id="@($"promotion-{id}")" Label="Benefit" Changed="ChildChanged" />
+                break;
+        }
+    </section>
+}
+<p class="block-actions">
+    <button class="button" @onclick="() => Promotion.AddTreatment()">Add a treatment</button>
+    <button class="button" @onclick="() => Promotion.AddBenefit()">Add a benefit</button>
+</p>
+@if (Known.Benefits.Count > 0)
+{
+    <div class="field">
+        <label for="promotion-pick-benefit-@Index">Pick a benefit</label>
+        <input @key="@($"promotion-pick-{_picks}")" id="promotion-pick-benefit-@Index" list="@KnownItemLists.Benefits"
+               placeholder="Start typing to search your known benefits" value="@_benefitPick" @oninput="e => PickBenefit(e.Value as string)" />
+        <span class="field-help">Choosing one adds it as a new line at its usual amount, which you can still change.</span>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public PromotionEditor Promotion { get; set; } = null!;
+    [Parameter, EditorRequired] public int Index { get; set; }
+
+    /// <summary>Her known items, to pick from. None: nothing is offered.</summary>
+    [Parameter] public KnownItems Known { get; set; } = KnownItems.None;
+
+    /// <summary>Told after every change here, so the page around it can follow what is typed.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    private string _benefitPick = "";
+    private object? _confirmingRemove;
+    // Counts picks; the picker's key carries it, so after a pick the box is made afresh and shows empty.
+    private int _picks;
+
+    // As OfferFields: Blazor re-renders only the component that handled an event, so the page is told.
+    async Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg)
+    {
+        await callback.InvokeAsync(arg);
+        StateHasChanged();
+        await Changed.InvokeAsync();
+    }
+
+    private void ChildChanged()
+    {
+    }
+
+    private void RemoveLine(PromotionLineEditor line)
+    {
+        Promotion.RemoveLine(line);
+        _confirmingRemove = null;
+    }
+
+    private void PickBenefit(string? text)
+    {
+        if (Known.BenefitNamed(text ?? "") is { } known)
+        {
+            Promotion.AddKnownBenefit(known.Benefit);
+            _benefitPick = "";
+            _picks++;
+            return;
+        }
+        _benefitPick = text ?? "";
+    }
+}

@@ -96,6 +96,7 @@ new kind of email down into one on request.
 | Heading, Greeting | A line of text | Text checks |
 | Paragraphs | Body text, one entry per paragraph | Text checks |
 | Tiered offer (stored as type `Offer`) | A tiered offer with typed benefits | Tier names, distinct tiers, prices, benefit values, parallel tiers, terms for a recurring charge; an offer needs a button |
+| Promotion | One offer for a set time: a name, start and end dates, who it is for if not everyone, an optional summary, and lines in her order, each a treatment with its promotion and regular prices (the saving worked out) or a typed benefit. Never fixed by a template | Promotion price below the regular price, dates in order, benefit values, the regular price against her known treatment's, near misses; a promotion needs a button; its lines get the text checks |
 | Button | A label and an https link | https only |
 | Sign-off | Valediction, sender, tagline | Text checks |
 | Fine print | Disclaimers and terms | Answers the medical-disclaimer rule |
@@ -107,7 +108,12 @@ The export pastes into Square the way the real emails are built: Square's header
 text, and paragraph-style text where one block holds many paragraphs, so consecutive text
 (greeting and opening; an offer's details through the sign-off) becomes one Square text block.
 An offer's tiers are each a name line, then one line per item starting with the template's
-marker (🤍 for Neelam), price first.
+marker (🤍 for Neelam), price first. A promotion is laid out the same way, its name as a heading
+and then its text: the summary if any, each line on its own ("Full-Face Facial Balancing — $3,499
+(Regularly $5,100, saving $1,601)", or a benefit's sentence), and the dates ("Offer valid November 1
+– December 31, 2026.", or "Offer valid September 1 – 30, 2026, for teachers & school faculty." with
+an audience). Every amount is written one way (`Dollars.Text`): "$1,599", cents only when there are
+some.
 
 **The same export as a file for an assistant (owner, 2026-10-09).** Beside the copy blocks, the
 export section offers "Download for an assistant (JSON)": a file she hands to her own assistant
@@ -467,6 +473,17 @@ warnings ("Worth a look"):
   Known items page. Within the limits, or with none set, nothing is said.
 
 With no known items of a kind, nothing is said about that kind.
+
+A promotion's lines are offer details too (owner, 2026-10-31, P1 and P6): each treatment's name is
+held to her treatments ("Did you mean ...", with the known name offered as the fix); a known
+treatment's regular price written differently is worth a look ("'Full-Face Facial Balancing' is
+regularly $5,100 in your known items; here it is $5,400."), and picking the treatment fills its
+regular price in to begin with; a treatment new to her list says "'X' isn't one of your known
+treatments yet. Saving the campaign adds it, regularly $5,100." and, once the campaign is saved, is
+added to her known items with that price, the save line saying "Added X to your treatments, regularly
+$5,100." Benefit lines are held as a tier's benefits are. Two rules of the block's own are Must fix:
+`promotion-price`, a promotion price at or above the regular price (or not above $0); and
+`promotion-dates`, an end before the start.
 
 Tier names are also read on **ladders** (owner, 2026-10-09: "precious metals, gemstones, and
 colors are all things that imply they should be different"). A ladder is data: a name and words,

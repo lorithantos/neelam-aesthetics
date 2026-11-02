@@ -65,6 +65,11 @@ public sealed class CampaignEditor
         foreach (var block in Blocks)
         {
             if (block.Error is { } e) errors.Add($"{block.Label}: {e}");
+            if (block is PromotionBlockEditor { Promotion: var promotion })
+            {
+                errors.AddRange(promotion.Errors().Select(p => $"{block.Label} › {p}"));
+                continue;
+            }
             if (block is not OfferBlockEditor { Offer: var offer }) continue;
 
             if (offer.TermsLink.Error is { } link) errors.Add($"{block.Label} › Terms link: {link}");
@@ -79,6 +84,16 @@ public sealed class CampaignEditor
         }
         return errors;
     }
+
+    /// <summary>
+    /// The treatments its promotions' lines would add to her known items when it is saved (P6), across
+    /// every promotion block, one treatment once (<see cref="PromotionEditor.TreatmentsToSave"/>).
+    /// </summary>
+    public IReadOnlyList<KnownTreatment> TreatmentsToSave(KnownItems known) =>
+        Blocks.OfType<PromotionBlockEditor>()
+            .SelectMany(p => p.Promotion.TreatmentsToSave(known))
+            .DistinctBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>
     /// Where the campaign stands: what is still missing, what the rule checks find, and the email as
@@ -153,6 +168,7 @@ public abstract class BlockEditor
         ValueBlockDraft<HeaderContent> v => new HeaderBlockEditor(v),
         ValueBlockDraft<ImageRef> v => new ImageBlockEditor(v),
         OfferBlockDraft o => new OfferBlockEditor(o),
+        PromotionBlockDraft p => new PromotionBlockEditor(p),
         SpacerBlockDraft s => new SpacerBlockEditor(s),
         _ => throw new ArgumentOutOfRangeException(nameof(block), $"No form for a {block.Type} block."),
     };
@@ -517,6 +533,224 @@ public sealed class TierEditor
         !Tier.Name.HasValue || known.IsNew(KnownItemKind.Tier, Tier.Name.Value);
 }
 
+/// <summary>A promotion. Never fixed by a template: it is what a campaign is about.</summary>
+public sealed class PromotionBlockEditor : BlockEditor
+{
+    internal PromotionBlockEditor(PromotionBlockDraft block) : base(block, isFixed: false) =>
+        Promotion = new PromotionEditor(block.Promotion);
+
+    public PromotionEditor Promotion { get; }
+}
+
+/// <summary>
+/// A promotion as the form holds it: its name, dates, optional summary and audience, and its lines in
+/// her order, each a priced treatment (picked from her known treatments, its regular price filled in
+/// from hers: P1) or a typed benefit (P3).
+/// </summary>
+public sealed class PromotionEditor
+{
+    private readonly PromotionDraft _promotion;
+    private readonly List<PromotionLineEditor> _lines;
+
+    internal PromotionEditor(PromotionDraft promotion)
+    {
+        _promotion = promotion;
+        Name = new TextField(promotion.Name);
+        Summary = new TextField(promotion.Summary);
+        Audience = new TextField(promotion.Audience);
+        Starts = new DateField(promotion.Starts, "the start date");
+        Ends = new DateField(promotion.Ends, "the end date");
+        _lines = promotion.Lines.Select(PromotionLineEditor.For).ToList();
+    }
+
+    public TextField Name { get; }
+    public TextField Summary { get; }
+
+    /// <summary>Who it is for, when not everyone (P2): written into the dates line.</summary>
+    public TextField Audience { get; }
+
+    public DateField Starts { get; }
+    public DateField Ends { get; }
+
+    public IReadOnlyList<PromotionLineEditor> Lines => _lines;
+
+    public PricedTreatmentEditor AddTreatment()
+    {
+        var line = new PricedTreatmentEditor(_promotion.AddTreatment());
+        _lines.Add(line);
+        return line;
+    }
+
+    public BenefitLineEditor AddBenefit()
+    {
+        var line = new BenefitLineEditor(_promotion.AddBenefit());
+        _lines.Add(line);
+        return line;
+    }
+
+    /// <summary>A known benefit picked in as a new line, its fields ordinary ones she can change.</summary>
+    public BenefitLineEditor AddKnownBenefit(Benefit benefit)
+    {
+        var line = AddBenefit();
+        line.Benefit.Use(benefit);
+        return line;
+    }
+
+    public void RemoveLine(PromotionLineEditor line)
+    {
+        var index = _lines.IndexOf(line);
+        if (index < 0) return;
+        _promotion.RemoveLine(index);
+        _lines.RemoveAt(index);
+    }
+
+    /// <summary>Typed text the promotion cannot hold yet, each with where it is; empty when there is none.</summary>
+    public IReadOnlyList<string> Errors()
+    {
+        var errors = new List<string>();
+        if (Starts.Error is { } starts) errors.Add($"Starts: {starts}");
+        if (Ends.Error is { } ends) errors.Add($"Ends: {ends}");
+        for (var i = 0; i < _lines.Count; i++)
+        {
+            var where = $"Line {i + 1}";
+            switch (_lines[i])
+            {
+                case PricedTreatmentEditor t:
+                    if (t.Price.Error is { } price) errors.Add($"{where} › Promotion price: {price}");
+                    if (t.RegularPrice.Error is { } regular) errors.Add($"{where} › Regular price: {regular}");
+                    break;
+                case BenefitLineEditor { Benefit.Error: { } benefit }:
+                    errors.Add($"{where} › Benefit: {benefit}");
+                    break;
+            }
+        }
+        return errors;
+    }
+
+    /// <summary>
+    /// The treatments of its lines to add to her known items when the campaign is saved (owner,
+    /// 2026-11-01, P6: "It should be saved automatically"): each priced line whose treatment is new to
+    /// her treatments (<see cref="KnownItems.IsNew"/>: not one of them, and no near miss, which the
+    /// checks answer with "Did you mean"), with its regular price. A line with no regular price yet adds
+    /// nothing: what is missing is said under Still to do. One treatment named twice is added once.
+    /// </summary>
+    public IReadOnlyList<KnownTreatment> TreatmentsToSave(KnownItems known) =>
+        _lines.OfType<PricedTreatmentEditor>()
+            .Where(l => l.Line.Treatment.HasValue && l.Line.RegularPrice.HasValue && l.Line.RegularPrice.Value > 0)
+            .Select(l => (Name: l.Line.Treatment.Value.Trim(), Regular: l.Line.RegularPrice.Value))
+            .Where(l => known.IsNew(KnownItemKind.Treatment, l.Name))
+            .DistinctBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(l => new KnownTreatment(KnownItem.NewId(), l.Name, l.Regular))
+            .ToList();
+}
+
+/// <summary>One line of a promotion as the form holds it.</summary>
+public abstract class PromotionLineEditor
+{
+    private protected PromotionLineEditor()
+    {
+    }
+
+    internal static PromotionLineEditor For(PromotionLineDraft line) => line switch
+    {
+        PricedTreatmentDraft t => new PricedTreatmentEditor(t),
+        BenefitLineDraft b => new BenefitLineEditor(b),
+        _ => throw new ArgumentOutOfRangeException(nameof(line), "No form for this promotion line."),
+    };
+}
+
+/// <summary>A treatment, its promotion price and its regular price; the saving is worked out.</summary>
+public sealed class PricedTreatmentEditor : PromotionLineEditor
+{
+    internal PricedTreatmentEditor(PricedTreatmentDraft line)
+    {
+        Line = line;
+        Treatment = new TextField(line.Treatment);
+        Price = new PriceField(line.Price, "the promotion price");
+        RegularPrice = new PriceField(line.RegularPrice, "the regular price");
+    }
+
+    internal PricedTreatmentDraft Line { get; }
+
+    public TextField Treatment { get; }
+    public PriceField Price { get; }
+    public PriceField RegularPrice { get; }
+
+    /// <summary>
+    /// The treatment as she types or picks it. When it names one of her known treatments that has a
+    /// regular price, and the regular price box is empty, that price is filled in (P1); she can change
+    /// it, and a price other than hers is worth a look in the checks. A price she typed is never replaced.
+    /// </summary>
+    public void SetTreatment(string text, KnownItems known)
+    {
+        Treatment.Text = text;
+        if (RegularPrice.Text.Trim().Length > 0) return;
+        var name = FormText.Clean(text ?? "");
+        if (known.Treatments.FirstOrDefault(t => string.Equals(t.Name.Trim(), name, StringComparison.OrdinalIgnoreCase)) is
+            { RegularPrice: { } regular })
+            RegularPrice.Text = regular.ToString("0.##", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The saving the email will state, once both prices are in; null until then.</summary>
+    public decimal? Saving => Line.Price.HasValue && Line.RegularPrice.HasValue ? Line.RegularPrice.Value - Line.Price.Value : null;
+
+    /// <summary>The line as the email will carry it, once it is complete; null until then.</summary>
+    public string? Sentence => Line.IsFinished ? Line.ToLine().Describe() : null;
+}
+
+/// <summary>A typed benefit as a promotion line, through the same fields as a tier's benefit.</summary>
+public sealed class BenefitLineEditor : PromotionLineEditor
+{
+    internal BenefitLineEditor(BenefitLineDraft line) => Benefit = new BenefitEditor(line.Benefit);
+
+    public BenefitEditor Benefit { get; }
+}
+
+/// <summary>
+/// One day, as a date box gives it ("2026-11-01"), or typed as "11/1/2026". Blank empties the slot;
+/// anything else that is not a date empties it and says why in <see cref="Error"/>.
+/// </summary>
+public sealed class DateField
+{
+    private static readonly string[] Formats = ["yyyy-MM-dd", "M/d/yyyy"];
+
+    private readonly Slot<DateOnly> _slot;
+    private readonly string _what;
+    private string _text;
+
+    internal DateField(Slot<DateOnly> slot, string what)
+    {
+        _slot = slot;
+        _what = what;
+        _text = slot.HasValue ? slot.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "";
+    }
+
+    public string Text
+    {
+        get => _text;
+        set
+        {
+            _text = value ?? "";
+            var clean = FormText.Clean(_text);
+            Error = null;
+            if (clean.Length == 0)
+            {
+                _slot.Clear();
+                return;
+            }
+            if (DateOnly.TryParseExact(clean, Formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var day))
+            {
+                _slot.Set(day);
+                return;
+            }
+            Error = $"\"{clean}\" is not a date; choose {_what} from the calendar.";
+            _slot.Clear();
+        }
+    }
+
+    public string? Error { get; private set; }
+}
+
 /// <summary>
 /// One kind of typed benefit the form offers, by the name the saved JSON gives it. The list is the
 /// <see cref="Benefit"/> types themselves; a test holds it to the types <see cref="Benefit"/>
@@ -829,15 +1063,17 @@ public sealed class LinkField
     public string? Error { get; private set; }
 }
 
-/// <summary>A tier's monthly price, in dollars.</summary>
+/// <summary>A price in dollars: a tier's monthly price, or a promotion line's prices.</summary>
 public sealed class PriceField
 {
     private readonly Slot<decimal> _slot;
+    private readonly string _what;
     private string _text;
 
-    internal PriceField(Slot<decimal> slot)
+    internal PriceField(Slot<decimal> slot, string what = "the price")
     {
         _slot = slot;
+        _what = what;
         _text = slot.HasValue ? slot.Value.ToString("0.##", CultureInfo.InvariantCulture) : "";
     }
 
@@ -848,7 +1084,7 @@ public sealed class PriceField
         {
             _text = value ?? "";
             var problems = new List<string>();
-            var price = FormText.Clean(_text).Length == 0 ? null : FormText.Money(_text, "the price", problems);
+            var price = FormText.Clean(_text).Length == 0 ? null : FormText.Money(_text, _what, problems);
             Error = problems.Count > 0 ? string.Join(" ", problems) : null;
             if (price is null) _slot.Clear();
             else _slot.Set(price.Value);

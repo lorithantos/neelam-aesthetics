@@ -239,6 +239,44 @@ public sealed class KnownItemsSession
         return $"Saved \"{item.Text}\" to your known items.";
     }
 
+    /// <summary>
+    /// Adds the treatments a saved campaign's promotion lines named that are new to her list, each with
+    /// its regular price (owner, 2026-11-01, P6: "It should be saved automatically"), through the store
+    /// and the trail as every other add goes, one <see cref="ActivityAction.KnownItemAdded"/> event by
+    /// id. Called once the campaign is saved, so the campaign is never held up by it. One already in her
+    /// list by then (added in another tab) is refused by the store and passed over in silence: it is
+    /// there, which was the point. A store failure is logged and said, never thrown.
+    /// </summary>
+    /// <returns>What to tell her, one sentence per treatment: "Added X to your treatments, regularly $5,100."</returns>
+    public static async Task<IReadOnlyList<string>> AddFromPromotionAsync(
+        IKnownItemStore store, ActivityTrail trail, IReadOnlyList<KnownTreatment> treatments, ILogger? log = null,
+        CancellationToken ct = default)
+    {
+        var said = new List<string>();
+        foreach (var treatment in treatments)
+        {
+            try
+            {
+                await store.AddAsync(trail.Client, treatment, ct);
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                continue;
+            }
+            catch (Exception ex) when (IsStorageFailure(ex))
+            {
+                LogFailure(log ?? NullLogger.Instance, ex, "add from a promotion", treatment, trail.Client);
+                said.Add($"Couldn't add {treatment.Name} to your treatments just now. Your campaign is saved; add it on the Known items page.");
+                continue;
+            }
+            await trail.RecordAsync(ActivityEntity.KnownItem, treatment.Id, null, ActivityAction.KnownItemAdded, ct);
+            said.Add(treatment.RegularPrice is { } regular
+                ? $"Added {treatment.Name} to your treatments, regularly {Dollars.Text(regular)}."
+                : $"Added {treatment.Name} to your treatments.");
+        }
+        return said;
+    }
+
     // Anything the store throws other than its own refusals (ArgumentException, InvalidOperationException,
     // which carry a message for her) and a cancelled request: Azure.RequestFailedException, a timeout,
     // a network or authentication failure, a row it cannot read back.

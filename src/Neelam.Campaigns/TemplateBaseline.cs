@@ -109,6 +109,7 @@ public sealed record BaselineGap(BlockType Part, string Message)
         BlockType.FinePrint => "fine print",
         BlockType.Image => "an image",
         BlockType.Spacer => "a spacer",
+        BlockType.Promotion => "a promotion",
         _ => throw new ArgumentOutOfRangeException(nameof(part), part, "No wording for this block type."),
     };
 }

@@ -35,6 +35,15 @@
       ]
     },
     {
+      "type": "Promotion",
+      "label": "Promotion",
+      "description": "One offer for a set time, such as a seasonal promotion: its name, the dates it runs, who it is for if not everyone, and its lines, each a treatment with its promotion and regular prices (the saving is worked out for you) or a typed benefit. Always written for each campaign, never fixed.",
+      "rules": [
+        "cta-required", "promotion-price", "promotion-dates", "benefit-value",
+        "restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"
+      ]
+    },
+    {
       "type": "Button",
       "label": "Button",
       "description": "What the reader should do next, and the web page it opens.",

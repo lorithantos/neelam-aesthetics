@@ -34,7 +34,7 @@ public static class TemplatePreview
         {
             BlockType.Image => "chosen",
             BlockType.Button => "label and link chosen",
-            BlockType.Offer => "set out",
+            BlockType.Offer or BlockType.Promotion => "set out",
             _ => "written",
         };
         return Marked($"{b.Label}: {what} for each campaign{(b.Required ? "" : ", or left out")}");

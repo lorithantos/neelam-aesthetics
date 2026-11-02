@@ -32,9 +32,19 @@ public static class CampaignReview
             findings.AddRange(TierRungsFollowPrices(label, offer, ladders));
             findings.AddRange(TierContentDistinct(label, offer));
             findings.AddRange(TierPricesIncrease(label, offer));
-            findings.AddRange(BenefitValuesValid(label, offer));
+            for (var i = 0; i < offer.Tiers.Count; i++)
+                findings.AddRange(BenefitValuesValid($"{label} › Tier {i + 1}", offer.Tiers[i].Benefits));
             findings.AddRange(TiersParallel(label, offer));
             findings.AddRange(TermsForRecurring(label, offer));
+        }
+        foreach (var block in campaign.BlocksOf<PromotionBlock>())
+        {
+            var (label, promotion) = (block.Label, block.Promotion);
+            findings.AddRange(PromotionPrices(label, promotion));
+            findings.AddRange(PromotionDates(label, promotion));
+            for (var i = 0; i < promotion.Lines.Count; i++)
+                if (promotion.Lines[i] is BenefitLine line)
+                    findings.AddRange(BenefitValuesValid(PromotionDraft.LineWhere(label, i), [line.Benefit]));
         }
         findings.AddRange(MedicalDisclaimer(campaign, text, policy));
         findings.AddRange(RestrictedTerms(text, policy));
@@ -127,6 +137,42 @@ public static class CampaignReview
                 if (finding is not null) yield return finding;
             }
         }
+
+        // A promotion's lines are offer details too: each treatment's name against her treatments, its
+        // regular price against the one she keeps (P1), and each benefit line as a tier's benefit is.
+        foreach (var block in c.BlocksOf<PromotionBlock>())
+        for (var i = 0; i < block.Promotion.Lines.Count; i++)
+        {
+            var where = PromotionDraft.LineWhere(block.Label, i);
+            switch (block.Promotion.Lines[i])
+            {
+                case PricedTreatment line:
+                    var name = line.Treatment.Trim();
+                    var knownTreatment = known.Treatments.FirstOrDefault(t => KnownItemMatch.IsKnown(name, [t.Name]));
+                    if (knownTreatment is null)
+                    {
+                        if (AgainstKnown($"{where} treatment", name, treatments, "treatments") is { } treatmentFinding)
+                            yield return treatmentFinding.Suggestion is null && treatments.Count > 0
+                                // Not one of hers and no near miss: saving the campaign adds it (P6), so say so.
+                                ? treatmentFinding with
+                                {
+                                    Message = $"'{name}' isn't one of your known treatments yet. Saving the campaign adds it, " +
+                                              $"regularly {Dollars.Text(line.RegularPrice)}.",
+                                }
+                                : treatmentFinding;
+                    }
+                    else if (knownTreatment.RegularPrice is { } regular && regular != line.RegularPrice)
+                        yield return new(Severity.Warning, "known-item", $"{where} regular price",
+                            $"'{knownTreatment.Name}' is regularly {Dollars.Text(regular)} in your known items; " +
+                            $"here it is {Dollars.Text(line.RegularPrice)}.",
+                            Excerpt: name);
+                    break;
+                case BenefitLine { Benefit: var benefit }:
+                    var itemFinding = benefit.Item is { } item ? AgainstKnown(where, item, treatments, "treatments") : null;
+                    if ((itemFinding ?? AgainstBenefitLines(where, benefit, known)) is { } finding) yield return finding;
+                    break;
+            }
+        }
     }
 
     private static Finding? AgainstBenefitLines(string where, Benefit benefit, KnownItems known)
@@ -207,10 +253,12 @@ public static class CampaignReview
     /// </summary>
     private static IEnumerable<Finding> OfferHasAButton(Campaign c)
     {
-        var offer = c.BlocksOf<OfferBlock>().FirstOrDefault();
+        // A promotion is an offer too, for a set time: it needs a way to take it up just the same.
+        var offer = c.Blocks.FirstOrDefault(b => b is OfferBlock or PromotionBlock);
         if (offer is not null && !c.BlocksOf<ButtonBlock>().Any())
             yield return new(Severity.Blocker, "cta-required", offer.Label,
-                "The email has an offer and no way to act on it: add a button with a link (book, join, reply).");
+                $"The email has {(offer is PromotionBlock ? "a promotion" : "an offer")} and no way to act on it: " +
+                "add a button with a link (book, join, reply).");
     }
 
     private static IEnumerable<Finding> ButtonLinkIsHttps(ButtonBlock button)
@@ -352,36 +400,70 @@ public static class CampaignReview
         }
     }
 
-    private static IEnumerable<Finding> BenefitValuesValid(string label, Offer offer)
+    /// <summary>
+    /// A promotion line's price must be a saving (answer 9a: "savings can be automatically calculated"):
+    /// a promotion price above zero and below the treatment's regular price. Otherwise the line would
+    /// say "saving $0", or a negative saving. A Must fix.
+    /// </summary>
+    private static IEnumerable<Finding> PromotionPrices(string label, Promotion promotion)
     {
-        for (var i = 0; i < offer.Tiers.Count; i++)
+        for (var i = 0; i < promotion.Lines.Count; i++)
         {
-            var where = $"{label} › Tier {i + 1}";
-            foreach (var b in offer.Tiers[i].Benefits)
+            if (promotion.Lines[i] is not PricedTreatment line) continue;
+            var where = PromotionDraft.LineWhere(label, i);
+            var name = line.Treatment.Trim();
+            if (line.Price <= 0)
+                yield return new(Severity.Blocker, "promotion-price", where, $"'{name}' needs a promotion price above $0.");
+            else if (line.Price >= line.RegularPrice)
+                yield return new(Severity.Blocker, "promotion-price", where,
+                    $"'{name}' is {Dollars.Text(line.Price)} in the promotion but regularly {Dollars.Text(line.RegularPrice)}: " +
+                    "the promotion price must be below the regular price.");
+        }
+    }
+
+    /// <summary>
+    /// A promotion's dates run forwards: an end before the start is a Must fix. An end already past,
+    /// in the client's own time zone, is a Must fix too (owner, 2026-10-31, P5: "this is a violation");
+    /// a start already past says nothing, since a promotion may be sent while it runs.
+    /// </summary>
+    private static IEnumerable<Finding> PromotionDates(string label, Promotion promotion)
+    {
+        if (promotion.Ends < promotion.Starts)
+            yield return new(Severity.Blocker, "promotion-dates", $"{label} › Ends",
+                $"The promotion ends on {DayText(promotion.Ends)}, before it starts on {DayText(promotion.Starts)}; change either date.");
+    }
+
+    // "December 31, 2026", in US English whatever the server's culture.
+    private static string DayText(DateOnly day) =>
+        day.ToString("MMMM d, yyyy", System.Globalization.CultureInfo.InvariantCulture);
+
+    // Each benefit's value must make sense, wherever the benefits are: a tier's, or a promotion's lines.
+    private static IEnumerable<Finding> BenefitValuesValid(string where, IReadOnlyList<Benefit> benefits)
+    {
+        foreach (var b in benefits)
+        {
+            var problem = b switch
             {
-                var problem = b switch
-                {
-                    PercentOff { Percent: < 1 or > 99 } p =>
-                        $"{p.Percent}% off is not a discount; use 1–99.",
-                    DiscountedItem { Percent: >= 100 } d =>
-                        $"{d.Percent}% off {d.ItemName} is free: use a complimentary item instead.",
-                    DiscountedItem { Percent: < 1 } d =>
-                        $"{d.Percent}% off {d.ItemName} is not a discount.",
-                    FreeItem { Quantity: < 1 } f =>
-                        $"{f.Quantity} {f.Word} {f.ItemName} is nothing; quantity must be at least 1.",
-                    BirthdayCredit { Amount: <= 0 } =>
-                        "A birthday credit needs an amount.",
-                    DollarsOff { Amount: <= 0 } =>
-                        "Dollars off needs an amount.",
-                    DollarsOff { Minimum: < 1 } d =>
-                        $"{d.Minimum}+ {d.AppliesTo} is not a minimum; leave it out or make it at least 1.",
-                    Credit { Amount: <= 0 } =>
-                        "A credit needs an amount.",
-                    _ => null,
-                };
-                if (problem is not null)
-                    yield return new(Severity.Blocker, "benefit-value", where, problem);
-            }
+                PercentOff { Percent: < 1 or > 99 } p =>
+                    $"{p.Percent}% off is not a discount; use 1–99.",
+                DiscountedItem { Percent: >= 100 } d =>
+                    $"{d.Percent}% off {d.ItemName} is free: use a complimentary item instead.",
+                DiscountedItem { Percent: < 1 } d =>
+                    $"{d.Percent}% off {d.ItemName} is not a discount.",
+                FreeItem { Quantity: < 1 } f =>
+                    $"{f.Quantity} {f.Word} {f.ItemName} is nothing; quantity must be at least 1.",
+                BirthdayCredit { Amount: <= 0 } =>
+                    "A birthday credit needs an amount.",
+                DollarsOff { Amount: <= 0 } =>
+                    "Dollars off needs an amount.",
+                DollarsOff { Minimum: < 1 } d =>
+                    $"{d.Minimum}+ {d.AppliesTo} is not a minimum; leave it out or make it at least 1.",
+                Credit { Amount: <= 0 } =>
+                    "A credit needs an amount.",
+                _ => null,
+            };
+            if (problem is not null)
+                yield return new(Severity.Blocker, "benefit-value", where, problem);
         }
     }
 

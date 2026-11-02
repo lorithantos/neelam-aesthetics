@@ -83,6 +83,7 @@ public static class SuggestedFix
             HeaderBlockEditor h => [new(() => h.Text, v => h.Text = v), new(() => h.PhotoAltText, v => h.PhotoAltText = v)],
             ImageBlockEditor i => [new(() => i.PhotoAltText, v => i.PhotoAltText = v)],
             OfferBlockEditor o => OfferFields(o.Offer),
+            PromotionBlockEditor p => PromotionFields(p.Promotion),
             _ => [],
         };
         return (fields, FixOutcome.NotFound);
@@ -112,6 +113,35 @@ public static class SuggestedFix
         return fields;
     }
 
+    // A promotion's words: its name, summary and audience, each line's treatment, and the words of each
+    // benefit line. Never a price, a date or an amount.
+    private static IReadOnlyList<TextField> PromotionFields(PromotionEditor promotion)
+    {
+        var fields = new List<TextField>
+        {
+            new(() => promotion.Name.Text, v => promotion.Name.Text = v),
+            new(() => promotion.Summary.Text, v => promotion.Summary.Text = v),
+            new(() => promotion.Audience.Text, v => promotion.Audience.Text = v),
+        };
+        foreach (var line in promotion.Lines)
+        {
+            switch (line)
+            {
+                case PricedTreatmentEditor t:
+                    fields.Add(new(() => t.Treatment.Text, v => t.Treatment.Text = v));
+                    break;
+                case BenefitLineEditor { Benefit: var b }:
+                    fields.Add(new(() => b.AppliesTo, v => b.AppliesTo = v));
+                    fields.Add(new(() => b.ItemName, v => b.ItemName = v));
+                    fields.Add(new(() => b.Per, v => b.Per = v));
+                    fields.Add(new(() => b.Condition, v => b.Condition = v));
+                    fields.Add(new(() => b.Toward, v => b.Toward = v));
+                    break;
+            }
+        }
+        return fields;
+    }
+
     // The block a location names (a template's labels are unique); null when it names none.
     private static BlockEditor? Block(CampaignEditor editor, string location) =>
         FindingPlace.BlockIndex(location, editor.Blocks.Select(b => b.Label).ToList()) is { } i ? editor.Blocks[i] : null;
@@ -119,8 +149,21 @@ public static class SuggestedFix
     // "Offer › Tier 2, benefit 3", as the known-item check names a benefit line.
     private static readonly Regex BenefitPlace = new(@"^(?<label>.+) › Tier (?<tier>\d+), benefit (?<benefit>\d+)$", RegexOptions.CultureInvariant);
 
+    // "Promotion › Line 2", as the known-item check names a promotion's benefit line.
+    private static readonly Regex LinePlace = new(@"^(?<label>.+) › Line (?<line>\d+)$", RegexOptions.CultureInvariant);
+
     private static FixOutcome UseBenefit(CampaignEditor editor, string location, Benefit benefit, bool apply)
     {
+        if (LinePlace.Match(location) is { Success: true } line)
+        {
+            var promotions = editor.Blocks.OfType<PromotionBlockEditor>().Where(b => b.Label == line.Groups["label"].Value).ToList();
+            if (promotions.Count != 1) return FixOutcome.Ambiguous;
+            var lines = promotions[0].Promotion.Lines;
+            var index = int.Parse(line.Groups["line"].Value) - 1;
+            if (index >= lines.Count || lines[index] is not BenefitLineEditor benefitLine) return FixOutcome.NotFound;
+            if (apply) benefitLine.Benefit.Use(benefit);
+            return FixOutcome.Applied;
+        }
         var place = BenefitPlace.Match(location);
         if (!place.Success) return FixOutcome.Ambiguous;
         var label = place.Groups["label"].Value;

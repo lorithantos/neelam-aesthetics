@@ -33,8 +33,21 @@ internal static class DraftSoFar
     {
         OfferBlockDraft { Offer.IsUntouched: true } => null,
         OfferBlockDraft o => new OfferBlock(o.Label, OfferSoFar(o.Offer), o.Marker),
+        PromotionBlockDraft { Promotion.IsUntouched: true } => null,
+        PromotionBlockDraft p => new PromotionBlock(p.Label, PromotionSoFar(p.Promotion)),
         _ => block.ToBlock(),
     };
+
+    // A promotion as far as it goes: its lines up to the first not finished, so the checks number lines
+    // as the form does. A date not given yet leaves that end open (the earliest or the latest day there
+    // is), so neither the order of the dates nor an end already past is said until both are there to say it.
+    private static Promotion PromotionSoFar(PromotionDraft promotion) => new(
+        Name: promotion.Name.HasValue ? promotion.Name.Value : "",
+        Starts: promotion.Starts.HasValue ? promotion.Starts.Value : DateOnly.MinValue,
+        Ends: promotion.Ends.HasValue ? promotion.Ends.Value : DateOnly.MaxValue,
+        Lines: promotion.Lines.TakeWhile(l => l.IsFinished).Select(l => l.ToLine()).ToList(),
+        Summary: promotion.Summary.HasValue ? promotion.Summary.Value : null,
+        Audience: promotion.Audience.HasValue ? promotion.Audience.Value : null);
 
     private static Offer OfferSoFar(OfferDraft offer) => new(
         Name: offer.Name.HasValue ? offer.Name.Value : "",
@@ -53,6 +66,8 @@ internal static class DraftSoFar
     {
         if (block is OfferBlockDraft offer)
             return !offer.Required && offer.Offer.IsUntouched ? [] : OfferShown(offer);
+        if (block is PromotionBlockDraft promotion)
+            return !promotion.Required && promotion.Promotion.IsUntouched ? [] : PromotionShown(promotion);
         if (block.ToBlock() is { } filled) return [filled];
         return block.Required ? [new PlaceholderBlock(block.Label, block.Type, ToFill(block.Name))] : [];
     }
@@ -75,6 +90,37 @@ internal static class DraftSoFar
         else if (offer.IsRecurring) text.Add(ToFill("Terms link"));
         yield return new ParagraphsBlock(label, text);
     }
+
+    // A promotion is its name as a heading, then its text, as the export gives it, each missing part
+    // named as its field is: "Line 2 promotion price".
+    private static IEnumerable<Block> PromotionShown(PromotionBlockDraft block)
+    {
+        var (label, promotion) = (block.Label, block.Promotion);
+        yield return promotion.Name.HasValue
+            ? new HeadingBlock(label, promotion.Name.Value)
+            : new PlaceholderBlock(label, BlockType.Promotion, ToFill($"{label} name"));
+
+        var text = new List<string>();
+        if (promotion.Summary.HasValue) text.Add(promotion.Summary.Value);
+        if (promotion.Lines.Count == 0) text.Add(ToFill($"{label} lines"));
+        for (var i = 0; i < promotion.Lines.Count; i++)
+            text.Add(LineShown(promotion.Lines[i], $"Line {i + 1}"));
+        text.Add(promotion.Starts.HasValue && promotion.Ends.HasValue
+            ? EditorExport.DatesText(promotion.Starts.Value, promotion.Ends.Value, promotion.Audience.HasValue ? promotion.Audience.Value : null)
+            : ToFill($"{label} dates"));
+        yield return new ParagraphsBlock(label, text);
+    }
+
+    private static string LineShown(PromotionLineDraft line, string lineName) => line switch
+    {
+        _ when line.IsFinished => line.ToLine().Describe(),
+        BenefitLineDraft => ToFill($"{lineName} benefit"),
+        PricedTreatmentDraft t =>
+            $"{(t.Treatment.HasValue ? t.Treatment.Value : ToFill($"{lineName} treatment"))} — " +
+            $"{(t.Price.HasValue ? Dollars.Text(t.Price.Value) : ToFill($"{lineName} promotion price"))} " +
+            $"(Regularly {(t.RegularPrice.HasValue ? Dollars.Text(t.RegularPrice.Value) : ToFill($"{lineName} regular price"))})",
+        _ => ToFill(lineName),
+    };
 
     private static string TierShown(TierDraft tier, string tierName, string marker, bool recurring)
     {

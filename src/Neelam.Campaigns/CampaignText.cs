@@ -47,6 +47,15 @@ public static class CampaignText
                         list.AddRange(offer.Tiers[t].Benefits.Select(b => new TextFragment($"{where} › Benefit", b.Describe())));
                     }
                     break;
+                // Each line as the email carries it, so the medical, restricted-term, emoji and phone
+                // checks read a promotion's treatments and benefits as they read a tier's.
+                case PromotionBlock p:
+                    var promotion = p.Promotion;
+                    list.Add(new($"{p.Label} › Name", promotion.Name));
+                    if (promotion.Summary is not null) list.Add(new($"{p.Label} › Summary", promotion.Summary));
+                    if (promotion.Audience is not null) list.Add(new($"{p.Label} › Audience", promotion.Audience));
+                    list.AddRange(promotion.Lines.Select((line, i) => new TextFragment(PromotionDraft.LineWhere(p.Label, i), line.Describe())));
+                    break;
             }
         }
         return list;

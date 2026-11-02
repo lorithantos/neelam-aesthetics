@@ -54,10 +54,14 @@ public class BlockCatalogTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             catalog.All.Select(g => (g.Type, g.Label, string.Join("|", g.Checks))));
     }
 
+    // The order before the catalog, with the Promotion block (2026-11-02) after the offer, its neighbour.
     [Fact]
     public void The_add_block_list_keeps_its_order()
     {
-        Assert.Equal(Snapshot.Select(b => b.Type), Catalogs.Shipped.All.Select(g => g.Type.ToString()));
+        var now = Catalogs.Shipped.All.Select(g => g.Type.ToString()).ToList();
+
+        Assert.Equal(Snapshot.Select(b => b.Type), now.Where(t => t != nameof(BlockType.Promotion)));
+        Assert.Equal(now.IndexOf(nameof(BlockType.Offer)) + 1, now.IndexOf(nameof(BlockType.Promotion)));
     }
 
     // Every block but Fine print reads exactly as it did when the guide was code, the offer's new name aside.

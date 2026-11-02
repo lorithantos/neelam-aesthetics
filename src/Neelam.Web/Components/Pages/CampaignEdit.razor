@@ -289,6 +289,8 @@ else if (_session is not null)
                                 case OfferBlockEditor offerBlock:
                                     <OfferFields Offer="offerBlock.Offer" Index="index" Known="Known" SaveKnown="SaveKnownAsync" Changed="StateHasChanged" />
                                     break;
+                                case PromotionBlockEditor promotionBlock:
+                                    <PromotionFields Promotion="promotionBlock.Promotion" Index="index" Known="Known" Changed="StateHasChanged" />                                    break;
                             }
                             @if (block.Error is { } error)
                             {
@@ -772,6 +774,26 @@ else
         }
         return message;
     }
+    // Once the campaign is saved (owner, 2026-11-01, P6: "It should be saved automatically"): a treatment
+    // a promotion line names that is new to her list goes into her known items with its regular price,
+    // through the known items session and store, and the save line says so. Never throws: the save stands.
+    private async Task AddPromotionTreatmentsAsync()
+    {
+        var treatments = _session!.Editor.TreatmentsToSave(Known);
+        if (treatments.Count == 0) return;
+        var said = await KnownItemsSession.AddFromPromotionAsync(
+            Workspace.Known, Recorder.For(_client!, await Workspace.ActorAsync()), treatments, Log);
+        if (said.Count > 0) _message = string.Join(" ", new[] { _message }.Concat(said).OfType<string>());
+        try
+        {
+            _business = await Workspace.BusinessAsync(_client!);
+        }
+        catch (Exception ex)
+        {
+            Log.LogError(ex, "Could not read the registration of {Client} again after adding treatments from a promotion.", _client!.Value);
+        }
+    }
+
     private IReadOnlyList<LibraryImage> _photos = [];
     private string? _message;
     private bool _confirmingUndo;
@@ -1053,6 +1075,7 @@ else
         _confirmingUndo = _confirmingDelete = false;
         // A new version: what was said of the last one's proofread, or of a fix put in, no longer applies.
         _proofreadMessage = _fixMessage = null;
+        await AddPromotionTreatmentsAsync();
         // The address now names the campaign, so a reload opens what was saved. Only the address
         // changes: navigating would load the page afresh, at the top and without the saved line.
         if (isNew) await ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{saved.Id}").AbsoluteUri);

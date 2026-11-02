@@ -31,6 +31,14 @@ public enum BlockType
     Header,
     Image,
     Spacer,
+
+    /// <summary>
+    /// A promotion: one offer for a set time, with no tiers (owner, 2026-10-31: "effectively a tier, but
+    /// without multiple ones"). From her "Filler Promo" campaign, which typed two priced treatments into
+    /// paragraphs, and her back-to-school email's benefits for an audience. A type of its own, never an
+    /// offer, so a template update never pours one into the other.
+    /// </summary>
+    Promotion,
 }
 
 /// <summary>
@@ -58,6 +66,7 @@ public sealed record HeaderContent(string Text, ImageRef? Photo = null);
 [JsonDerivedType(typeof(HeaderBlock), "header")]
 [JsonDerivedType(typeof(ImageBlock), "image")]
 [JsonDerivedType(typeof(SpacerBlock), "spacer")]
+[JsonDerivedType(typeof(PromotionBlock), "promotion")]
 public abstract record Block(string Label)
 {
     [JsonIgnore]
@@ -150,3 +159,61 @@ public sealed record Offer(
     string? TiersNote = null);
 
 public sealed record Tier(string Name, decimal MonthlyPrice, IReadOnlyList<Benefit> Benefits);
+
+/// <summary>A promotion: its name, the dates it runs, and its lines. Never fixed by a template.</summary>
+public sealed record PromotionBlock(string Label, Promotion Promotion) : Block(Label)
+{
+    public override BlockType Type => BlockType.Promotion;
+}
+
+/// <summary>
+/// One offer for a set time (owner, 2026-10-31, answers P1-P6). Its lines are what she picks and
+/// prices, so the saving is worked out by the tool rather than typed ("This means that savings can be
+/// automatically calculated"), and the dates are fields, so the email says them one way.
+/// </summary>
+/// <param name="Name">Shown as the promotion's heading, such as "Filler Promo".</param>
+/// <param name="Starts">The first day it runs (P4: required).</param>
+/// <param name="Ends">The last day it runs (P4: required; P5: a day already past is a Must fix).</param>
+/// <param name="Lines">Priced treatments and benefit lines, mixed, in her order (P3).</param>
+/// <param name="Summary">Optional sentence or two before the lines.</param>
+/// <param name="Audience">Who it is for, when not everyone (P2), such as "teachers &amp; school faculty".</param>
+public sealed record Promotion(
+    string Name,
+    DateOnly Starts,
+    DateOnly Ends,
+    IReadOnlyList<PromotionLine> Lines,
+    string? Summary = null,
+    string? Audience = null);
+
+/// <summary>
+/// One line of a promotion: a treatment at a promotion price beside its regular price, or a typed
+/// benefit. Typed like a tier's benefits, so its wording is the tool's, never typed.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "line")]
+[JsonDerivedType(typeof(PricedTreatment), "treatment")]
+[JsonDerivedType(typeof(BenefitLine), "benefit")]
+public abstract record PromotionLine
+{
+    /// <summary>The line as the email carries it.</summary>
+    public abstract string Describe();
+}
+
+/// <summary>
+/// A treatment at a promotion price, beside its regular price, the saving worked out:
+/// "Full-Face Facial Balancing — $3,499 (Regularly $5,100, saving $1,601)".
+/// </summary>
+public sealed record PricedTreatment(string Treatment, decimal Price, decimal RegularPrice) : PromotionLine
+{
+    /// <summary>What she saves: the regular price less the promotion price.</summary>
+    [JsonIgnore]
+    public decimal Saving => RegularPrice - Price;
+
+    public override string Describe() =>
+        $"{Treatment} — {Dollars.Text(Price)} (Regularly {Dollars.Text(RegularPrice)}, saving {Dollars.Text(Saving)})";
+}
+
+/// <summary>A typed benefit as a promotion line, such as "$50 credit toward your next appointment".</summary>
+public sealed record BenefitLine(Benefit Benefit) : PromotionLine
+{
+    public override string Describe() => Benefit.Describe();
+}

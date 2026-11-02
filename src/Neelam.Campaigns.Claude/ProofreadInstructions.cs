@@ -20,7 +20,7 @@ public sealed partial class ProofreadInstructions
     public const string File = "proofread.json";
 
     /// <summary>The tags the request wraps content in; the instructions say each one is content.</summary>
-    public static readonly IReadOnlyList<string> ContentTags = ["<business>", "<tiers>", "<email>", "<photo>"];
+    public static readonly IReadOnlyList<string> ContentTags = ["<business>", "<tiers>", "<promotion>", "<email>", "<photo>"];
 
     /// <summary>The severities the answer gives, as the schema allows them and the page says them.</summary>
     public const string MustFix = "must-fix";

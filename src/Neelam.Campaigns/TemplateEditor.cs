@@ -176,7 +176,7 @@ public sealed partial class EditableBlock : IPhotoChoice
 
     /// <summary>
     /// Whether the template supplies this block's content, the same in every campaign. Never for an
-    /// offer, which is what a campaign is about; a spacer has no content to fix.
+    /// offer or a promotion, which are what a campaign is about; a spacer has no content to fix.
     /// </summary>
     public bool IsFixed
     {
@@ -189,7 +189,7 @@ public sealed partial class EditableBlock : IPhotoChoice
         }
     }
 
-    public bool CanBeFixed => Type is not (BlockType.Offer or BlockType.Spacer);
+    public bool CanBeFixed => Type is not (BlockType.Offer or BlockType.Promotion or BlockType.Spacer);
 
     /// <summary>Offer only: whether the customer is charged repeatedly.</summary>
     public bool Recurring { get; set; }

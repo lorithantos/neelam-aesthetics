@@ -373,7 +373,29 @@ public sealed class ClaudeProofreader(
                     .Append(string.Join("; ", tier.Benefits.Select(b => b.Describe()))).Append('\n');
             }
         }
-        text.Append("</tiers>\n\n<email>\n");
+        text.Append("</tiers>\n\n");
+
+        // A promotion's facts, so the LLM can hold the email's other mentions of them (the fine print's
+        // dates above all) to what the promotion says; the rules never read prose for them. Only when
+        // the email has one, so an email without is sent as before.
+        foreach (var block in campaign.BlocksOf<PromotionBlock>())
+        {
+            var promotion = block.Promotion;
+            text.Append("<promotion>\n")
+                .Append(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"{block.Label}: name \"{promotion.Name}\"; runs {promotion.Starts:yyyy-MM-dd} to {promotion.Ends:yyyy-MM-dd}"))
+                .Append($" ({EditorExport.DatesText(promotion.Starts, promotion.Ends, null)}); for ")
+                .Append(string.IsNullOrWhiteSpace(promotion.Audience) ? "everyone" : $"\"{promotion.Audience}\"").Append('\n');
+            for (var i = 0; i < promotion.Lines.Count; i++)
+                text.Append($"line {i + 1}: ").Append(promotion.Lines[i] switch
+                {
+                    PricedTreatment t => $"treatment \"{t.Treatment}\", promotion price {Dollars.Text(t.Price)}, " +
+                                         $"regular price {Dollars.Text(t.RegularPrice)}, saving {Dollars.Text(t.Saving)}",
+                    var line => $"benefit \"{line.Describe()}\"",
+                }).Append('\n');
+            text.Append("</promotion>\n\n");
+        }
+        text.Append("<email>\n");
         text.Append("[subject]\n").Append(campaign.Subject).Append("\n\n");
         text.Append("[preheader]\n").Append(string.IsNullOrWhiteSpace(campaign.Preheader) ? "(none)" : campaign.Preheader).Append("\n\n");
         foreach (var part in parts.Where(p => p.Block.Kind != BlockKind.Spacer))

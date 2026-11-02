@@ -78,6 +78,7 @@ public static class CampaignJson
         ValueBlockDraft<ImageRef> v => new(b.Label, b.Type, b.Required, Image: Save(v.Value)),
         SpacerBlockDraft => new(b.Label, b.Type, b.Required),
         OfferBlockDraft o => new(b.Label, b.Type, b.Required, Offer: Save(o.Offer), Marker: o.Marker),
+        PromotionBlockDraft p => new(b.Label, b.Type, b.Required, Promotion: Save(p.Promotion)),
         _ => throw new InvalidOperationException($"No saved form for a {b.Type} block."),
     };
 
@@ -93,9 +94,46 @@ public static class CampaignJson
             case ValueBlockDraft<HeaderContent> v: Restore(v.Value, doc.Header); break;
             case ValueBlockDraft<ImageRef> v: Restore(v.Value, doc.Image); break;
             case OfferBlockDraft o when doc.Offer is { } saved: Restore(o.Offer, saved); break;
+            case PromotionBlockDraft p when doc.Promotion is { } saved: Restore(p.Promotion, saved); break;
         }
         return block;
     }
+
+    private static void Restore(PromotionDraft promotion, PromotionDocument p)
+    {
+        Restore(promotion.Name, p.Name);
+        Restore(promotion.Summary, p.Summary);
+        Restore(promotion.Audience, p.Audience);
+        Restore(promotion.Starts, p.Starts);
+        Restore(promotion.Ends, p.Ends);
+        foreach (var line in p.Lines)
+        {
+            switch (line.Kind)
+            {
+                case PromotionLineKind.Treatment:
+                    var priced = promotion.AddTreatment();
+                    Restore(priced.Treatment, line.Treatment);
+                    Restore(priced.Price, line.Price);
+                    Restore(priced.RegularPrice, line.RegularPrice);
+                    break;
+                case PromotionLineKind.Benefit:
+                    Restore(promotion.AddBenefit().Benefit, line.Benefit);
+                    break;
+                default:
+                    throw new InvalidDataException($"A promotion line of no known kind ('{line.Kind}').");
+            }
+        }
+    }
+
+    private static PromotionDocument Save(PromotionDraft p) => new(
+        Save(p.Name), Save(p.Summary), Save(p.Audience), Save(p.Starts), Save(p.Ends),
+        p.Lines.Select(l => l switch
+        {
+            PricedTreatmentDraft t => new PromotionLineDocument(PromotionLineKind.Treatment,
+                Treatment: Save(t.Treatment), Price: Save(t.Price), RegularPrice: Save(t.RegularPrice)),
+            BenefitLineDraft b => new PromotionLineDocument(PromotionLineKind.Benefit, Benefit: Save(b.Benefit)),
+            _ => throw new InvalidOperationException("No saved form for this promotion line."),
+        }).ToList());
 
     private static void Restore(OfferDraft offer, OfferDocument o)
     {
@@ -295,7 +333,32 @@ public static class CampaignJson
         OfferDocument? Offer = null,
         SlotDocument<HeaderContent>? Header = null,
         SlotDocument<ImageRef>? Image = null,
-        string? Marker = null);
+        string? Marker = null,
+        // A promotion block's values (2026-11-02). Optional like every block's: a draft saved before has
+        // no promotion block, so nothing already stored changes and the schema stays 2.
+        PromotionDocument? Promotion = null);
+
+    private sealed record PromotionDocument(
+        SlotDocument<string> Name,
+        SlotDocument<string> Summary,
+        SlotDocument<string> Audience,
+        SlotDocument<DateOnly> Starts,
+        SlotDocument<DateOnly> Ends,
+        IReadOnlyList<PromotionLineDocument> Lines);
+
+    // One line: which fields are set follows from its kind.
+    private sealed record PromotionLineDocument(
+        PromotionLineKind Kind,
+        SlotDocument<string>? Treatment = null,
+        SlotDocument<decimal>? Price = null,
+        SlotDocument<decimal>? RegularPrice = null,
+        SlotDocument<Benefit>? Benefit = null);
+
+    private enum PromotionLineKind
+    {
+        Treatment,
+        Benefit,
+    }
 
     private sealed record OfferDocument(
         SlotDocument<string> Name,

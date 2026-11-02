@@ -26,6 +26,8 @@ public static class CheckRules
         "benefit-value",
         "tiers-parallel",
         "terms-required",
+        "promotion-price",
+        "promotion-dates",
         "medical-disclaimer",
         "restricted-term",
         "repeated-phrase",

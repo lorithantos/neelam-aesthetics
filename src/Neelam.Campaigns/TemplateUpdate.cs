@@ -78,6 +78,7 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
         ValueBlockDraft<HeaderContent> v => v.Value.HasValue,
         ValueBlockDraft<ImageRef> v => v.Value.HasValue,
         OfferBlockDraft o => !o.Offer.IsUntouched,
+        PromotionBlockDraft p => !p.Promotion.IsUntouched,
         _ => false,
     };
 
@@ -92,8 +93,35 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
         (ValueBlockDraft<HeaderContent> h, ValueBlockDraft<HeaderContent> n) => Take(h.Value, n.Value),
         (ValueBlockDraft<ImageRef> h, ValueBlockDraft<ImageRef> n) => Take(h.Value, n.Value),
         (OfferBlockDraft h, OfferBlockDraft n) => Take(h.Offer, n.Offer),
+        (PromotionBlockDraft h, PromotionBlockDraft n) => Take(h.Promotion, n.Promotion),
         _ => false,
     };
+
+    private static bool Take(PromotionDraft hers, PromotionDraft into)
+    {
+        Copy(hers.Name, into.Name);
+        Copy(hers.Summary, into.Summary);
+        Copy(hers.Audience, into.Audience);
+        Copy(hers.Starts, into.Starts);
+        Copy(hers.Ends, into.Ends);
+        foreach (var line in hers.Lines)
+        {
+            switch (line)
+            {
+                case PricedTreatmentDraft t:
+                    var priced = into.AddTreatment();
+                    Copy(t.Treatment, priced.Treatment);
+                    Copy(t.Price, priced.Price);
+                    Copy(t.RegularPrice, priced.RegularPrice);
+                    break;
+                case BenefitLineDraft b:
+                    Copy(b.Benefit, into.AddBenefit().Benefit);
+                    break;
+            }
+        }
+        // A promotion is never fixed, so nothing of hers is replaced.
+        return false;
+    }
 
     private static bool Take<T>(Slot<T> hers, Slot<T> into)
     {

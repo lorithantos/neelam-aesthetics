@@ -66,6 +66,9 @@ public sealed class CampaignDraft
     public OfferDraft Offer(string label) =>
         this[label] is OfferBlockDraft o ? o.Offer : throw new InvalidOperationException($"\"{label}\" is not an offer block.");
 
+    public PromotionDraft Promotion(string label) =>
+        this[label] is PromotionBlockDraft p ? p.Promotion : throw new InvalidOperationException($"\"{label}\" is not a promotion block.");
+
     public DraftResult Build()
     {
         var problems = new DraftProblems();
@@ -131,6 +134,7 @@ public abstract class BlockDraft(string label, BlockType type, bool required)
         {
             Offer = { IsRecurring = t.Recurring },
         },
+        BlockType.Promotion => new PromotionBlockDraft(t.Label, t.Required),
         _ => throw new ArgumentOutOfRangeException(nameof(t), $"Unknown block type {t.Type}."),
     };
 }
@@ -180,6 +184,130 @@ public sealed class OfferBlockDraft(string label, bool required, string marker) 
 
     internal override Block? ToBlock() =>
         !Required && Offer.IsUntouched ? null : new OfferBlock(Label, Offer.ToOffer(), Marker);
+}
+
+/// <summary>A promotion being written. Never fixed by a template: it is what a campaign is about.</summary>
+public sealed class PromotionBlockDraft(string label, bool required) : BlockDraft(label, BlockType.Promotion, required)
+{
+    public PromotionDraft Promotion { get; } = new();
+
+    internal override void Check(DraftProblems problems)
+    {
+        // An optional promotion nobody has started is simply left out.
+        if (!Required && Promotion.IsUntouched) return;
+        Promotion.Check(problems, Label);
+    }
+
+    internal override Block? ToBlock() =>
+        !Required && Promotion.IsUntouched ? null : new PromotionBlock(Label, Promotion.ToPromotion());
+}
+
+/// <summary>
+/// A promotion's values as slots: its name, dates, optional summary and audience, and its lines in her
+/// order, each a priced treatment or a benefit.
+/// </summary>
+public sealed class PromotionDraft
+{
+    private readonly List<PromotionLineDraft> _lines = [];
+
+    public Slot<string> Name { get; } = Slot<string>.Empty();
+    public Slot<string> Summary { get; } = Slot<string>.Empty();
+    public Slot<string> Audience { get; } = Slot<string>.Empty();
+    public Slot<DateOnly> Starts { get; } = Slot<DateOnly>.Empty();
+    public Slot<DateOnly> Ends { get; } = Slot<DateOnly>.Empty();
+
+    public IReadOnlyList<PromotionLineDraft> Lines => _lines;
+
+    internal bool IsUntouched =>
+        !Name.HasValue && !Summary.HasValue && !Audience.HasValue && !Starts.HasValue && !Ends.HasValue && _lines.Count == 0;
+
+    /// <summary>An empty priced-treatment line at the end.</summary>
+    public PricedTreatmentDraft AddTreatment()
+    {
+        var line = new PricedTreatmentDraft();
+        _lines.Add(line);
+        return line;
+    }
+
+    /// <summary>An empty benefit line at the end.</summary>
+    public BenefitLineDraft AddBenefit()
+    {
+        var line = new BenefitLineDraft();
+        _lines.Add(line);
+        return line;
+    }
+
+    public void RemoveLine(int index) => _lines.RemoveAt(index);
+
+    // Where a line is, as the checks and Still to do name it: "Promotion › Line 2".
+    internal static string LineWhere(string label, int index) => $"{label} › Line {index + 1}";
+
+    internal void Check(DraftProblems problems, string label)
+    {
+        problems.Require(Name, $"{label} › Name");
+        problems.Optional(Summary, $"{label} › Summary");
+        problems.Optional(Audience, $"{label} › Audience");
+        problems.Require(Starts, $"{label} › Starts");
+        problems.Require(Ends, $"{label} › Ends");
+        if (_lines.Count == 0)
+            problems.Add("draft-missing", $"{label} › Lines", "The promotion has no lines.");
+        for (var i = 0; i < _lines.Count; i++)
+            _lines[i].Check(problems, LineWhere(label, i));
+    }
+
+    internal Promotion ToPromotion() => new(
+        Name: Name.Value,
+        Starts: Starts.Value,
+        Ends: Ends.Value,
+        Lines: _lines.Select(l => l.ToLine()).ToList(),
+        Summary: Summary.HasValue ? Summary.Value : null,
+        Audience: Audience.HasValue ? Audience.Value : null);
+}
+
+/// <summary>One line of a promotion being written.</summary>
+public abstract class PromotionLineDraft
+{
+    private protected PromotionLineDraft()
+    {
+    }
+
+    /// <summary>Every value of the line is there.</summary>
+    public abstract bool IsFinished { get; }
+
+    internal abstract void Check(DraftProblems problems, string where);
+
+    internal abstract PromotionLine ToLine();
+}
+
+/// <summary>A treatment, its promotion price and its regular price.</summary>
+public sealed class PricedTreatmentDraft : PromotionLineDraft
+{
+    public Slot<string> Treatment { get; } = Slot<string>.Empty();
+    public Slot<decimal> Price { get; } = Slot<decimal>.Empty();
+    public Slot<decimal> RegularPrice { get; } = Slot<decimal>.Empty();
+
+    public override bool IsFinished => Treatment.HasValue && Price.HasValue && RegularPrice.HasValue;
+
+    internal override void Check(DraftProblems problems, string where)
+    {
+        problems.Require(Treatment, $"{where} › Treatment");
+        problems.Require(Price, $"{where} › Promotion price");
+        problems.Require(RegularPrice, $"{where} › Regular price");
+    }
+
+    internal override PromotionLine ToLine() => new PricedTreatment(Treatment.Value, Price.Value, RegularPrice.Value);
+}
+
+/// <summary>A typed benefit as a promotion line.</summary>
+public sealed class BenefitLineDraft : PromotionLineDraft
+{
+    public Slot<Benefit> Benefit { get; } = Slot<Benefit>.Empty();
+
+    public override bool IsFinished => Benefit.HasValue;
+
+    internal override void Check(DraftProblems problems, string where) => problems.Require(Benefit, $"{where} › Benefit");
+
+    internal override PromotionLine ToLine() => new BenefitLine(Benefit.Value);
 }
 
 /// <summary>Space between blocks: nothing to fill, so always ready.</summary>
