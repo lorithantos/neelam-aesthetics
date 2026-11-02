@@ -19,7 +19,7 @@
     { "id": "terms-required", "description": "A recurring charge needs a link to its terms." },
     { "id": "tiers-parallel", "description": "Tiers offering different kinds of benefit are flagged so they are checked side by side." },
     { "id": "promotion-price", "description": "Each treatment's promotion price must be below its regular price, so the saving the email works out is a real one." },
-    { "id": "promotion-dates", "description": "The promotion must end on or after the day it starts." },
+    { "id": "promotion-dates", "description": "The promotion must end on or after the day it starts, and its end date must not have passed already." },
     { "id": "known-item", "description": "Tier names, treatments and benefit lines are compared with the client's known items: one that is close but not the same, one that is not among them, a known tier at a different price, or an amount outside a line's usual range is flagged." },
     { "id": "phone-registered", "description": "A phone number the business has not registered is flagged." }
   ]

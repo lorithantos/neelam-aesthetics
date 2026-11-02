@@ -35,6 +35,13 @@ public sealed record BusinessContext(string Name, string? Description = null)
     public IReadOnlyCollection<string>? LibraryPhotos { get; init; }
 
     /// <summary>
+    /// The day it is for the client, in her own time zone (<see cref="LocalTime.Today"/>), so a
+    /// promotion whose end date has passed is a Must fix (owner, 2026-10-31, P5: "this is a violation").
+    /// Null when the day is not known, as for a template's advice: then no date is held to it.
+    /// </summary>
+    public DateOnly? Today { get; init; }
+
+    /// <summary>
     /// Where Square holds the library's photos, by name (ignoring case), for the AI proofread to read
     /// the pictures themselves (owner, 2026-10-09: "we will allow the LLM to read the image when it is
     /// hooked up"). Only Square addresses; a photo with none is not read, and the proofread says so.

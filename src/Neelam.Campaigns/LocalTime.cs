@@ -47,6 +47,9 @@ public sealed class LocalTime
     /// <summary>The date alone, such as "9 Oct 2026": the day it was in the client's zone.</summary>
     public string Date(DateTimeOffset at) => Local(at).ToString("d MMM yyyy", CultureInfo.InvariantCulture);
 
+    /// <summary>The day it is in the client's zone at <paramref name="now"/>: what "today" means to her.</summary>
+    public DateOnly Today(DateTimeOffset now) => DateOnly.FromDateTime(Local(now));
+
     /// <summary>A time of day to the second, such as "2:05:09 PM PDT", for a save just made.</summary>
     public string TimeOfDay(DateTimeOffset at) => $"{Local(at).ToString("h:mm:ss tt", CultureInfo.InvariantCulture)} {Abbreviation(at)}";
 

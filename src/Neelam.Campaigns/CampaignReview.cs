@@ -41,7 +41,7 @@ public static class CampaignReview
         {
             var (label, promotion) = (block.Label, block.Promotion);
             findings.AddRange(PromotionPrices(label, promotion));
-            findings.AddRange(PromotionDates(label, promotion));
+            findings.AddRange(PromotionDates(label, promotion, business?.Today));
             for (var i = 0; i < promotion.Lines.Count; i++)
                 if (promotion.Lines[i] is BenefitLine line)
                     findings.AddRange(BenefitValuesValid(PromotionDraft.LineWhere(label, i), [line.Benefit]));
@@ -426,11 +426,15 @@ public static class CampaignReview
     /// in the client's own time zone, is a Must fix too (owner, 2026-10-31, P5: "this is a violation");
     /// a start already past says nothing, since a promotion may be sent while it runs.
     /// </summary>
-    private static IEnumerable<Finding> PromotionDates(string label, Promotion promotion)
+    private static IEnumerable<Finding> PromotionDates(string label, Promotion promotion, DateOnly? today)
     {
         if (promotion.Ends < promotion.Starts)
             yield return new(Severity.Blocker, "promotion-dates", $"{label} › Ends",
                 $"The promotion ends on {DayText(promotion.Ends)}, before it starts on {DayText(promotion.Starts)}; change either date.");
+        // Its last day may be today; the day after, it has ended. Unknown today: nothing is said.
+        if (today is { } day && promotion.Ends < day)
+            yield return new(Severity.Blocker, "promotion-dates", $"{label} › Ends",
+                $"The promotion ends on {DayText(promotion.Ends)}, which has already passed; change the end date.");
     }
 
     // "December 31, 2026", in US English whatever the server's culture.

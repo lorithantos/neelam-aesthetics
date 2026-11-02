@@ -708,6 +708,8 @@ else
                 .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => g.First().SquareUrl!, StringComparer.OrdinalIgnoreCase),
             PhotoReadings = Stores.PhotoReadings(_client!),
+            // Today in her own zone, so a promotion that has ended is a Must fix (P5).
+            Today = Times.Today(Clock.GetUtcNow()),
         };
 
     // The AI proofread is offered on the demo, when it is switched on (owner, 2026-10-10). Enforced

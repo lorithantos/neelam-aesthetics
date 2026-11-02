@@ -96,7 +96,7 @@ new kind of email down into one on request.
 | Heading, Greeting | A line of text | Text checks |
 | Paragraphs | Body text, one entry per paragraph | Text checks |
 | Tiered offer (stored as type `Offer`) | A tiered offer with typed benefits | Tier names, distinct tiers, prices, benefit values, parallel tiers, terms for a recurring charge; an offer needs a button |
-| Promotion | One offer for a set time: a name, start and end dates, who it is for if not everyone, an optional summary, and lines in her order, each a treatment with its promotion and regular prices (the saving worked out) or a typed benefit. Never fixed by a template | Promotion price below the regular price, dates in order, benefit values, the regular price against her known treatment's, near misses; a promotion needs a button; its lines get the text checks |
+| Promotion | One offer for a set time: a name, start and end dates, who it is for if not everyone, an optional summary, and lines in her order, each a treatment with its promotion and regular prices (the saving worked out) or a typed benefit. Never fixed by a template | Promotion price below the regular price, dates in order and the end not past, benefit values, the regular price against her known treatment's, near misses; a promotion needs a button; its lines get the text checks |
 | Button | A label and an https link | https only |
 | Sign-off | Valediction, sender, tagline | Text checks |
 | Fine print | Disclaimers and terms | Answers the medical-disclaimer rule |
@@ -483,7 +483,8 @@ treatments yet. Saving the campaign adds it, regularly $5,100." and, once the ca
 added to her known items with that price, the save line saying "Added X to your treatments, regularly
 $5,100." Benefit lines are held as a tier's benefits are. Two rules of the block's own are Must fix:
 `promotion-price`, a promotion price at or above the regular price (or not above $0); and
-`promotion-dates`, an end before the start.
+`promotion-dates`, an end before the start, or an end date already past in her own time zone (P5:
+"this is a violation"; a start already past says nothing).
 
 Tier names are also read on **ladders** (owner, 2026-10-09: "precious metals, gemstones, and
 colors are all things that imply they should be different"). A ladder is data: a name and words,

@@ -265,6 +265,34 @@ public class PromotionTests
         Assert.DoesNotContain(Findings(editor), f => f.Rule == "promotion-dates");
     }
 
+    // P5: an end date already past, in her own zone, is a Must fix; its last day is not past, a start
+    // already past says nothing, and with the day unknown nothing is said.
+    [Fact]
+    public void An_end_date_already_past_is_a_must_fix()
+    {
+        var editor = FillerPromo();
+        IReadOnlyList<Finding> On(DateOnly? today) =>
+            Findings(editor, new BusinessContext("Neelam Aesthetics") { Today = today }).Where(f => f.Rule == "promotion-dates").ToList();
+
+        var past = Assert.Single(On(new DateOnly(2027, 1, 1)));
+        Assert.Equal((Severity.Blocker, "Promotion › Ends"), (past.Severity, past.Location));
+        Assert.Equal("The promotion ends on December 31, 2026, which has already passed; change the end date.", past.Message);
+        Assert.Empty(On(new DateOnly(2026, 12, 31)));
+        Assert.Empty(On(new DateOnly(2026, 11, 15)));
+        Assert.Empty(On(null));
+        Assert.Empty(Findings(editor).Where(f => f.Rule == "promotion-dates"));
+    }
+
+    // "Today" is the day in her zone: 5 AM UTC on November 1 is still October 31 in Los Angeles.
+    [Fact]
+    public void Today_is_the_day_in_the_client_s_own_zone()
+    {
+        var pacific = LocalTime.For("America/Los_Angeles");
+
+        Assert.Equal(new DateOnly(2026, 10, 31), pacific.Today(new DateTimeOffset(2026, 11, 1, 5, 0, 0, TimeSpan.Zero)));
+        Assert.Equal(new DateOnly(2026, 11, 1), pacific.Today(new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero)));
+    }
+
     // A promotion needs a way to take it up, as an offer does.
     [Fact]
     public void A_promotion_with_no_button_is_blocked_and_the_template_is_told()
@@ -587,5 +615,21 @@ public class PromotionPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadD
         Assert.Contains("Added Full-Face Facial Balancing to your treatments, regularly $5,100.", message);
         var known = await app.KnownItems.ForClientAsync(DemoApp.Client);
         Assert.Equal(5100m, known.Treatments.Single(t => t.Name == "Full-Face Facial Balancing").RegularPrice);
+    }
+
+    // P5 on the page: the page gives the checks today in her zone, so a promotion that ended before
+    // the site's day is a Must fix there.
+    [Fact]
+    public async Task A_promotion_that_has_ended_is_a_must_fix_on_the_page()
+    {
+        var editor = PromotionTests.FillerPromo();
+        var promotion = editor.Blocks.OfType<PromotionBlockEditor>().Single().Promotion;
+        var today = LocalTime.For(LocalTime.DefaultZone).Today(app.Clock.GetUtcNow());
+        promotion.Starts.Text = today.AddDays(-30).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        // Two days back, so a zone a day either side of the default still has it ended.
+        promotion.Ends.Text = today.AddDays(-2).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        await using var page = await OpenCampaignPage.OpenAsync(app, await SavedAsync(editor.Draft), FakeProofreader.Clean);
+
+        Assert.Contains("which has already passed; change the end date.", RenderedPage.Named(await page.HtmlAsync(), "checks-findings"));
     }
 }
