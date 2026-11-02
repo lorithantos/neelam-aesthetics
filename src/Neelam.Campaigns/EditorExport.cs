@@ -158,10 +158,9 @@ public static class EditorExport
     internal static string TierText(string name, string price, IEnumerable<string> items, string marker) =>
         string.Join("\n", items.Select(i => $"{marker} {i}").Prepend($"{marker} {price}").Prepend($"{name}:"));
 
-    // Dollars for a US audience whatever the server's culture: "$149.50", never "$149,50".
+    // A tier's price as every amount is written (Dollars.Text): "$1,599/month", "$149.50".
     public static string PriceText(decimal monthlyPrice, bool isRecurring) =>
-        "$" + monthlyPrice.ToString(monthlyPrice % 1 == 0 ? "0" : "0.00", System.Globalization.CultureInfo.InvariantCulture)
-            + (isRecurring ? "/month" : "");
+        Dollars.Text(monthlyPrice) + (isRecurring ? "/month" : "");
 
     internal static string TermsText(Uri termsUrl) => $"Full terms: {termsUrl}";
 

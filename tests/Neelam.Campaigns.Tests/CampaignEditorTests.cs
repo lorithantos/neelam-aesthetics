@@ -501,6 +501,49 @@ public class CampaignEditorTests
         }
     }
 
+    // Every amount in the email is written one way (Dollars.Text): a thousands separator, cents only
+    // when there are some, US English whatever the server's culture.
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public void Dollars_carry_a_thousands_separator_and_cents_only_when_there_are_some(string serverCulture)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo(serverCulture);
+        try
+        {
+            Assert.Equal("$1,599", Dollars.Text(1599m));
+            Assert.Equal("$1,601", Dollars.Text(1601m));
+            Assert.Equal("$12,345.50", Dollars.Text(12345.5m));
+            Assert.Equal("$149.50", Dollars.Text(149.50m));
+            Assert.Equal("$25", Dollars.Text(25m));
+            Assert.Equal("$0.99", Dollars.Text(0.99m));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+        }
+    }
+
+    // A tier's price is written as a benefit's amount is: "$1,599/month", never "$1599/month",
+    // in the finished email and in the one so far alike.
+    [Fact]
+    public void A_tier_price_in_the_thousands_carries_its_separator()
+    {
+        var draft = DraftFixtures.Finished();
+        draft.Offer("Offer").Tiers[0].MonthlyPrice.Set(1599m);
+        var finished = string.Join("\n", CampaignEditor.Open(draft).Status().Preview.Select(b => b.Text));
+        draft.Offer("Offer").TermsUrl.Clear();
+        var soFar = string.Join("\n", CampaignEditor.Open(draft).Status().Preview.Select(b => b.Text));
+
+        foreach (var text in new[] { finished, soFar })
+        {
+            Assert.Contains("🤍 $1,599/month", text);
+            Assert.DoesNotContain("$1599", text);
+        }
+        Assert.Contains("not filled in yet", soFar);
+    }
+
     [Fact]
     public void The_preview_marks_each_missing_part_and_shows_the_rest_as_the_export_would()
     {

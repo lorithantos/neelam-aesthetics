@@ -66,10 +66,7 @@ public abstract record Benefit
     /// </summary>
     public virtual Benefit WordedLike(Benefit written) => this;
 
-    protected static string Money(decimal amount) =>
-        amount % 1 == 0
-            ? amount.ToString("$#,0", CultureInfo.InvariantCulture)
-            : amount.ToString("$#,0.00", CultureInfo.InvariantCulture);
+    protected static string Money(decimal amount) => Dollars.Text(amount);
 
     internal static string Shown(AmountUnit unit, decimal value) => unit switch
     {
