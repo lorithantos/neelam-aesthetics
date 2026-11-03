@@ -60,6 +60,53 @@ public class TemplatePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.DoesNotContain(" UTC", RenderedPage.Text(page));
     }
 
+    // The owner, 2026-11-03: "On Templates - it makes sense to be able to jump directly to creating a
+    // campaign from that template". Each template has its own link, named for the template.
+    [Fact]
+    public async Task Each_template_starts_a_campaign_from_itself()
+    {
+        var (_, page) = await Get("/templates", [Features.Templates, Features.Campaigns]);
+
+        var link = $"start-campaign-{Membership}";
+        Assert.Equal("Start a campaign", RenderedPage.Named(page, link));
+        Assert.Equal($"campaigns/new/{Membership}", RenderedPage.Attribute(page, link, "href"));
+        Assert.Equal("Start a campaign from Membership announcement", RenderedPage.Attribute(page, link, "aria-label"));
+    }
+
+    // Writing campaigns is granted apart from templates: without it, no link that leads only to "not allowed".
+    [Theory]
+    [InlineData("/templates", "start-campaign-aaaaaaaa-0000-0000-0000-000000000001")]
+    [InlineData("/templates/aaaaaaaa-0000-0000-0000-000000000001", "start-campaign")]
+    public async Task Templates_alone_offer_no_campaign_to_start(string path, string link)
+    {
+        var (status, page) = await Get(path, [Features.Templates]);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(0, RenderedPage.Count(page, link));
+        Assert.Equal(0, RenderedPage.Count(page, "start-campaign-unsaved"));
+    }
+
+    [Fact]
+    public async Task The_editor_starts_a_campaign_from_a_saved_template()
+    {
+        var (_, page) = await Get($"/templates/{Membership}", [Features.Templates, Features.Campaigns]);
+
+        Assert.Equal("Start a campaign from this template", RenderedPage.Named(page, "start-campaign"));
+        Assert.Equal($"campaigns/new/{Membership}", RenderedPage.Attribute(page, "start-campaign", "href"));
+        Assert.Equal(0, RenderedPage.Count(page, "start-campaign-unsaved"));
+    }
+
+    // A template never saved has nothing for a campaign to start from.
+    [Fact]
+    public async Task A_new_template_offers_no_campaign_to_start()
+    {
+        var (status, page) = await Get("/templates/new", [Features.Templates, Features.Campaigns]);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(0, RenderedPage.Count(page, "start-campaign"));
+        Assert.Equal(0, RenderedPage.Count(page, "start-campaign-unsaved"));
+    }
+
     // The role is not enough: whose templates comes from the client groups, through the access check.
     [Fact]
     public async Task The_role_without_a_client_shows_no_templates()
