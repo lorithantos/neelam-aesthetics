@@ -118,6 +118,37 @@ public abstract class BlockDraft(string label, BlockType type, bool required)
     /// <summary>The finished block, or null for an optional block left empty.</summary>
     internal abstract Block? ToBlock();
 
+    /// <summary>Whether anything is written in it: a value, or for an offer or a promotion, any part of one.</summary>
+    internal bool HasContent => this switch
+    {
+        ValueBlockDraft<string> v => v.Value.HasValue,
+        ValueBlockDraft<IReadOnlyList<string>> v => v.Value.HasValue,
+        ValueBlockDraft<CallToAction> v => v.Value.HasValue,
+        ValueBlockDraft<SignOff> v => v.Value.HasValue,
+        ValueBlockDraft<HeaderContent> v => v.Value.HasValue,
+        ValueBlockDraft<ImageRef> v => v.Value.HasValue,
+        OfferBlockDraft o => !o.Offer.IsUntouched,
+        PromotionBlockDraft p => !p.Promotion.IsUntouched,
+        _ => false,
+    };
+
+    /// <summary>
+    /// The block as a new campaign from its template starts it: with its fixed content, or with the
+    /// content the template gives it to start with (<see cref="TemplateBlock.Default"/>), every value as
+    /// if she had typed it, or empty.
+    /// </summary>
+    internal static BlockDraft Start(TemplateBlock t)
+    {
+        var block = From(t);
+        t.Default?.FillInto(block);
+        return block;
+    }
+
+    /// <summary>
+    /// The block with its fixed content, or empty: never the template's default content, which only a
+    /// new campaign starts with (<see cref="Start"/>). What a saved draft is read back into, and what
+    /// <see cref="TemplateUpdate"/> pours her own content into.
+    /// </summary>
     internal static BlockDraft From(TemplateBlock t) => t.Type switch
     {
         BlockType.Heading => new ValueBlockDraft<string>(t, (l, v) => new HeadingBlock(l, v), (t.Fixed as HeadingBlock)?.Text),
@@ -186,7 +217,10 @@ public sealed class OfferBlockDraft(string label, bool required, string marker) 
         !Required && Offer.IsUntouched ? null : new OfferBlock(Label, Offer.ToOffer(), Marker);
 }
 
-/// <summary>A promotion being written. Never fixed by a template: it is what a campaign is about.</summary>
+/// <summary>
+/// A promotion being written. Never fixed by a template: it is what a campaign is about; a template
+/// may give it content to start with.
+/// </summary>
 public sealed class PromotionBlockDraft(string label, bool required) : BlockDraft(label, BlockType.Promotion, required)
 {
     public PromotionDraft Promotion { get; } = new();

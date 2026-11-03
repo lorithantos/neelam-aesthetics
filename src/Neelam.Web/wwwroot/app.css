@@ -435,6 +435,24 @@ label.check {
     margin-bottom: 0.75rem;
 }
 
+/* One choice among a few, as radio buttons under a legend: "What each campaign gets". */
+
+fieldset.choice {
+    border: 0;
+    margin: 0 0 0.75rem;
+    padding: 0;
+}
+
+fieldset.choice legend {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    padding: 0;
+}
+
+fieldset.choice label.check {
+    margin-bottom: 0.4rem;
+}
+
 /* Template editor: one card per block, then the menu of blocks to add. */
 
 .block-card-head {

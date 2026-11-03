@@ -151,6 +151,74 @@ public static class CampaignJson
         }
     }
 
+    /// <summary>
+    /// One block's content alone, as a template's content to start with keeps it (<see cref="BlockDefault"/>):
+    /// compact, every value written as typed (<see cref="Origin.Entered"/>), an offer never marked as
+    /// recurring, and nothing about where the block sits. The same content is always the same text.
+    /// </summary>
+    internal static string SerializeBlockContent(BlockDraft b) => JsonSerializer.Serialize(AsTyped(ContentOf(Save(b))), Compact);
+
+    /// <summary>
+    /// Puts content written by <see cref="SerializeBlockContent"/> into a block with nothing in it, every
+    /// value as typed. An offer keeps whether it recurs, which is the template block's to say.
+    /// </summary>
+    internal static void RestoreBlockContent(BlockDraft into, string json)
+    {
+        var doc = ReadContent(json);
+        switch (into)
+        {
+            case ValueBlockDraft<string> v: Restore(v.Value, doc.Text); break;
+            case ValueBlockDraft<IReadOnlyList<string>> v: Restore(v.Value, doc.Paragraphs); break;
+            case ValueBlockDraft<CallToAction> v: Restore(v.Value, doc.Action); break;
+            case ValueBlockDraft<SignOff> v: Restore(v.Value, doc.SignOff); break;
+            case ValueBlockDraft<HeaderContent> v: Restore(v.Value, doc.Header); break;
+            case ValueBlockDraft<ImageRef> v: Restore(v.Value, doc.Image); break;
+            case OfferBlockDraft o when doc.Offer is { } saved:
+                var recurring = o.Offer.IsRecurring;
+                Restore(o.Offer, saved);
+                o.Offer.IsRecurring = recurring;
+                break;
+            case PromotionBlockDraft p when doc.Promotion is { } saved: Restore(p.Promotion, saved); break;
+        }
+    }
+
+    /// <summary>Block content as read from a template's JSON, written again as <see cref="SerializeBlockContent"/> writes it.</summary>
+    /// <exception cref="InvalidDataException">It is not block content.</exception>
+    internal static string CanonicalBlockContent(string json) => JsonSerializer.Serialize(AsTyped(ReadContent(json)), Compact);
+
+    private static ContentDocument ReadContent(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<ContentDocument>(json, Options) ?? throw new InvalidDataException("Empty block content.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Not a block's content: {ex.Message}", ex);
+        }
+    }
+
+    private static ContentDocument ContentOf(BlockDocument b) =>
+        new(b.Text, b.Paragraphs, b.Action, b.SignOff, b.Header, b.Image, b.Offer, b.Promotion);
+
+    // Every value as typed, whatever its origin: what a template starts a campaign with is as if she had
+    // typed it, and two blocks holding the same values hold the same content.
+    private static ContentDocument AsTyped(ContentDocument c) => new(
+        AsTyped(c.Text), AsTyped(c.Paragraphs), AsTyped(c.Action), AsTyped(c.SignOff), AsTyped(c.Header), AsTyped(c.Image),
+        c.Offer is { } o
+            ? new OfferDocument(AsTyped(o.Name)!, AsTyped(o.Summary)!, AsTyped(o.TiersNote)!, AsTyped(o.TermsUrl)!, false,
+                o.Tiers.Select(t => new TierDocument(AsTyped(t.Name)!, AsTyped(t.MonthlyPrice)!, t.Benefits.Select(x => AsTyped(x)!).ToList())).ToList())
+            : null,
+        c.Promotion is { } p
+            ? new PromotionDocument(AsTyped(p.Name)!, AsTyped(p.Summary)!, AsTyped(p.Audience)!, AsTyped(p.Starts)!, AsTyped(p.Ends)!,
+                p.Lines.Select(l => new PromotionLineDocument(l.Kind, AsTyped(l.Treatment), AsTyped(l.Price), AsTyped(l.RegularPrice), AsTyped(l.Benefit))).ToList())
+            : null);
+
+    private static SlotDocument<T>? AsTyped<T>(SlotDocument<T>? s) =>
+        s is null ? null
+        : s.Origin == Origin.Empty || s.Value is null ? new SlotDocument<T>(Origin.Empty, default, null)
+        : new SlotDocument<T>(Origin.Entered, s.Value, null);
+
     public static string SerializeTemplate(CampaignTemplate t) =>
         JsonSerializer.Serialize(new TemplateDocument(SchemaVersion, t), Options);
 
@@ -336,6 +404,18 @@ public static class CampaignJson
         string? Marker = null,
         // A promotion block's values (2026-11-02). Optional like every block's: a draft saved before has
         // no promotion block, so nothing already stored changes and the schema stays 2.
+        PromotionDocument? Promotion = null);
+
+    // A block's content alone, as a template's content to start with is kept (2026-11-03): the value
+    // fields of a saved block, which of them is set following from the block's type.
+    private sealed record ContentDocument(
+        SlotDocument<string>? Text = null,
+        SlotDocument<IReadOnlyList<string>>? Paragraphs = null,
+        SlotDocument<CallToAction>? Action = null,
+        SlotDocument<SignOff>? SignOff = null,
+        SlotDocument<HeaderContent>? Header = null,
+        SlotDocument<ImageRef>? Image = null,
+        OfferDocument? Offer = null,
         PromotionDocument? Promotion = null);
 
     private sealed record PromotionDocument(

@@ -64,7 +64,8 @@ public class BlockCatalogTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(now.IndexOf(nameof(BlockType.Offer)) + 1, now.IndexOf(nameof(BlockType.Promotion)));
     }
 
-    // Every block but Fine print reads exactly as it did when the guide was code, the offer's new name aside.
+    // Every block but Fine print reads exactly as it did when the guide was code, the offer's new name
+    // aside, and its last sentence since a template can give it content to start with (2026-11-03).
     [Fact]
     public void Every_other_block_s_guide_is_unchanged()
     {
@@ -72,7 +73,12 @@ public class BlockCatalogTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         {
             var now = Catalogs.Shipped.For(Enum.Parse<BlockType>(before.Type));
             if (before.Type != nameof(BlockType.Offer)) Assert.Equal(before.Label, now.Label);
-            Assert.Equal(before.Description, now.Description);
+            Assert.Equal(
+                before.Type == nameof(BlockType.Offer)
+                    ? before.Description.Replace("Always written for each campaign, never fixed.",
+                        "Never the same in every campaign; a template can give each campaign one to start with.", StringComparison.Ordinal)
+                    : before.Description,
+                now.Description);
             Assert.Equal(before.Checks, now.Checks);
             Assert.Equal(before.Rules, now.Rules);
         });

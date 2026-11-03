@@ -40,7 +40,10 @@ public sealed class CampaignEditor
     /// <summary>Every block of the draft, in its template's order, spacers included.</summary>
     public IReadOnlyList<BlockEditor> Blocks { get; }
 
-    /// <summary>A new campaign from a template: its fixed parts filled, everything else empty.</summary>
+    /// <summary>
+    /// A new campaign from a template: its fixed parts filled, the parts it gives content to start with
+    /// filled as if she had typed them, everything else empty.
+    /// </summary>
     /// <param name="templateId">The template's id, recorded on the campaign (<see cref="CampaignDraft.TemplateId"/>).</param>
     /// <param name="version">When the version started from was saved (<see cref="CampaignDraft.TemplateVersion"/>).</param>
     public static CampaignEditor Start(CampaignTemplate template, Guid? templateId = null, DateTimeOffset? version = null) =>
@@ -65,24 +68,34 @@ public sealed class CampaignEditor
         foreach (var block in Blocks)
         {
             if (block.Error is { } e) errors.Add($"{block.Label}: {e}");
-            if (block is PromotionBlockEditor { Promotion: var promotion })
-            {
-                errors.AddRange(promotion.Errors().Select(p => $"{block.Label} › {p}"));
-                continue;
-            }
-            if (block is not OfferBlockEditor { Offer: var offer }) continue;
-
-            if (offer.TermsLink.Error is { } link) errors.Add($"{block.Label} › Terms link: {link}");
-            for (var t = 0; t < offer.Tiers.Count; t++)
-            {
-                var tier = offer.Tiers[t];
-                if (tier.Price.Error is { } price) errors.Add($"{block.Label} › Tier {t + 1} › Price: {price}");
-                for (var b = 0; b < tier.Benefits.Count; b++)
-                    if (tier.Benefits[b].Error is { } benefit)
-                        errors.Add($"{block.Label} › Tier {t + 1} › Benefit {b + 1}: {benefit}");
-            }
+            errors.AddRange(PartErrors(block).Select(p => $"{block.Label} › {p}"));
         }
         return errors;
+    }
+
+    /// <summary>
+    /// Text typed into an offer's or a promotion's fields that it cannot hold yet, each with where it is
+    /// in the block ("Tier 1 › Price: ..."); none for any other block. The template page asks the same of
+    /// an offer or a promotion it gives content to start with.
+    /// </summary>
+    internal static IEnumerable<string> PartErrors(BlockEditor block)
+    {
+        if (block is PromotionBlockEditor { Promotion: var promotion })
+        {
+            foreach (var p in promotion.Errors()) yield return p;
+            yield break;
+        }
+        if (block is not OfferBlockEditor { Offer: var offer }) yield break;
+
+        if (offer.TermsLink.Error is { } link) yield return $"Terms link: {link}";
+        for (var t = 0; t < offer.Tiers.Count; t++)
+        {
+            var tier = offer.Tiers[t];
+            if (tier.Price.Error is { } price) yield return $"Tier {t + 1} › Price: {price}";
+            for (var b = 0; b < tier.Benefits.Count; b++)
+                if (tier.Benefits[b].Error is { } benefit)
+                    yield return $"Tier {t + 1} › Benefit {b + 1}: {benefit}";
+        }
     }
 
     /// <summary>

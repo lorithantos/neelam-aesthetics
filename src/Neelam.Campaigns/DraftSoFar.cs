@@ -29,7 +29,8 @@ internal static class DraftSoFar
     public static IReadOnlyList<EditorBlock> Preview(CampaignDraft draft) =>
         EditorExport.Render(draft.Blocks.SelectMany(Shown));
 
-    private static Block? Checked(BlockDraft block) => block switch
+    /// <summary>One block as far as it goes, for the rule checks; null when nothing in it is filled in.</summary>
+    internal static Block? Checked(BlockDraft block) => block switch
     {
         OfferBlockDraft { Offer.IsUntouched: true } => null,
         OfferBlockDraft o => new OfferBlock(o.Label, OfferSoFar(o.Offer), o.Marker),
@@ -62,7 +63,8 @@ internal static class DraftSoFar
     private static bool IsFinished(TierDraft tier) =>
         tier.Name.HasValue && tier.MonthlyPrice.HasValue && tier.Benefits.Count > 0 && tier.Benefits.All(b => b.HasValue);
 
-    private static IEnumerable<Block> Shown(BlockDraft block)
+    /// <summary>One block as the preview shows it, each missing part a placeholder; nothing for an optional block left empty.</summary>
+    internal static IEnumerable<Block> Shown(BlockDraft block)
     {
         if (block is OfferBlockDraft offer)
             return !offer.Required && offer.Offer.IsUntouched ? [] : OfferShown(offer);

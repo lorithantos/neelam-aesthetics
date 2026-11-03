@@ -630,10 +630,31 @@ public sealed class DraftSession : IWatched<SaveRef>
     /// </summary>
     public async Task<TemplateChoice?> ChooseTemplateAsync(Guid templateId, CancellationToken ct = default)
     {
-        var version = await _store.NewestAsync(DocumentKind.Template, templateId, ct);
-        if (version is null) return null;
+        var history = await _store.HistoryAsync(DocumentKind.Template, templateId, ct);
+        if (history.FirstOrDefault() is not { } version) return null;
         var template = await _store.LoadTemplateAsync(version, ct);
-        return new TemplateChoice(version, template, TemplateUpdate.Of(Editor.Draft, template, templateId, version.SavedAt));
+        var madeFrom = await MadeFromAsync(template, templateId, history, ct);
+        return new TemplateChoice(version, template,
+            TemplateUpdate.Of(Editor.Draft, template, templateId, version.SavedAt, madeFrom, StandingApproval), madeFrom);
+    }
+
+    // Whether the version on the page carries an approval that stands: then the update leaves the content
+    // a template starts a campaign with as she has it (owner, 2026-11-03, "not approved": "That's exactly
+    // what it means to me"). Latest's approval, as Delete reads it, whether or not the form has changed since.
+    private bool StandingApproval => Latest?.Approval is not null;
+
+    // The version of a template the campaign records, read, so the update can tell content it started her
+    // blocks with from content of her own (TemplateUpdate): only when the chosen template gives some block
+    // content to start with, so no other choice reads anything more. Null when the campaign records none,
+    // or that version is no longer in use (undone, or swept): her blocks then keep what they hold.
+    private async Task<CampaignTemplate?> MadeFromAsync(
+        CampaignTemplate chosen, Guid chosenId, IReadOnlyList<SaveRef> chosenHistory, CancellationToken ct)
+    {
+        if (!chosen.Blocks.Any(b => b.Default is not null)) return null;
+        if (Editor.Draft.TemplateId is not { } id || Editor.Draft.TemplateVersion is not { } at) return null;
+        var history = id == chosenId ? chosenHistory : await _store.HistoryAsync(DocumentKind.Template, id, ct);
+        if (history.FirstOrDefault(s => s.SavedAt == at) is not { } save) return null;
+        return id == chosenId && save.BlobName == chosenHistory[0].BlobName ? chosen : await _store.LoadTemplateAsync(save, ct);
     }
 
     /// <summary>
@@ -649,7 +670,8 @@ public sealed class DraftSession : IWatched<SaveRef>
     {
         if (Editor.Errors().Count > 0)
             throw new InvalidOperationException("Fix what is marked first: using the template would lose it.");
-        var update = TemplateUpdate.Of(Editor.Draft, choice.Template, choice.Version.Id, choice.Version.SavedAt);
+        var update = TemplateUpdate.Of(
+            Editor.Draft, choice.Template, choice.Version.Id, choice.Version.SavedAt, choice.MadeFrom, StandingApproval);
         var agreed = confirmed
                      && update.Dropped.All(choice.Update.Dropped.Contains)
                      && update.Replaced.All(choice.Update.Replaced.Contains);
@@ -865,7 +887,11 @@ public enum TemplateStanding
 /// <param name="Version">The template's newest version when chosen.</param>
 /// <param name="Template">That version, read.</param>
 /// <param name="Update">What it would do to the form: what would be lost is what she is asked about.</param>
-public sealed record TemplateChoice(SaveRef Version, CampaignTemplate Template, TemplateUpdate Update);
+/// <param name="MadeFrom">
+/// The version of a template the campaign recorded when this was chosen, read, to tell content a
+/// template started her blocks with from her own; null when not needed or not known.
+/// </param>
+public sealed record TemplateChoice(SaveRef Version, CampaignTemplate Template, TemplateUpdate Update, CampaignTemplate? MadeFrom = null);
 
 /// <summary>What came of asking for the AI proofread, in words for her: done, or why not.</summary>
 /// <param name="Done">True when the proofread ran and its result is kept with the version.</param>

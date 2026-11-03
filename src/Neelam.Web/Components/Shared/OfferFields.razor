@@ -12,7 +12,7 @@
 @implements IHandleEvent
 <div class="field">
     <label for="offer-name-@Index">Offer name</label>
-    <input id="offer-name-@Index" @bind="Offer.Name.Text" @bind:event="oninput" />
+    <input id="offer-name-@Index" data-testid="offer-name-@Index" @bind="Offer.Name.Text" @bind:event="oninput" />
     <span class="field-help">Shown as the offer's heading.</span>
 </div>
 <div class="field">

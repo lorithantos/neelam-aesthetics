@@ -3,18 +3,23 @@ namespace Neelam.Campaigns;
 /// <summary>
 /// The shape of the email a template makes, for the editor to show while it is built: the same
 /// Square blocks, in the same order and with text grouped the same way, as the export would give.
-/// Fixed content appears as it will be sent; each block a campaign fills appears as a placeholder
-/// naming it, e.g. "‹Opening: written for each campaign›".
+/// Fixed content appears as it will be sent; content a campaign starts with appears as a new campaign
+/// shows it, any part of an offer or a promotion not given marked as in a campaign's preview; each
+/// block a campaign fills appears as a placeholder naming it, e.g. "‹Opening: written for each campaign›".
 /// </summary>
 public static class TemplatePreview
 {
     public static IReadOnlyList<EditorBlock> Blocks(IEnumerable<TemplateBlock> template) =>
-        EditorExport.Render(template.Select(b => b switch
-        {
-            { Fixed: { } content } => content,
-            { Type: BlockType.Spacer } => new SpacerBlock(b.Label),
-            _ => new PlaceholderBlock(b.Label, b.Type, Placeholder(b)),
-        }));
+        EditorExport.Render(template.SelectMany(Shown));
+
+    private static IEnumerable<Block> Shown(TemplateBlock b)
+    {
+        if (b.Fixed is { } content) return [content];
+        if (b.Type == BlockType.Spacer) return [new SpacerBlock(b.Label)];
+        // As a new campaign starts it; an optional block shows too, since it has something in it.
+        if (b.Default is not null) return DraftSoFar.Shown(BlockDraft.Start(b));
+        return [new PlaceholderBlock(b.Label, b.Type, Placeholder(b))];
+    }
 
     /// <summary>The preview as plain text, the way <see cref="EditorExport.Preview"/> shows an email.</summary>
     public static string PlainText(IEnumerable<TemplateBlock> template) => EditorExport.ToPlainText(Blocks(template));

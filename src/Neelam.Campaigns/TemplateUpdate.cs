@@ -11,10 +11,19 @@ namespace Neelam.Campaigns;
 /// (and for an offer, its marker and whether it recurs). Hers are matched to them first by label,
 /// ignoring case, and type alike; then, of those left, the one block of a type left on each side,
 /// whatever its label (a block renamed in the template). A template block matched to nothing arrives as
-/// a new campaign would have it: empty, or with its fixed text. A matched block keeps what she wrote,
-/// except that a block the template fixes takes the template's text, which is how a typo fixed in the
-/// template reaches the campaign; a block that was fixed and no longer is keeps its text, now hers to
-/// edit. Her label, subject and preheader stay as they are.
+/// a new campaign would have it: empty, with its fixed text, or with its content to start with. A
+/// matched block keeps what she wrote, except that a block the template fixes takes the template's
+/// text, which is how a typo fixed in the template reaches the campaign; a block that was fixed and no
+/// longer is keeps its text, now hers to edit. Her label, subject and preheader stay as they are.
+/// <para>
+/// A block the template gives content to start with (owner, 2026-11-03: "Updating should modify only
+/// those that have the default and are not approved") takes the template's new content only where hers
+/// still holds what the version she was made from started it with, unchanged (nothing there, when that
+/// version gave it none; the template's own text, when that version fixed it), and the version on her
+/// page carries no approval that stands. Otherwise what she has stays: she changed it, so it is hers,
+/// and it is neither replaced nor reported. When the version she was made from is not known (none
+/// recorded, or no longer in use), nothing tells her text from the template's, so hers stays.
+/// </para>
 /// </remarks>
 /// <param name="Draft">The campaign as it would be, with the template's current name, id and version.</param>
 /// <param name="Dropped">Her blocks, by her label, with something in them that match no block of the template, so would go.</param>
@@ -27,7 +36,14 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
     /// <summary>Works out <paramref name="draft"/> brought up to <paramref name="template"/>; <paramref name="draft"/> is left as it is.</summary>
     /// <param name="templateId">The template's id, recorded on the result.</param>
     /// <param name="version">When this version of the template was saved, recorded on the result.</param>
-    public static TemplateUpdate Of(CampaignDraft draft, CampaignTemplate template, Guid templateId, DateTimeOffset version)
+    /// <param name="madeFrom">
+    /// The version of a template <paramref name="draft"/> records (<see cref="CampaignDraft.TemplateVersion"/>),
+    /// read; null when it records none or that version is no longer in use.
+    /// </param>
+    /// <param name="approved">The version on her page carries an approval that stands: content to start with is left as she has it.</param>
+    public static TemplateUpdate Of(
+        CampaignDraft draft, CampaignTemplate template, Guid templateId, DateTimeOffset version,
+        CampaignTemplate? madeFrom = null, bool approved = false)
     {
         var left = draft.Blocks.ToList();
         var matched = new BlockDraft?[template.Blocks.Count];
@@ -53,8 +69,17 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
         var blocks = new List<BlockDraft>();
         for (var i = 0; i < matched.Length; i++)
         {
-            var block = BlockDraft.From(template.Blocks[i]);
-            if (matched[i] is { } hers && Take(hers, block)) replaced.Add(hers.Label);
+            var t = template.Blocks[i];
+            BlockDraft block;
+            if (matched[i] is not { } hers)
+                block = BlockDraft.Start(t);
+            else if (t.Default is not null && !approved && StartsAsMadeFrom(hers, madeFrom))
+                block = BlockDraft.Start(t);
+            else
+            {
+                block = BlockDraft.From(t);
+                if (Take(hers, block)) replaced.Add(hers.Label);
+            }
             blocks.Add(block);
         }
 
@@ -64,23 +89,21 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
         };
         Copy(draft.Subject, result.Subject);
         Copy(draft.Preheader, result.Preheader);
-        return new TemplateUpdate(result, left.Where(HasContent).Select(b => b.Label).ToList(), replaced);
+        return new TemplateUpdate(result, left.Where(b => b.HasContent).Select(b => b.Label).ToList(), replaced);
     }
 
     private static bool SameLabel(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
-    private static bool HasContent(BlockDraft block) => block switch
+    // Whether her block still holds what the version she was made from started it with, unchanged: its
+    // content to start with, or nothing when it gave none, or its fixed text, which she could not change.
+    // Not known, so false, without that version or a block of it by her block's label and type.
+    private static bool StartsAsMadeFrom(BlockDraft hers, CampaignTemplate? madeFrom)
     {
-        ValueBlockDraft<string> v => v.Value.HasValue,
-        ValueBlockDraft<IReadOnlyList<string>> v => v.Value.HasValue,
-        ValueBlockDraft<CallToAction> v => v.Value.HasValue,
-        ValueBlockDraft<SignOff> v => v.Value.HasValue,
-        ValueBlockDraft<HeaderContent> v => v.Value.HasValue,
-        ValueBlockDraft<ImageRef> v => v.Value.HasValue,
-        OfferBlockDraft o => !o.Offer.IsUntouched,
-        PromotionBlockDraft p => !p.Promotion.IsUntouched,
-        _ => false,
-    };
+        if (madeFrom?.Blocks.FirstOrDefault(b => b.Type == hers.Type && SameLabel(b.Label, hers.Label)) is not { } was)
+            return false;
+        if (was.Fixed is not null) return true;
+        return was.Default is { } start ? start.IsHeldBy(hers) : !hers.HasContent;
+    }
 
     // Her block's content into the template's block of the same type; true when the template's fixed
     // text takes the place of text of her own.

@@ -48,6 +48,7 @@ else if (_session is not null)
     var change = _watch?.Change ?? CampaignChange.None;
 
     <h1>@Title</h1>
+    <KnownItemLists Known="_known" />
     <p><a href="templates">Back to templates</a></p>
     @* The whole email's preview is at the foot of the side column, after every block on a phone
        (owner, 2026-10-31: "maybe make it easier to find even on a computer"): a link to it here, on
@@ -114,13 +115,26 @@ else if (_session is not null)
                         <span class="field-help">How the checks name this block when they find something.</span>
                     </div>
 
-                    @if (block.CanBeFixed)
+                    @* One choice, not two checkboxes (owner, 2026-11-03: "These are check boxes and that's not
+                       how check boxes work either. But the real problem is that there is no "default
+                       text""): the same every time, something to start with that each campaign can change,
+                       or nothing. Whether every campaign must have it is a separate question, and a fixed
+                       block always has it. A spacer has nothing to choose. *@
+                    @if (block.CanStartFilled)
                     {
-                        <label class="check"><input type="checkbox" @bind="block.IsFixed" /> The same in every campaign</label>
-                    }
-                    @if (!block.IsFixed && block.Type != BlockType.Spacer)
-                    {
-                        <label class="check"><input type="checkbox" @bind="block.Required" /> Every campaign must fill it</label>
+                        <fieldset class="choice" data-testid="content-choice-@index">
+                            <legend>What each campaign gets</legend>
+                            @if (block.CanBeFixed)
+                            {
+                                <label class="check"><input type="radio" name="content-@index" data-testid="content-fixed-@index" checked="@(block.Content == BlockContent.Fixed)" @onchange="() => block.Content = BlockContent.Fixed" /> This, the same in every campaign</label>
+                            }
+                            <label class="check"><input type="radio" name="content-@index" data-testid="content-default-@index" checked="@(block.Content == BlockContent.Default)" @onchange="() => block.Content = BlockContent.Default" /> This to start with; each campaign can change it</label>
+                            <label class="check"><input type="radio" name="content-@index" data-testid="content-empty-@index" checked="@(block.Content == BlockContent.Empty)" @onchange="() => block.Content = BlockContent.Empty" /> Nothing; each campaign fills it in</label>
+                        </fieldset>
+                        @if (!block.IsFixed)
+                        {
+                            <label class="check"><input type="checkbox" data-testid="required-@index" @bind="block.Required" /> Every campaign must have it</label>
+                        }
                     }
 
                     @if (block.Type == BlockType.Offer)
@@ -133,10 +147,18 @@ else if (_session is not null)
                         </div>
                     }
 
-                    @if (block.IsFixed)
+                    @if (block.Content != BlockContent.Empty)
                     {
                         @switch (block.Type)
                         {
+                            // An offer or a promotion to start with is written with the campaign page's own
+                            // fields, her known items offered as there; nothing is saved to them from here.
+                            case BlockType.Offer when block.DefaultOffer is { } offer:
+                                <OfferFields Offer="offer" Index="index" Known="_known" Changed="StateHasChanged" />
+                                break;
+                            case BlockType.Promotion when block.DefaultPromotion is { } promotion:
+                                <PromotionFields Promotion="promotion" Index="index" Known="_known" Changed="StateHasChanged" />
+                                break;
                             case BlockType.Heading:
                             case BlockType.Greeting:
                                 <div class="field">
@@ -201,6 +223,13 @@ else if (_session is not null)
                             <section data-testid="fixed-preview-@index">
                                 <p class="field-help">It goes out like this:</p>
                                 <EmailPreview Blocks="fixedPreview" Library="_photos" />
+                            </section>
+                        }
+                        @if (block.DefaultPreview is { Count: > 0 } defaultPreview)
+                        {
+                            <section data-testid="default-preview-@index">
+                                <p class="field-help">Each campaign starts with this, and can change it:</p>
+                                <EmailPreview Blocks="defaultPreview" Library="_photos" />
                             </section>
                         }
                     }
@@ -292,7 +321,7 @@ else if (_session is not null)
 
             <section class="card preview-beside" id="template-preview" data-testid="template-preview">
                 <h2>Preview</h2>
-                <p class="field-help">The email's blocks as Square will show them. Grey text is what each campaign fills in.</p>
+                <p class="field-help">The email's blocks as Square will show them. Grey text is what each campaign fills in; what each campaign starts with shows as it is, and each campaign can change it.</p>
                 <EmailPreview Blocks="editor.Preview()" Library="_photos" />
             </section>
         </aside>
@@ -316,6 +345,7 @@ else if (_session is not null)
     private CampaignPolicy _policy = CampaignPolicy.Default;
     private TemplateBaseline _baseline = TemplateBaseline.None;
     private IReadOnlyList<LibraryImage> _photos = [];
+    private KnownItems _known = KnownItems.None;
     private string? _message;
     private bool _confirmingUndo;
     // In the client's own zone, once it is known.
@@ -345,6 +375,16 @@ else if (_session is not null)
         _missing = _session is null && _undone is null;
         _policy = await Stores.PolicyInForceAsync(client);
         _photos = await Stores.Images(client, actor).ListAsync();
+        // Offered while an offer or a promotion to start with is written, as on the campaign page. They
+        // help and nothing more, so a page that cannot read them goes on without them.
+        try
+        {
+            _known = await Workspace.Known.ForClientAsync(client);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.LogError(ex, "Could not read the known items of {Client}; the template page goes on without them.", client.Value);
+        }
         // What the template was just opened with is storage's as of now; listening and the timer start
         // once the page is live (OnAfterRender), never while it is rendered ahead of time.
         _watch = new PageWatch<SaveRef>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);

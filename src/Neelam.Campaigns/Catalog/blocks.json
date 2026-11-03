@@ -27,7 +27,7 @@
     {
       "type": "Offer",
       "label": "Tiered offer",
-      "description": "A tiered offer, such as a membership: its name, a summary, and tiers with prices and typed benefits. Always written for each campaign, never fixed.",
+      "description": "A tiered offer, such as a membership: its name, a summary, and tiers with prices and typed benefits. Never the same in every campaign; a template can give each campaign one to start with.",
       "rules": [
         "cta-required", "tier-names-unique", "tier-names-numbered", "tier-rung-repeated", "tier-rung-order", "tier-content-distinct",
         "tier-price-positive", "tier-prices-increase", "benefit-value", "terms-required", "tiers-parallel",
@@ -37,7 +37,7 @@
     {
       "type": "Promotion",
       "label": "Promotion",
-      "description": "One offer for a set time, such as a seasonal promotion: its name, the dates it runs, who it is for if not everyone, and its lines, each a treatment with its promotion and regular prices (the saving is worked out for you) or a typed benefit. Always written for each campaign, never fixed.",
+      "description": "One offer for a set time, such as a seasonal promotion: its name, the dates it runs, who it is for if not everyone, and its lines, each a treatment with its promotion and regular prices (the saving is worked out for you) or a typed benefit. Never the same in every campaign; a template can give each campaign one to start with.",
       "rules": [
         "cta-required", "promotion-price", "promotion-dates", "benefit-value",
         "restricted-term", "repeated-phrase", "emoji-spacing", "emoji-budget", "medical-disclaimer"

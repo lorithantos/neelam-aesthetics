@@ -3,7 +3,8 @@ namespace Neelam.Campaigns;
 /// <summary>
 /// What the checks would say about every campaign a template makes, told while the template is
 /// built rather than at each campaign's review. Derived only from <see cref="CampaignReview"/>:
-/// the template's fixed content is run through the same checks a campaign gets, so the advice
+/// the template's fixed content, and the content it starts each campaign with, are run through
+/// the same checks a campaign gets, so the advice
 /// never invents a style rule of its own. A template that draws advice can still be saved; the
 /// advice says what its campaigns will meet.
 /// </summary>
@@ -35,18 +36,30 @@ public static class TemplateAdvice
         }
 
         // Fixed content goes out in every campaign, so whatever the checks find in it, every
-        // campaign will have.
-        var fixedContent = template.Where(b => b.Fixed is not null).Select(b => b.Fixed!).ToList();
+        // campaign will have. Content to start with goes out in every campaign that keeps it (owner,
+        // 2026-11-03), so it is checked with it, as far as it goes, and said apart.
+        var content = template
+            .Select(b => b.Fixed ?? (b.Default is not null ? DraftSoFar.Checked(BlockDraft.Start(b)) : null))
+            .OfType<Block>().ToList();
+        var labels = content.Select(b => b.Label).ToList();
         var hasFinePrint = template.Any(b => b.Type == BlockType.FinePrint);
+        var anyStart = template.Any(b => b.Default is not null);
         // Only the library is given: the registration (phone numbers, known items) is not, as before.
         var library = libraryPhotos is null ? null : new BusinessContext("") { LibraryPhotos = libraryPhotos };
-        foreach (var finding in CampaignReview.Check(new Campaign("", fixedContent), policy, library).Findings)
+        foreach (var finding in CampaignReview.Check(new Campaign("", content), policy, library).Findings)
         {
             // A campaign can still add the disclaimer when the template has a fine-print block to hold it.
             if (finding.Rule == "medical-disclaimer" && hasFinePrint) continue;
+            // Said above, from the template's blocks: an offer to start with may have its button filled in
+            // by each campaign.
+            if (finding.Rule == "cta-required") continue;
+            var block = FindingPlace.BlockIndex(finding.Location, labels) is { } i ? content[i] : null;
+            var fixedOne = block is not null ? template.Any(b => ReferenceEquals(b.Fixed, block)) : !anyStart;
             advice.Add(finding with
             {
-                Message = $"In the template's fixed content, so every campaign from it will have this: {finding.Message}",
+                Message = fixedOne
+                    ? $"In the template's fixed content, so every campaign from it will have this: {finding.Message}"
+                    : $"In what each campaign starts with, so every campaign that keeps it will have this: {finding.Message}",
             });
         }
         return advice;

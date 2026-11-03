@@ -110,7 +110,7 @@ public sealed class TemplateEditor
         {
             if (string.IsNullOrWhiteSpace(block.Label))
                 errors.Add(new($"A {Catalog.For(block.Type).Label.ToLowerInvariant()} block", "Give the block a label."));
-            errors.AddRange(block.FixedContent().Errors.Select(e => new TemplateProblem(block.Label.Trim(), e)));
+            errors.AddRange(block.ContentErrors().Select(e => new TemplateProblem(block.Label.Trim(), e)));
         }
         foreach (var repeated in _blocks.Where(b => !string.IsNullOrWhiteSpace(b.Label))
                      .GroupBy(b => b.Label.Trim(), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
@@ -153,58 +153,126 @@ public sealed class TemplateEditor
         return new CampaignTemplate(Name.Trim(), TemplateBlocks());
     }
 
-    // Best effort while editing: fixed content that is not complete yet is left out, so the
-    // preview shows a placeholder and Errors says why.
+    // Best effort while editing: fixed content, or content to start with, that is not complete yet is
+    // left out, so the preview shows a placeholder and Errors says why.
     private List<TemplateBlock> TemplateBlocks() => _blocks.Select(b => b.ToTemplateBlock()).ToList();
 
     private static bool Same(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>
+/// What a template block gives each campaign (owner, 2026-11-03: one choice, not two checkboxes, "What
+/// each campaign gets").
+/// </summary>
+public enum BlockContent
+{
+    /// <summary>Nothing: each campaign fills it in.</summary>
+    Empty,
+
+    /// <summary>The same content in every campaign: shown on the campaign page, never edited there.</summary>
+    Fixed,
+
+    /// <summary>Content each campaign starts with, as if she had typed it, and can change.</summary>
+    Default,
+}
+
+/// <summary>
 /// One block as the editor holds it: plain fields a form binds to. Which fields matter depends on
-/// <see cref="Type"/>; the others are ignored.
+/// <see cref="Type"/>; the others are ignored. An offer's or a promotion's content to start with is
+/// written through the campaign page's own fields (<see cref="DefaultOffer"/>, <see cref="DefaultPromotion"/>).
 /// </summary>
 public sealed partial class EditableBlock : IPhotoChoice
 {
-    private bool _isFixed;
+    private BlockContent _content;
+    private bool _recurring;
+
+    // An offer's or a promotion's content to start with, as the campaign page's fields write it: a block
+    // of its own, never part of a campaign. Null for every other type, whose content is the plain fields.
+    private BlockDraft? _start;
+    private BlockEditor? _startEditor;
 
     internal EditableBlock(BlockType type, string label)
     {
         Type = type;
         Label = label;
+        if (type is BlockType.Offer or BlockType.Promotion) Begin(null);
+    }
+
+    // A fresh offer or promotion to write the content to start with into, holding start's content when given.
+    private void Begin(BlockDefault? start)
+    {
+        _start = BlockDraft.From(new TemplateBlock(Label, Type));
+        if (_start is OfferBlockDraft offer) offer.Offer.IsRecurring = _recurring;
+        start?.FillInto(_start);
+        _startEditor = BlockEditor.For(_start);
     }
 
     public BlockType Type { get; }
 
     public string Label { get; set; }
 
-    /// <summary>Whether a campaign must fill it. Fixed blocks are always filled.</summary>
+    /// <summary>Whether a campaign must have it. Fixed blocks are always filled.</summary>
     public bool Required { get; set; } = true;
+
+    /// <summary>
+    /// What each campaign gets in this block: nothing, the same content every time (only where
+    /// <see cref="CanBeFixed"/>), or content to start with (only where <see cref="CanStartFilled"/>).
+    /// Changing it keeps what is typed, so switching between the same and a start loses nothing.
+    /// </summary>
+    public BlockContent Content
+    {
+        get => _content;
+        set
+        {
+            if (value == BlockContent.Fixed && !CanBeFixed)
+                throw new InvalidOperationException($"A block of type {Type} cannot be fixed.");
+            if (value == BlockContent.Default && !CanStartFilled)
+                throw new InvalidOperationException($"A block of type {Type} has nothing to start with.");
+            _content = value;
+        }
+    }
 
     /// <summary>
     /// Whether the template supplies this block's content, the same in every campaign. Never for an
     /// offer or a promotion, which are what a campaign is about; a spacer has no content to fix.
+    /// Setting it false leaves content to start with as it is.
     /// </summary>
     public bool IsFixed
     {
-        get => _isFixed;
-        set
-        {
-            if (value && !CanBeFixed)
-                throw new InvalidOperationException($"A block of type {Type} cannot be fixed.");
-            _isFixed = value;
-        }
+        get => _content == BlockContent.Fixed;
+        set => Content = value ? BlockContent.Fixed : _content == BlockContent.Fixed ? BlockContent.Empty : _content;
     }
 
     public bool CanBeFixed => Type is not (BlockType.Offer or BlockType.Promotion or BlockType.Spacer);
 
+    /// <summary>
+    /// Whether this block can give each campaign content to start with: every type but a spacer, an offer
+    /// and a promotion included (owner, 2026-11-03: "Offers can also have defaults").
+    /// </summary>
+    public bool CanStartFilled => Type != BlockType.Spacer;
+
+    /// <summary>An offer's content to start with, through the campaign page's offer fields; null for any other type.</summary>
+    public OfferEditor? DefaultOffer => (_startEditor as OfferBlockEditor)?.Offer;
+
+    /// <summary>A promotion's content to start with, through the campaign page's promotion fields; null for any other type.</summary>
+    public PromotionEditor? DefaultPromotion => (_startEditor as PromotionBlockEditor)?.Promotion;
+
     /// <summary>Offer only: whether the customer is charged repeatedly.</summary>
-    public bool Recurring { get; set; }
+    public bool Recurring
+    {
+        get => _recurring;
+        set
+        {
+            _recurring = value;
+            // The offer fields ask for a terms link on a recurring offer, as the campaign page does.
+            if (_start is OfferBlockDraft offer) offer.Offer.IsRecurring = value;
+        }
+    }
 
     /// <summary>Offer only: what starts each benefit line, e.g. "🤍". Blank for the default.</summary>
     public string Marker { get; set; } = "";
 
-    // Fixed content, by type.
+    // A value block's content, fixed or to start with, by type.
 
     /// <summary>A heading, greeting, fine print, or the header's business name.</summary>
     public string Text { get; set; } = "";
@@ -228,17 +296,62 @@ public sealed partial class EditableBlock : IPhotoChoice
     /// fixed blocks the same way); empty while its content is not complete, and for any other block.
     /// </summary>
     public IReadOnlyList<EditorBlock> FixedPreview =>
-        FixedContent().Block is { } block ? EditorExport.PreviewBlocks(new Campaign("", [block])) : [];
+        _content == BlockContent.Fixed && ValueContent().Block is { } block ? EditorExport.PreviewBlocks(new Campaign("", [block])) : [];
 
-    internal TemplateBlock ToTemplateBlock() => new(
-        Label.Trim(), Type, Required, FixedContent().Block,
-        Recurring: Type == BlockType.Offer && Recurring,
-        Marker: Type == BlockType.Offer && !string.IsNullOrWhiteSpace(Marker) ? Marker.Trim() : null);
+    /// <summary>
+    /// A block's content to start with as a new campaign shows it, for its own card: what is there as it
+    /// will be sent, and for an offer or a promotion each part not given yet marked as each campaign's to
+    /// fill in. Empty while a value block's content is not complete, while nothing is given, and for a
+    /// block with no content to start with.
+    /// </summary>
+    public IReadOnlyList<EditorBlock> DefaultPreview =>
+        _content == BlockContent.Default && ToTemplateBlock() is { Default: not null } t
+            ? EditorExport.Render(DraftSoFar.Shown(BlockDraft.Start(t with { Required = true })))
+            : [];
 
-    /// <summary>The fixed block, or why it cannot be made yet. No block and no errors when not fixed.</summary>
-    internal (Block? Block, IReadOnlyList<string> Errors) FixedContent()
+    internal TemplateBlock ToTemplateBlock()
     {
-        if (!IsFixed) return (null, []);
+        var content = _content == BlockContent.Empty || _start is not null ? null : ValueContent().Block;
+        return new(
+            Label.Trim(), Type, Required,
+            Fixed: _content == BlockContent.Fixed ? content : null,
+            Recurring: Type == BlockType.Offer && Recurring,
+            Marker: Type == BlockType.Offer && !string.IsNullOrWhiteSpace(Marker) ? Marker.Trim() : null,
+            Default: _content != BlockContent.Default ? null
+                : _start is not null ? BlockDefault.Of(_start)
+                : content is null ? null
+                : BlockDefault.Of(BlockDraft.From(new TemplateBlock(Label.Trim(), Type, Fixed: content))));
+    }
+
+    /// <summary>
+    /// What stops this block's content being saved: a value block's content not complete, or for an
+    /// offer or a promotion to start with, nothing given, text its fields cannot hold, or a copied
+    /// benefit nobody has checked. None when each campaign fills it in.
+    /// </summary>
+    internal IReadOnlyList<string> ContentErrors()
+    {
+        if (_content == BlockContent.Empty) return [];
+        if (_startEditor is null) return ValueContent().Errors;
+
+        var errors = CampaignEditor.PartErrors(_startEditor).ToList();
+        if (!_start!.HasContent)
+            errors.Add("Fill in something for each campaign to start with, or let each campaign fill it in.");
+        if (DefaultOffer is { } offer)
+            for (var t = 0; t < offer.Tiers.Count; t++)
+            for (var b = 0; b < offer.Tiers[t].Benefits.Count; b++)
+                if (offer.Tiers[t].Benefits[b] is { IsUnreviewed: true } copied)
+                    errors.Add($"Tier {t + 1} › Benefit {b + 1} was copied from {copied.CopiedFrom} and not checked: " +
+                               "change it, or confirm it is right for this tier.");
+        return errors;
+    }
+
+    /// <summary>
+    /// A value block's content, fixed or to start with, or why it cannot be made yet. No block and no
+    /// errors when each campaign fills it in, and for an offer, a promotion or a spacer.
+    /// </summary>
+    internal (Block? Block, IReadOnlyList<string> Errors) ValueContent()
+    {
+        if (_content == BlockContent.Empty) return (null, []);
         var label = Label.Trim();
         var errors = new List<string>();
 
@@ -305,26 +418,39 @@ public sealed partial class EditableBlock : IPhotoChoice
             Recurring = t.Recurring,
             Marker = t.Marker ?? "",
         };
+        if (t.Default is { } start)
+        {
+            block.Content = BlockContent.Default;
+            if (block._start is not null) block.Begin(start);
+            else if (BlockDraft.Start(t).ToBlock() is { } content) block.Load(content);
+            return block;
+        }
         if (t.Fixed is null) return block;
 
         block.IsFixed = true;
-        switch (t.Fixed)
+        block.Load(t.Fixed);
+        return block;
+    }
+
+    // A value block's content into the plain fields.
+    private void Load(Block content)
+    {
+        switch (content)
         {
-            case HeadingBlock h: block.Text = h.Text; break;
-            case GreetingBlock g: block.Text = g.Text; break;
-            case FinePrintBlock f: block.Text = f.Text; break;
-            case ParagraphsBlock p: block.Paragraphs = string.Join("\n\n", p.Paragraphs); break;
-            case ButtonBlock b: (block.ButtonLabel, block.ButtonUrl) = (b.Action.Label, b.Action.Url.OriginalString); break;
+            case HeadingBlock h: Text = h.Text; break;
+            case GreetingBlock g: Text = g.Text; break;
+            case FinePrintBlock f: Text = f.Text; break;
+            case ParagraphsBlock p: Paragraphs = string.Join("\n\n", p.Paragraphs); break;
+            case ButtonBlock b: (ButtonLabel, ButtonUrl) = (b.Action.Label, b.Action.Url.OriginalString); break;
             case SignOffBlock s:
-                (block.Valediction, block.From, block.Tagline) = (s.SignOff.Valediction, s.SignOff.From, s.SignOff.Tagline ?? "");
+                (Valediction, From, Tagline) = (s.SignOff.Valediction, s.SignOff.From, s.SignOff.Tagline ?? "");
                 break;
             case HeaderBlock h:
-                block.Text = h.Text;
-                (block.PhotoName, block.PhotoAltText) = (h.Photo?.Name ?? "", h.Photo?.AltText ?? "");
+                Text = h.Text;
+                (PhotoName, PhotoAltText) = (h.Photo?.Name ?? "", h.Photo?.AltText ?? "");
                 break;
-            case ImageBlock i: (block.PhotoName, block.PhotoAltText) = (i.Image.Name, i.Image.AltText ?? ""); break;
+            case ImageBlock i: (PhotoName, PhotoAltText) = (i.Image.Name, i.Image.AltText ?? ""); break;
         }
-        return block;
     }
 
     // Line endings from a browser form are \r\n; the saved text uses \n.
