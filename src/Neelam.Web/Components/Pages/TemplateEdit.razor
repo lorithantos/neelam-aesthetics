@@ -263,7 +263,7 @@ else if (_session is not null)
         </div>
 
         <aside class="workspace-side">
-            <section class="card">
+            <section class="card" data-testid="save-card">
                 <h2>Save</h2>
                 <Problems Messages="@errors.Select(e => $"{e.Where}: {e.Message}").ToList()" />
                 @if (missing.Count > 0)
@@ -287,9 +287,12 @@ else if (_session is not null)
                     <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
                 }
                 @* Undoing the only save deletes the template, restorable for the grace period, so it is
-                   called that (owner, 2026-11-03), as on the campaign page; the template has no other Delete. *@
+                   called that (owner, 2026-11-03), as on the campaign page; the template has no other Delete.
+                   Offered so, it is set apart last in this card in the danger style, as the campaign's
+                   Delete is (owner, 2026-11-03). *@
                 <UndoRestore CanUndo="_session.Latest is not null" @bind-Confirming="_confirmingUndo" Question="@_session.UndoQuestion"
-                             UndoDeletes="_session.UndoDeletesTheTemplate" DeleteLabel="Delete template" OnUndo="UndoAsync"
+                             UndoDeletes="_session.UndoDeletesTheTemplate" DeleteLabel="Delete template"
+                             DeleteWarning="deleting takes the template off your list." OnUndo="UndoAsync"
                              RestorableUntil="_session.RestorableUntil" Times="Times" OnRestore="RestoreAsync" />
             </section>
 

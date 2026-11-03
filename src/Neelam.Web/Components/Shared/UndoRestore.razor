@@ -4,25 +4,44 @@
    document, the page calls it a delete (owner, 2026-11-03): with no DeleteLabel the button is not
    offered, the page having its own Delete (the campaign page); with one, it is offered under that
    name, and asks "Delete it" (the template page, which has no other). Whether she is being asked is
-   the page's, so its other actions can close the question. Test ids keep each page's own names. *@
+   the page's, so its other actions can close the question. Test ids keep each page's own names.
+   Offered as a delete, it takes the campaign Delete's markup and place (owner, 2026-11-03): last,
+   in a part of its own with the danger rule above it, a line saying so in words, and the
+   destructive style. *@
 
-@if (CanUndo)
+@if (CanUndo && !UndoDeletes)
 {
     @if (Confirming)
     {
         <p>@Question</p>
-        <button class="button danger" data-testid="@ConfirmId" @onclick="OnUndo">@(UndoDeletes ? "Delete it" : "Undo it")</button>
+        <button class="button danger" data-testid="@ConfirmId" @onclick="OnUndo">Undo it</button>
         <button class="button" @onclick="() => ConfirmingChanged.InvokeAsync(false)">Keep it</button>
     }
-    else if (!UndoDeletes || DeleteLabel is not null)
+    else
     {
-        <button class="button" data-testid="@UndoId" @onclick="() => ConfirmingChanged.InvokeAsync(true)">@(UndoDeletes ? DeleteLabel : "Undo last save")</button>
+        <button class="button" data-testid="@UndoId" @onclick="() => ConfirmingChanged.InvokeAsync(true)">Undo last save</button>
     }
 }
 @if (RestorableUntil is { } until)
 {
     <p class="field-help" data-testid="@RestorableId">The last undo can be taken back until @Times.DateAndTime(until).</p>
     <button class="button" data-testid="@RestoreId" @onclick="OnRestore">@RestoreLabel</button>
+}
+@if (CanUndo && UndoDeletes && DeleteLabel is not null)
+{
+    <div class="delete-zone" role="group" aria-label="@DeleteLabel" data-testid="@DeleteZoneId">
+        @if (Confirming)
+        {
+            <p>@Question</p>
+            <button type="button" class="button danger" data-testid="@ConfirmId" @onclick="OnUndo">Delete it</button>
+            <button type="button" class="button" @onclick="() => ConfirmingChanged.InvokeAsync(false)">Keep it</button>
+        }
+        else
+        {
+            <p class="delete-warning"><strong>Danger:</strong> @DeleteWarning</p>
+            <button type="button" class="button danger" data-testid="@UndoId" @onclick="() => ConfirmingChanged.InvokeAsync(true)">@DeleteLabel</button>
+        }
+    </div>
 }
 
 @code {
@@ -48,6 +67,13 @@
     /// <summary>The button's name when undoing deletes, or null to offer no button then.</summary>
     [Parameter]
     public string? DeleteLabel { get; set; }
+
+    /// <summary>What the delete does, said in words after "Danger:"; required with <see cref="DeleteLabel"/>.</summary>
+    [Parameter]
+    public string? DeleteWarning { get; set; }
+
+    [Parameter]
+    public string DeleteZoneId { get; set; } = "delete-zone";
 
     [Parameter]
     public EventCallback OnUndo { get; set; }
@@ -77,4 +103,12 @@
 
     [Parameter]
     public string? RestoreId { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (this.DeleteLabel is not null && string.IsNullOrWhiteSpace(this.DeleteWarning))
+        {
+            throw new InvalidOperationException("A delete is offered with a line saying what it does: set DeleteWarning with DeleteLabel.");
+        }
+    }
 }

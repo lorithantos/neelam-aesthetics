@@ -182,13 +182,42 @@ public class UndoRestoreTests(DemoApp app) : IClassFixture<DemoApp>
             Assert.Equal(0, RenderedPage.Count(await campaign.HtmlAsync(), "undo-button"));
 
         await using (var template = await Open(
-            (nameof(UndoRestore.CanUndo), true), (nameof(UndoRestore.UndoDeletes), true), (nameof(UndoRestore.DeleteLabel), "Delete template")))
+            (nameof(UndoRestore.CanUndo), true), (nameof(UndoRestore.UndoDeletes), true), (nameof(UndoRestore.DeleteLabel), "Delete template"),
+            (nameof(UndoRestore.DeleteWarning), "it goes.")))
             Assert.Equal("Delete template", RenderedPage.Named(await template.HtmlAsync(), "undo-button"));
 
         await using var asking = await Open(
             (nameof(UndoRestore.CanUndo), true), (nameof(UndoRestore.UndoDeletes), true), (nameof(UndoRestore.DeleteLabel), "Delete template"),
-            (nameof(UndoRestore.Confirming), true));
+            (nameof(UndoRestore.DeleteWarning), "it goes."), (nameof(UndoRestore.Confirming), true));
         Assert.Equal("Delete it", RenderedPage.Named(await asking.HtmlAsync(), "undo-confirm"));
+    }
+
+    // Offered as a delete, it is the campaign Delete's part: set apart, after Restore, saying so in words and
+    // in the destructive style, and the question is asked inside it.
+    [Fact]
+    public async Task A_delete_sits_apart_after_restore_in_the_danger_style()
+    {
+        await using (OpenCampaignPage offered = await Open(
+            (nameof(UndoRestore.CanUndo), true), (nameof(UndoRestore.UndoDeletes), true), (nameof(UndoRestore.DeleteLabel), "Delete template"),
+            (nameof(UndoRestore.DeleteWarning), "deleting takes the template off your list."),
+            (nameof(UndoRestore.RestorableUntil), (DateTimeOffset?)Until), (nameof(UndoRestore.RestoreId), "restore-button")))
+        {
+            string html = await offered.HtmlAsync();
+            string zone = RenderedPage.Named(html, "delete-zone");
+            Assert.Equal("Danger: deleting takes the template off your list. Delete template", zone);
+            Assert.Equal("button danger", RenderedPage.Attribute(html, "undo-button", "class"));
+            Assert.Equal("button", RenderedPage.Attribute(html, "undo-button", "type"));
+            Assert.Equal("Delete template", RenderedPage.Attribute(html, "delete-zone", "aria-label"));
+            Assert.Equal("delete-zone", RenderedPage.Attribute(html, "delete-zone", "class"));
+            Assert.Equal(["restore-button", "delete-zone", "undo-button"], RenderedPage.NamesStartingWith(html, ""));
+        }
+
+        await using OpenCampaignPage asking = await Open(
+            (nameof(UndoRestore.CanUndo), true), (nameof(UndoRestore.UndoDeletes), true), (nameof(UndoRestore.DeleteLabel), "Delete template"),
+            (nameof(UndoRestore.DeleteWarning), "deleting takes the template off your list."), (nameof(UndoRestore.Confirming), true));
+        string asked = await asking.HtmlAsync();
+        Assert.Equal("The question? Delete it Keep it", RenderedPage.Named(asked, "delete-zone"));
+        Assert.Equal("button danger", RenderedPage.Attribute(asked, "undo-confirm", "class"));
     }
 
     // Restore while the last undo can be taken back, until when in her zone; under each page's own names.
@@ -248,6 +277,30 @@ public class TemplateUndoDeletesTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Contains("Its last save was undone, so it is gone from your templates.", RenderedPage.Text(await page.HtmlAsync()));
         Assert.Empty(await Store.HistoryAsync(DocumentKind.Template, id));
         Assert.NotNull(await Store.RestorableAsync(DocumentKind.Template, id));
+    }
+
+    // The owner, 2026-11-03: Delete template gets the campaign Delete's set-apart danger treatment. Last in the
+    // Save card, after Save, in a part of its own that says in words what it does, in the destructive style.
+    [Fact]
+    public async Task Delete_template_sits_apart_in_the_save_card_and_says_it_is_dangerous()
+    {
+        await using OpenCampaignPage page = await Open(await Saved(saves: 1));
+        string html = await page.HtmlAsync();
+
+        string zone = RenderedPage.Named(html, "delete-zone");
+        Assert.Equal("Danger: deleting takes the template off your list. Delete template", zone);
+        Assert.Equal("delete-zone", RenderedPage.Attribute(html, "delete-zone", "class"));
+        Assert.Equal("button danger", RenderedPage.Attribute(html, "undo-button", "class"));
+        Assert.Equal("button", RenderedPage.Attribute(html, "undo-button", "type"));
+        string save = RenderedPage.Named(html, "save-card");
+        Assert.True(save.IndexOf("Save template", StringComparison.Ordinal) < save.IndexOf("Danger:", StringComparison.Ordinal));
+        Assert.EndsWith(zone, save);
+
+        await page.ClickAsync("undo-button");
+
+        html = await page.HtmlAsync();
+        Assert.Equal("This deletes the template. You can restore it for a day. Delete it Keep it", RenderedPage.Named(html, "delete-zone"));
+        Assert.Equal("button danger", RenderedPage.Attribute(html, "undo-confirm", "class"));
     }
 
     [Fact]
