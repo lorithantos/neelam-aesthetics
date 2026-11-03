@@ -197,14 +197,14 @@ public sealed class ClientStores
         if (held.Held is not { } version)
         {
             if (await held.ChangeNowAsync(ct) is var nothing and not CampaignChange.None)
-                throw new CampaignChangedException(nothing, HeldDocument.NotUndone(held.Subject, nothing));
+                throw new CampaignChangedException(nothing, ChangeWords.For(held.Subject).NotUndone(nothing));
             return null;
         }
         var undo = await Look(held.Client).UndoIfNewestAsync(version, ct);
         if (!undo.Done)
         {
             var change = held.ChangeSince(undo.Newest);
-            throw new CampaignChangedException(change, HeldDocument.NotUndone(held.Subject, change));
+            throw new CampaignChangedException(change, ChangeWords.For(held.Subject).NotUndone(change));
         }
         await _activity.For(held.Client, actor).RecordAsync(
             ActivityEntity.Look, LookEntityId, SaveStamp.Of(version.SavedAt), ActivityAction.Undone, ct);
@@ -342,7 +342,7 @@ public sealed class ClientStores
     {
         if (held.Subject != subject) throw new ArgumentException($"That is not the client's {subject}.", nameof(held));
         if (!keepMine && await held.ChangeNowAsync(ct) is var change and not CampaignChange.None)
-            throw new CampaignChangedException(change, HeldDocument.NotSaved(held.Subject, change));
+            throw new CampaignChangedException(change, ChangeWords.For(held.Subject).NotSaved(change));
         var version = await save();
         held.Changed(version);
         return version;

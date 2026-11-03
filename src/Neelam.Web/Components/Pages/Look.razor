@@ -112,7 +112,7 @@ else if (_fields is not null)
             {
                 @if (_confirmingUndo)
                 {
-                    <p>Undo the last save? Your pages go back to the look before it. The undone look can be restored for @TimeWords.Period(_history.UndoGracePeriod), then it is deleted for good.</p>
+                    <p>@ChangeWords.Look.UndoQuestion(_history.UndoGracePeriod)</p>
                     <button class="button danger" data-testid="look-undo-confirm" @onclick="UndoAsync">Undo it</button>
                     <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
                 }

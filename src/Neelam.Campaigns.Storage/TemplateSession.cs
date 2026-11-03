@@ -136,32 +136,8 @@ public sealed class TemplateSession : IWatched<SaveRef>
         return newest.SavedAt > Latest.SavedAt ? CampaignChange.SavedSince : CampaignChange.Undone;
     }
 
-    /// <summary>
-    /// Why the page is out of date, in words that finish "Not undone: ..." and the like; null for
-    /// <see cref="CampaignChange.None"/>. Proposed wording (2026-10-11), awaiting the owner.
-    /// </summary>
-    public static string? WhatChanged(CampaignChange change) => change switch
-    {
-        CampaignChange.SavedSince => "the template was saved again since you opened it",
-        CampaignChange.Undone => "the version on this page was undone since you opened it",
-        CampaignChange.Deleted => "the template was deleted since you opened it",
-        _ => null,
-    };
-
-    /// <summary>
-    /// What the template page says at its top once it knows storage has changed. Proposed wording
-    /// (2026-10-11), awaiting the owner.
-    /// </summary>
-    public static string ChangedNotice(CampaignChange change)
-    {
-        var what = WhatChanged(change) ?? throw new ArgumentOutOfRangeException(nameof(change), "Nothing changed.");
-        var notice = $"{char.ToUpperInvariant(what[0])}{what[1..]}, in another tab or by someone else.";
-        return change == CampaignChange.Deleted ? $"{notice} Load the latest to restore it." : notice;
-    }
-
-    /// <summary>Said when Undo is refused because the page is out of date. Proposed wording (2026-10-11), awaiting the owner.</summary>
-    public static string NotUndone(CampaignChange change) =>
-        $"Not undone: {WhatChanged(change)}. Undo takes back only the newest version, so load the latest above first.";
+    /// <summary>What the template page says at its top once it knows storage has changed (<see cref="ChangeWords.Template"/>).</summary>
+    public static string ChangedNotice(CampaignChange change) => ChangeWords.Template.Notice(change);
 
     /// <summary>Saves the editor's template as a new version; refused while it has errors.</summary>
     public async Task<SaveRef> SaveAsync(CancellationToken ct = default)
@@ -193,7 +169,7 @@ public sealed class TemplateSession : IWatched<SaveRef>
         if (!undo.Done)
         {
             var change = ChangeSince(undo.Newest);
-            throw new CampaignChangedException(change, NotUndone(change));
+            throw new CampaignChangedException(change, ChangeWords.Template.NotUndone(change));
         }
         try
         {

@@ -117,17 +117,7 @@ public sealed class DraftSession : IWatched<SaveRef>
     /// What the page asks before an undo, with the grace period in words. When the save is the only
     /// one, there is no version before it to come back: the campaign is deleted, and can be restored.
     /// </summary>
-    public string UndoQuestion
-    {
-        get
-        {
-            var period = TimeWords.Period(_store.UndoGracePeriod);
-            return UndoDeletesTheCampaign
-                ? $"This deletes the campaign. You can restore it for {period}."
-                : "Undo the last save? The version before it comes back, and any changes not saved are lost. " +
-                  $"The undone version can be restored for {period}, then it is deleted for good.";
-        }
-    }
+    public string UndoQuestion => ChangeWords.Campaign.UndoQuestion(_store.UndoGracePeriod, UndoDeletesTheCampaign);
 
     /// <summary>
     /// What the page asks before deleting the campaign (<see cref="DeleteAsync"/>): how many versions go,
@@ -408,7 +398,7 @@ public sealed class DraftSession : IWatched<SaveRef>
     {
         if (CannotApprove(policy, business) is { } why) throw new InvalidOperationException(why);
         if (ChangeSince(await NewestAsync(ct)) is var change and not CampaignChange.None)
-            throw new CampaignChangedException(change, NotApproved(change));
+            throw new CampaignChangedException(change, ChangeWords.Campaign.NotApproved(change));
         Latest = await _store.ApproveAsync(Latest!, approvedBy, ct);
         SupersededApproval = null;
         Raise();
@@ -454,47 +444,8 @@ public sealed class DraftSession : IWatched<SaveRef>
             ? held is null
             : held is not null && stored.By == held.By && Math.Abs((stored.At - held.At).Ticks) < TimeSpan.TicksPerSecond;
 
-    /// <summary>
-    /// Why a page is out of date, in words that finish "Not approved: ..." and the like; null for
-    /// <see cref="CampaignChange.None"/>. Proposed wording, the owner's to change.
-    /// </summary>
-    public static string? WhatChanged(CampaignChange change) => change switch
-    {
-        CampaignChange.SavedSince => "the campaign was saved again since you opened it",
-        CampaignChange.Undone => "the version on this page was undone since you opened it",
-        CampaignChange.Deleted => "the campaign was deleted since you opened it",
-        CampaignChange.ApprovalWithdrawn => "its approval was withdrawn since you opened it",
-        CampaignChange.Approved => "its approval changed since you opened it",
-        _ => null,
-    };
-
-    /// <summary>
-    /// What the page says at its top once it knows storage has changed: what, and that it was another
-    /// tab or person. Proposed wording, the owner's to change.
-    /// </summary>
-    public static string ChangedNotice(CampaignChange change)
-    {
-        var what = WhatChanged(change) ?? throw new ArgumentOutOfRangeException(nameof(change), "Nothing changed.");
-        var notice = $"{char.ToUpperInvariant(what[0])}{what[1..]}, in another tab or by someone else.";
-        return change == CampaignChange.Deleted
-            ? $"{notice} You can restore it from Recently deleted in your campaigns."
-            : notice;
-    }
-
-    /// <summary>Said in place of the export when the page is out of date. Proposed wording, the owner's to change.</summary>
-    public static string NotExported(CampaignChange change) =>
-        $"Not ready to copy into Square: {WhatChanged(change)}. Load the latest above, and copy from it once it is approved.";
-
-    /// <summary>Said when Approve is refused because the page is out of date. Proposed wording, the owner's to change.</summary>
-    public static string NotApproved(CampaignChange change) =>
-        $"Not approved: {WhatChanged(change)}. Load the latest above, check it, then approve it.";
-
-    /// <summary>
-    /// Said when Undo is refused because the page's version is no longer the newest (2026-10-11).
-    /// Proposed wording, awaiting the owner.
-    /// </summary>
-    public static string NotUndone(CampaignChange change) =>
-        $"Not undone: {WhatChanged(change)}. Undo takes back only the newest version, so load the latest above first.";
+    /// <summary>What the page says at its top once it knows storage has changed (<see cref="ChangeWords.Campaign"/>).</summary>
+    public static string ChangedNotice(CampaignChange change) => ChangeWords.Campaign.Notice(change);
 
     /// <summary>
     /// "Keep mine" (owner, 2026-10-11: "what if the person wants to overwrite anyway?" ... "yes, add Keep
@@ -769,7 +720,7 @@ public sealed class DraftSession : IWatched<SaveRef>
         if (!undo.Done)
         {
             var change = ChangeSince(undo.Newest);
-            throw new CampaignChangedException(change, NotUndone(change));
+            throw new CampaignChangedException(change, ChangeWords.Campaign.NotUndone(change));
         }
         try
         {

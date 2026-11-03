@@ -532,7 +532,7 @@ else if (_session is not null)
                 @* Storage no longer agrees with this page: nothing is offered to copy, and it says why. *@
                 <section class="card">
                     <h2>Copy into Square</h2>
-                    <p role="alert" data-testid="export-refused">@DraftSession.NotExported(change)</p>
+                    <p role="alert" data-testid="export-refused">@ChangeWords.Campaign.NotExported(change)</p>
                 </section>
             }
             else if (exportReport is not null && export is null)

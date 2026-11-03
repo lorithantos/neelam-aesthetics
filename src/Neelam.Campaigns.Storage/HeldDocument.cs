@@ -56,31 +56,6 @@ public sealed class HeldDocument : IWatched<DocumentVersion>
         _signals?.Raise(Client, Subject, this);
     }
 
-    /// <summary>
-    /// Why the page is out of date, in words that finish "Not saved: ..." and the like; null for
-    /// <see cref="CampaignChange.None"/>. Proposed wording (2026-10-11), awaiting the owner.
-    /// </summary>
-    public static string? WhatChanged(string subject, CampaignChange change) => (subject, change) switch
-    {
-        (_, CampaignChange.None) => null,
-        (WatchSubject.Look, CampaignChange.Undone) => "the look on this page was undone since you opened it",
-        (WatchSubject.Look, _) => "your look was changed since you opened this page",
-        (WatchSubject.Baseline, _) => "the parts every template should have were changed since you opened this page",
-        (WatchSubject.Ladders, _) => "your tier name ladders were changed since you opened this page",
-        _ => throw new ArgumentOutOfRangeException(nameof(subject), subject, "Not one of her documents."),
-    };
-
-    /// <summary>What the page says at the top of the notice. Proposed wording (2026-10-11), awaiting the owner.</summary>
-    public static string ChangedNotice(string subject, CampaignChange change)
-    {
-        var what = WhatChanged(subject, change) ?? throw new ArgumentOutOfRangeException(nameof(change), "Nothing changed.");
-        return $"{char.ToUpperInvariant(what[0])}{what[1..]}, in another tab or by someone else.";
-    }
-
-    /// <summary>Said when a save is refused because the page is out of date. Proposed wording (2026-10-11), awaiting the owner.</summary>
-    public static string NotSaved(string subject, CampaignChange change) => $"Not saved: {WhatChanged(subject, change)}.";
-
-    /// <summary>Said when the look's undo is refused because the page is out of date. Proposed wording (2026-10-11), awaiting the owner.</summary>
-    public static string NotUndone(string subject, CampaignChange change) =>
-        $"Not undone: {WhatChanged(subject, change)}. Undo takes back only the newest version, so load the latest above first.";
+    /// <summary>What a page says at the top of its notice (<see cref="ChangeWords.For"/>).</summary>
+    public static string ChangedNotice(string subject, CampaignChange change) => ChangeWords.For(subject).Notice(change);
 }

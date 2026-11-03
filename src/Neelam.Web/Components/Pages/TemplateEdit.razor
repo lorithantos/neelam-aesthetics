@@ -301,7 +301,7 @@ else if (_session is not null)
                     <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
                     @if (_confirmingUndo)
                     {
-                        <p>Undo the last save? The version before it comes back, and any changes not saved are lost. The undone version can be restored for @TimeWords.Period(_store!.UndoGracePeriod), then it is deleted for good.</p>
+                        <p>@ChangeWords.Template.UndoQuestion(_store!.UndoGracePeriod)</p>
                         <button class="button danger" data-testid="undo-confirm" @onclick="UndoAsync">Undo it</button>
                         <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
                     }
