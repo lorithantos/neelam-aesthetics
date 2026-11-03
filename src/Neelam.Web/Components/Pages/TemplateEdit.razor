@@ -76,6 +76,13 @@ else if (_session is not null)
                 <span class="field-help">What people choose when they start a campaign, such as "Membership announcement".</span>
             </div>
 
+            @* Arranging lives here alone, every block in view at once (owner, 2026-11-03); the cards
+               below follow its order and have no Up or Down of their own. *@
+            @if (editor.Blocks.Count > 1)
+            {
+                <ArrangeBlocks Editor="editor" Moved="StateHasChanged" />
+            }
+
             <h2>Blocks, top to bottom</h2>
             @if (editor.FromBaseline && _session.Id is null)
             {
@@ -90,12 +97,12 @@ else if (_session is not null)
                 var index = i;
                 var block = editor.Blocks[index];
                 var guide = editor.Catalog.For(block.Type);
-                <section class="card block-card" aria-label="@block.Label">
+                @* Keyed by its block, so what the browser holds in a card (an open "What the checks look
+                   for") moves with the block. *@
+                <section @key="block" class="card block-card" aria-label="@block.Label" data-testid="block-card-@index">
                     <div class="block-card-head">
                         <h3>@guide.Label</h3>
                         <div class="block-actions">
-                            <button class="button" disabled="@(index == 0)" aria-label="Move @block.Label up" @onclick="() => editor.MoveUp(block)">Up</button>
-                            <button class="button" disabled="@(index == editor.Blocks.Count - 1)" aria-label="Move @block.Label down" @onclick="() => editor.MoveDown(block)">Down</button>
                             <button class="button danger" aria-label="Remove @block.Label" @onclick="() => editor.Remove(block)">Remove</button>
                         </div>
                     </div>

@@ -1,0 +1,111 @@
+@* Arrange blocks on the template page (owner, 2026-11-03, for Priya's "Block arrangement is terrible":
+   "create a set of proxy blocks with the names that they can see on a single page that allows them to
+   drag and drop"). One short chip per block, in the template's order, named by its label and, when
+   that differs, its type. A chip is dragged to a new place (arrange.js, on pointer events, so mouse,
+   touch and pen alike), or moved a step with its Up and Down buttons, which a keyboard and a screen
+   reader use. Either way the block moves in the form, as any edit does: nothing is saved until Save.
+   The script never moves what Blazor draws; it tells MoveBlock where the chip was dropped, and the
+   list and the cards below are drawn again from the form. *@
+@implements IDisposable
+@inject IJSRuntime JS
+@inject ILogger<ArrangeBlocks> Log
+
+<section class="card arrange" aria-labelledby="arrange-heading" data-testid="arrange-blocks">
+    <h2 id="arrange-heading">Arrange blocks</h2>
+    <p class="field-help" id="arrange-help">Drag a block to where it goes in the email, or use its Up and Down buttons. On a phone, drag it by its handle. Nothing is saved until you save the template.</p>
+    <ol class="arrange-list" @ref="_list" aria-describedby="arrange-help">
+        @for (var i = 0; i < Editor.Blocks.Count; i++)
+        {
+            var index = i;
+            var block = Editor.Blocks[index];
+            var name = NameOf(block);
+            var type = Editor.Catalog.For(block.Type).Label;
+            <li @key="block" class="arrange-chip" data-arrange-chip data-testid="arrange-chip-@index">
+                <span class="arrange-handle" data-arrange-handle aria-hidden="true">&#8801;</span>
+                <span class="arrange-text">
+                    <span data-testid="arrange-name-@index">@name</span>
+                    @if (!Same(name, type))
+                    {
+                        <span class="arrange-type" data-testid="arrange-type-@index">· @type</span>
+                    }
+                </span>
+                <span class="arrange-moves">
+                    <button type="button" class="button arrange-move" data-arrange-move="up" data-testid="arrange-up-@index"
+                            disabled="@(index == 0)" aria-label="Move @name up" @onclick="() => StepAsync(index, -1)">Up</button>
+                    <button type="button" class="button arrange-move" data-arrange-move="down" data-testid="arrange-down-@index"
+                            disabled="@(index == Editor.Blocks.Count - 1)" aria-label="Move @name down" @onclick="() => StepAsync(index, +1)">Down</button>
+                </span>
+            </li>
+        }
+    </ol>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public TemplateEditor Editor { get; set; } = null!;
+
+    /// <summary>Told after every move, so the page draws its cards and previews in the new order.</summary>
+    [Parameter, EditorRequired] public EventCallback Moved { get; set; }
+
+    private ElementReference _list;
+    private DotNetObjectReference<ArrangeBlocks>? _self;
+    // The control to put focus back on once the list is drawn again: Blazor moves the chip's element,
+    // and a browser takes focus off an element that is moved.
+    private (int Index, string Which)? _focus;
+
+    /// <summary>
+    /// Where arrange.js says a chip was dropped: the block at <paramref name="from"/> moves so that it
+    /// is at <paramref name="to"/>, as <see cref="TemplateEditor.MoveTo"/> does. A place outside the list
+    /// does nothing.
+    /// </summary>
+    [JSInvokable]
+    public Task MoveBlock(int from, int to) => InvokeAsync(async () =>
+    {
+        if (Editor.MoveTo(from, to)) await Moved.InvokeAsync();
+    });
+
+    private async Task StepAsync(int index, int by)
+    {
+        if (!Editor.MoveTo(index, index + by)) return;
+        _focus = (index + by, by < 0 ? "up" : "down");
+        await Moved.InvokeAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await BrowserAsync("neelamArrange.attach", _list, _self);
+        }
+        if (_focus is { } focus)
+        {
+            _focus = null;
+            await BrowserAsync("neelamArrange.focus", _list, focus.Index, focus.Which);
+        }
+    }
+
+    // Without the script (it failed to load, or the tab is going), dragging is lost but Up and Down
+    // still work, so the page carries on and the log says why.
+    private async Task BrowserAsync(string identifier, params object?[] args)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(identifier, args);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException ex)
+        {
+            Log.LogWarning(ex, "Arrange blocks: {Identifier} failed in the browser.", identifier);
+        }
+    }
+
+    // A block with no label yet is named by its type, as its card heading names it.
+    private string NameOf(EditableBlock block) =>
+        block.Label.Trim() is { Length: > 0 } label ? label : Editor.Catalog.For(block.Type).Label;
+
+    private static bool Same(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    public void Dispose() => _self?.Dispose();
+}

@@ -55,6 +55,38 @@ public class TemplateEditorTests
         Assert.Equal([button, body], editor.Blocks);
     }
 
+    // Arrange blocks (owner, 2026-11-03): a block dragged to any place lands there, and every other
+    // block keeps its order.
+    [Fact]
+    public void A_block_moved_to_a_place_lands_there_and_the_rest_keep_their_order()
+    {
+        var editor = TemplateEditor.StartBlank(Catalogs.Shipped);
+        var (a, b, c, d, e) = (editor.Add(BlockType.Header), editor.Add(BlockType.Heading), editor.Add(BlockType.Paragraphs),
+            editor.Add(BlockType.SignOff), editor.Add(BlockType.Button));
+
+        Assert.True(editor.MoveTo(0, 3));
+        Assert.Equal([b, c, d, a, e], editor.Blocks);
+        Assert.True(editor.MoveTo(4, 1));
+        Assert.Equal([b, e, c, d, a], editor.Blocks);
+        Assert.True(editor.MoveTo(1, 4));
+        Assert.Equal([b, c, d, a, e], editor.Blocks);
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, -1)]
+    [InlineData(3, 0)]
+    [InlineData(0, 3)]
+    [InlineData(1, 1)]
+    public void A_move_from_or_to_no_place_in_the_list_changes_nothing(int from, int to)
+    {
+        var editor = TemplateEditor.StartBlank(Catalogs.Shipped);
+        var blocks = new[] { editor.Add(BlockType.Heading), editor.Add(BlockType.Paragraphs), editor.Add(BlockType.Button) };
+
+        Assert.False(editor.MoveTo(from, to));
+        Assert.Equal(blocks, editor.Blocks);
+    }
+
     // ---- Starting from the baseline (owner, 2026-10-09: what every template should have is what
     // you get when you say new)
 

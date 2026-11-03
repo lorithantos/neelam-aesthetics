@@ -80,16 +80,23 @@ public sealed class TemplateEditor
 
     public void Remove(EditableBlock block) => _blocks.Remove(block);
 
-    public void MoveUp(EditableBlock block) => Move(block, -1);
+    public void MoveUp(EditableBlock block) => MoveTo(_blocks.IndexOf(block), _blocks.IndexOf(block) - 1);
 
-    public void MoveDown(EditableBlock block) => Move(block, +1);
+    public void MoveDown(EditableBlock block) => MoveTo(_blocks.IndexOf(block), _blocks.IndexOf(block) + 1);
 
-    private void Move(EditableBlock block, int by)
+    /// <summary>
+    /// Takes the block at <paramref name="from"/> out and puts it back so that it ends up at
+    /// <paramref name="to"/>, every other block keeping its order: what dragging a block in the page's
+    /// Arrange blocks list does, and Up and Down a step at a time. False, and nothing changed, when
+    /// either place is outside the list or they are the same.
+    /// </summary>
+    public bool MoveTo(int from, int to)
     {
-        var from = _blocks.IndexOf(block);
-        var to = from + by;
-        if (from < 0 || to < 0 || to >= _blocks.Count) return;
-        (_blocks[from], _blocks[to]) = (_blocks[to], _blocks[from]);
+        if (from < 0 || from >= _blocks.Count || to < 0 || to >= _blocks.Count || from == to) return false;
+        var block = _blocks[from];
+        _blocks.RemoveAt(from);
+        _blocks.Insert(to, block);
+        return true;
     }
 
     /// <summary>What stops the template being saved. Empty when <see cref="Build"/> will succeed.</summary>
