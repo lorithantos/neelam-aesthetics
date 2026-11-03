@@ -14,6 +14,8 @@ namespace Neelam.Campaigns.Tests;
 /// runs: there is no browser) or moved a step with Up and Down. The drag reaches .NET as
 /// <see cref="ArrangeBlocks.MoveBlock"/>, called here as the script calls it, through the reference the
 /// page hands the browser. The template editor held as its circuit holds it (<see cref="OpenCampaignPage"/>).
+/// Closed until opened (owner, 2026-11-03: "this isn't the point of the page"); a closed details still
+/// holds its chips, so the checks here read them either way.
 /// </summary>
 public class TemplateArrangePageTests(DemoApp app) : IClassFixture<DemoApp>
 {
@@ -48,6 +50,31 @@ public class TemplateArrangePageTests(DemoApp app) : IClassFixture<DemoApp>
         // Above the blocks' own cards.
         Assert.True(html.IndexOf("data-testid=\"arrange-blocks\"", StringComparison.Ordinal)
                     < html.IndexOf("data-testid=\"block-card-0\"", StringComparison.Ordinal));
+    }
+
+    // The owner, 2026-11-03: "The arrange blocks needs to be collapsable - this isn't the point of the
+    // page, just something that needs to be done at some point". A details that is closed until opened,
+    // its summary saying what it is. The page never writes open, before or after a move: Blazor changes
+    // only what it draws differently, so the browser keeps it open or closed as the user left it.
+    [Fact]
+    public async Task Arrange_blocks_is_closed_until_opened_and_a_move_leaves_that_to_the_browser()
+    {
+        await using var page = await OpenMembershipAsync();
+        var html = await page.HtmlAsync();
+
+        Assert.Equal("details", Tag(html, "arrange-blocks"));
+        Assert.False(Carries(html, "arrange-blocks", "open"));
+        Assert.Equal("summary", Tag(html, "arrange-summary"));
+        Assert.Equal("Arrange blocks Change the order of the blocks", RenderedPage.Named(html, "arrange-summary"));
+
+        await page.ClickAsync("arrange-up-2");
+        Assert.False(Carries(await page.HtmlAsync(), "arrange-blocks", "open"));
+        var arrange = await _browser.ArrangeAsync();
+        await arrange.Value.MoveBlock(0, 3);
+        html = await page.HtmlAsync();
+
+        Assert.Equal(["Headline", "Spacer", "Greeting", "Header"], Chips(html).Take(4));
+        Assert.False(Carries(html, "arrange-blocks", "open"));
     }
 
     // Dropping a chip: the script calls MoveBlock(from, to). The form moves the block, the cards and
@@ -186,12 +213,17 @@ public class TemplateArrangePageTests(DemoApp app) : IClassFixture<DemoApp>
     private static IReadOnlyList<string> Cards(string html) =>
         RenderedPage.NamesStartingWith(html, "block-card-").Select(i => RenderedPage.Attribute(html, $"block-card-{i}", "aria-label")).ToList();
 
-    // Whether the one element named testId carries disabled, which the page writes with no value.
-    private static bool Disabled(string html, string testId)
-    {
-        var tag = Assert.Single(Regex.Matches(html, $"<[a-z]+\\b[^>]*\\sdata-testid=\"{Regex.Escape(testId)}\"[^>]*>"));
-        return Regex.IsMatch(tag.Value, @"\sdisabled(?=[\s>=])");
-    }
+    private static bool Disabled(string html, string testId) => Carries(html, testId, "disabled");
+
+    // Whether the one element named testId carries attribute, such as disabled or open, which the page
+    // writes with no value.
+    private static bool Carries(string html, string testId, string attribute) =>
+        Regex.IsMatch(Element(html, testId).Value, $@"\s{Regex.Escape(attribute)}(?=[\s>=])");
+
+    private static string Tag(string html, string testId) => Element(html, testId).Groups["tag"].Value;
+
+    private static Match Element(string html, string testId) =>
+        Assert.Single(Regex.Matches(html, $"<(?<tag>[a-z]+)\\b[^>]*\\sdata-testid=\"{Regex.Escape(testId)}\"[^>]*>"));
 
     /// <summary>
     /// A browser that answers nothing, as the one <see cref="OpenCampaignPage"/> puts in place does, and

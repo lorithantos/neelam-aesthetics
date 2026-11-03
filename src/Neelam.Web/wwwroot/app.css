@@ -494,7 +494,23 @@ fieldset.choice label.check {
 
 /* Arrange blocks: one short chip per block, every one in view, dragged to
    a new place (arrange.js) or moved a step with Up and Down. A long label
-   wraps inside its chip; the buttons stay on the right. */
+   wraps inside its chip; the buttons stay on the right. Closed until
+   opened: its heading sits beside the details marker, a quiet hint after. */
+
+.arrange > summary {
+    cursor: pointer;
+}
+
+.arrange > summary h2 {
+    display: inline;
+    margin: 0;
+}
+
+.arrange-hint {
+    margin-left: 0.5rem;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
 
 .arrange-list {
     list-style: none;

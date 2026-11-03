@@ -5,13 +5,22 @@
    touch and pen alike), or moved a step with its Up and Down buttons, which a keyboard and a screen
    reader use. Either way the block moves in the form, as any edit does: nothing is saved until Save.
    The script never moves what Blazor draws; it tells MoveBlock where the chip was dropped, and the
-   list and the cards below are drawn again from the form. *@
+   list and the cards below are drawn again from the form.
+
+   Closed until opened (owner, 2026-11-03: "The arrange blocks needs to be collapsable - this isn't the
+   point of the page, just something that needs to be done at some point"). A plain details, so no
+   script opens it and a keyboard and a screen reader work it as any other. Nothing here writes its
+   open attribute: Blazor changes only what it drew differently from last time, so the browser's open
+   or closed stays as the user left it through every move and every keystroke on the page. *@
 @implements IDisposable
 @inject IJSRuntime JS
 @inject ILogger<ArrangeBlocks> Log
 
-<section class="card arrange" aria-labelledby="arrange-heading" data-testid="arrange-blocks">
-    <h2 id="arrange-heading">Arrange blocks</h2>
+<details class="card arrange" aria-labelledby="arrange-heading" data-testid="arrange-blocks">
+    <summary data-testid="arrange-summary">
+        <h2 id="arrange-heading">Arrange blocks</h2>
+        <span class="arrange-hint">Change the order of the blocks</span>
+    </summary>
     <p class="field-help" id="arrange-help">Drag a block to where it goes in the email, or use its Up and Down buttons. On a phone, drag it by its handle. Nothing is saved until you save the template.</p>
     <ol class="arrange-list" @ref="_list" aria-describedby="arrange-help">
         @for (var i = 0; i < Editor.Blocks.Count; i++)
@@ -38,7 +47,7 @@
             </li>
         }
     </ol>
-</section>
+</details>
 
 @code {
     [Parameter, EditorRequired] public TemplateEditor Editor { get; set; } = null!;
