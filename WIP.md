@@ -465,7 +465,7 @@ misses.
     by `CampaignReview` only for `OutsideLimits`, not part of `SeenKey`), and on the campaign page
     ("What the checks say") and in the export list it ends with **"Change this line's range"** (after
     a space, written out in `FindingItem`, since Razor drops the one beside an `@if`), a link
-    to `known-items?cap={end}-{amount}#known-line-{id}`, the box named for the limit the amount fell
+    to `known-items?show=benefit-lines&cap={end}-{amount}#known-line-{id}` (`show` since the tabs, 2026-11-03), the box named for the limit the amount fell
     outside (`Finding.KnownCap`, `FindingPlace.CapBox`: `highest-percent` above the highest,
     `lowest-percent` below the lowest; the boxes carry the same name as `data-cap`); no other finding
     has one. The assistant JSON writes a finding as its place and message only, so neither the id nor
@@ -492,6 +492,33 @@ misses.
   no admin links). A section per kind: add, change (in place) and remove. A tier is built from a name, a
   price and lines, each picked from her benefit lines ("Pick a benefit") or typed. The page binds to
   `KnownItemsSession`, which the tests drive.
+  - **One kind at a time, as tabs (owner, 2026-11-03, option D of A-D:** the page was "far too long
+    and finding things is not sensible on it"; "Selection is much easier than scrolling down a long
+    page finding what selections exist"; built the same day, not deployed). Under the intro, a row of
+    tabs in the old order: **Treatments (n)**, **Benefit lines (n)**, **Tiers (n)**, **Tier name
+    ladders**, n being how many she has. Each tab is a real link to the page's own address,
+    `known-items?show=treatments|benefit-lines|tiers|ladders` (`KnownItemsTab`), the chosen one
+    carrying `aria-current="page"`; a nav, not an ARIA tablist, and no script. Only the chosen kind is
+    drawn. No `show`, an empty one or one it does not know: Treatments. A request with `cap=` and no
+    known `show` (a finding's link from before the tabs) opens Benefit lines. The finding's "Change
+    this line's range" link now names the tab (`FindingPlace.KnownLineLink`), the line and its boxes
+    are drawn on it, and `arrive.js` is unchanged. Status and problems show under the tabs. Each
+    tab's add form is now at the top of its tab, above her items (the ladders' "Add a ladder" stays
+    where `LaddersSection` has it). Tests: `KnownItemPagesTests` (`Each_tab_draws_only_its_own_kind`,
+    `The_tabs_are_links_in_order_with_how_many_of_each_she_has`,
+    `Without_a_known_choice_the_page_opens_on_treatments`,
+    `A_finding_s_link_opens_benefit_lines_with_the_line_and_its_box`, and the finding's link followed
+    to the line), `KnownItemsTabPageTests.What_an_action_says_shows_under_the_tabs` (in a circuit);
+    the tests that read the one long page now open the tab they read. **Judgement calls, the owner's
+    to overrule:** the ladders tab carries no count (the section reads them only when shown, and with
+    none of her own they are the standard ones); the add forms moved to the top; an explicit `show`
+    wins over `cap`; the section headings ("Offers and tiers" under the Tiers tab) are kept as they
+    were. **Not tried in a browser.** Reasoned, not seen: a tab is a navigation to the same page, so
+    the live page should stay and only its `show` change, keeping an item open for Change and
+    anything typed in an add form; the status line from an action stays until the next action, so it
+    may still show after switching tab. Leaving the ladders tab drops their unsaved changes (the
+    section is no longer drawn, so its working copy goes with it; before, it lived as long as the
+    page).
 - **In the campaign editor** (`OfferFields`, with the shared `BenefitFields` and `KnownItemLists`):
   "Pick a benefit" under each tier adds a known benefit as a new line; "Add a known tier" under the tiers
   adds a whole tier; the tier name and each benefit's **Item** field (the treatment, for "something free"

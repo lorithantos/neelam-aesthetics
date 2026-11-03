@@ -645,7 +645,7 @@ public class ExportWarningsPageTests(DemoApp app) : IClassFixture<DemoApp>
             var links = Regex.Matches(panel, "<a class=\"caps-link\" href=\"([^\"]*)\">Change this line's range</a>");
             Assert.NotEmpty(links);
             Assert.Equal(Regex.Matches(panel, "is outside your usual range for this line").Count, links.Count);
-            Assert.All(links, l => Assert.Equal($"known-items?cap=highest-percent#known-line-{line.Id}", l.Groups[1].Value));
+            Assert.All(links, l => Assert.Equal($"known-items?show=benefit-lines&cap=highest-percent#known-line-{line.Id}", l.Groups[1].Value));
             Assert.Equal(links.Count, Regex.Matches(panel, "</span> <a class=\"caps-link\"").Count);
         }
         finally

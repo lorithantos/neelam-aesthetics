@@ -47,26 +47,117 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(HttpStatusCode.Forbidden, (await Get("/known-items", [Features.Templates])).Status);
     }
 
+    // Each kind on its own tab (owner, 2026-11-03), each with its items and its way to add one.
     [Fact]
     public async Task The_page_lists_her_items_of_each_kind_with_a_way_to_add_each()
     {
-        var (status, page) = await Get("/known-items", [Features.Campaigns]);
+        var (status, treatments) = await Get("/known-items", [Features.Campaigns]);
+        var (_, lines) = await Get("/known-items?show=benefit-lines", [Features.Campaigns]);
+        var (_, tiers) = await Get("/known-items?show=tiers", [Features.Campaigns]);
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Contains("What Salon One writes again and again, spelled once.", page);
-        Assert.Contains("<span>Wellness injection</span>", page);
+        Assert.Contains("What Salon One writes again and again, spelled once.", treatments);
+        Assert.Contains("<span>Wellness injection</span>", treatments);
         // A treatment's regular price beside its name when it has one, and a box to give a new one hers.
-        Assert.Contains("<span>Full-Face Facial Balancing, regularly $5,100</span>", page);
-        Assert.Contains("Regular price, in dollars (optional)", page);
-        Assert.Contains("id=\"new-treatment-price\"", page);
+        Assert.Contains("<span>Full-Face Facial Balancing, regularly $5,100</span>", treatments);
+        Assert.Contains("Regular price, in dollars (optional)", treatments);
+        Assert.Contains("id=\"new-treatment-price\"", treatments);
+        Assert.Contains("Add treatment</button>", treatments);
         // A benefit line with its usual amount, and no limit on it: any amount is fine.
-        Assert.Contains("<span>$75 birthday credit during your birth month — usually $75, any amount</span>", page);
+        Assert.Contains("<span>$75 birthday credit during your birth month — usually $75, any amount</span>", lines);
+        Assert.Contains("Add benefit line</button>", lines);
         // The price as the campaign shows it: a tier is a monthly price.
-        Assert.Contains("<h3>Diamond Member, $499/month</h3>", page);
-        Assert.Contains("<li>$100 birthday credit during your birth month</li>", page);
-        foreach (var add in new[] { "Add treatment", "Add benefit line", "Add tier" })
-            Assert.Contains($"{add}</button>", page);
-        Assert.Contains("id=\"tier-pick-new\"", page);
+        Assert.Contains("<h3>Diamond Member, $499/month</h3>", tiers);
+        Assert.Contains("<li>$100 birthday credit during your birth month</li>", tiers);
+        Assert.Contains("Add tier</button>", tiers);
+        Assert.Contains("id=\"tier-pick-new\"", tiers);
+        // The way to add one comes before what she has.
+        Assert.True(treatments.IndexOf("Add treatment</button>") < treatments.IndexOf("<span>Wellness injection</span>"));
+        Assert.True(lines.IndexOf("Add benefit line</button>") < lines.IndexOf("<span>$75 birthday credit"));
+        Assert.True(tiers.IndexOf("Add tier</button>") < tiers.IndexOf("<h3>Diamond Member"));
+    }
+
+    // ---- One kind at a time (owner, 2026-11-03: "Selection is much easier than scrolling down a long
+    // page finding what selections exist"): a tab per kind, each a link to the page's own address.
+
+    // Salon one's kinds, each tab's mark that its section is drawn, and how many she has.
+    private static readonly (string Show, string Drawn, string Tab)[] Kinds =
+    [
+        ("treatments", "aria-label=\"Treatments and services\"", "Treatments (2)"),
+        ("benefit-lines", "aria-label=\"Benefit lines\"", "Benefit lines (1)"),
+        ("tiers", "aria-label=\"Offers and tiers\"", "Tiers (1)"),
+        ("ladders", "id=\"ladders-heading\"", "Tier name ladders"),
+    ];
+
+    private static string Tabs(string page) =>
+        Regex.Match(page, "<nav class=\"tabs\".*?</nav>", RegexOptions.Singleline).Value;
+
+    // Only the chosen kind is drawn, and only its tab is marked as the one open.
+    [Theory]
+    [InlineData("treatments")]
+    [InlineData("benefit-lines")]
+    [InlineData("tiers")]
+    [InlineData("ladders")]
+    public async Task Each_tab_draws_only_its_own_kind(string show)
+    {
+        var (status, page) = await Get($"/known-items?show={show}", [Features.Campaigns]);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        foreach (var kind in Kinds)
+        {
+            if (kind.Show == show) Assert.Contains(kind.Drawn, page);
+            else Assert.DoesNotContain(kind.Drawn, page);
+        }
+        var chosen = Kinds.Single(k => k.Show == show);
+        var current = Assert.Single(Regex.Matches(Tabs(page), "<a href=\"([^\"]*)\" aria-current=\"page\">([^<]*)</a>"));
+        Assert.Equal(($"known-items?show={show}", chosen.Tab), (current.Groups[1].Value, current.Groups[2].Value));
+    }
+
+    // Every tab is offered whichever is open, in the page's order, each kind with how many she has; the
+    // ladders with none. A link, so back and refresh keep it.
+    [Fact]
+    public async Task The_tabs_are_links_in_order_with_how_many_of_each_she_has()
+    {
+        var (_, page) = await Get("/known-items?show=tiers", [Features.Campaigns]);
+
+        var tabs = Regex.Matches(Tabs(page), "<a href=\"([^\"]*)\"[^>]*>([^<]*)</a>");
+        Assert.Equal(Kinds.Select(k => ($"known-items?show={k.Show}", k.Tab)), tabs.Select(t => (t.Groups[1].Value, t.Groups[2].Value)));
+        // The chosen kind comes under them.
+        Assert.True(page.IndexOf("<nav class=\"tabs\"") < page.IndexOf("aria-label=\"Offers and tiers\""));
+        // The header's link to the page is still marked as where she is.
+        var nav = Regex.Match(page, "<nav class=\"site-nav\".*?</nav>", RegexOptions.Singleline).Value;
+        Assert.Contains("class=\"active\"", Regex.Match(nav, "<a [^>]*href=\"known-items\"[^>]*>").Value);
+    }
+
+    // With no choice, or one the page does not know, it opens on Treatments, the first.
+    [Theory]
+    [InlineData("/known-items")]
+    [InlineData("/known-items?show=")]
+    [InlineData("/known-items?show=offers")]
+    public async Task Without_a_known_choice_the_page_opens_on_treatments(string path)
+    {
+        var (status, page) = await Get(path, [Features.Campaigns]);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Contains("<a href=\"known-items?show=treatments\" aria-current=\"page\">Treatments (2)</a>", Tabs(page));
+        Assert.Contains("<span>Wellness injection</span>", page);
+        Assert.DoesNotContain("aria-label=\"Benefit lines\"", page);
+    }
+
+    // A finding's link opens Benefit lines, where the line and its boxes are: by naming it, and a link
+    // written before the tabs, which names only the box (?cap=), as well.
+    [Theory]
+    [InlineData("/known-items?show=benefit-lines&cap=highest-amount")]
+    [InlineData("/known-items?cap=highest-amount")]
+    [InlineData("/known-items?show=benefit-lines")]
+    public async Task A_finding_s_link_opens_benefit_lines_with_the_line_and_its_box(string path)
+    {
+        var (_, page) = await Get(path, [Features.Campaigns]);
+        var line = Assert.Single((await app.KnownItems.ForClientAsync(SalonOne.Name)).Benefits);
+
+        Assert.Contains("<a href=\"known-items?show=benefit-lines\" aria-current=\"page\">Benefit lines (1)</a>", Tabs(page));
+        Assert.Contains($"<li id=\"known-line-{line.Id}\"", page);
+        Assert.Contains("data-cap=\"highest-amount\"", page);
     }
 
     // A known tier's price reads as the campaign's preview and export write it, cents and all.
@@ -80,17 +171,26 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     [Fact]
     public async Task Another_client_s_items_are_never_shown()
     {
-        var (status, page) = await Get("/known-items", [Features.Campaigns], [SalonTwo.GroupId]);
+        var pages = new List<string>();
+        foreach (var (show, none) in new[] { ("treatments", "No treatments yet."), ("benefit-lines", "No benefit lines yet."), ("tiers", "No tiers yet.") })
+        {
+            var (status, page) = await Get($"/known-items?show={show}", [Features.Campaigns], [SalonTwo.GroupId]);
+            Assert.Equal(HttpStatusCode.OK, status);
+            Assert.Contains(none, page);
+            // Her own counts on the tabs, none of salon one's.
+            foreach (var tab in new[] { "Treatments (0)", "Benefit lines (0)", "Tiers (0)" })
+                Assert.Contains($">{tab}</a>", page);
+            pages.Add(page);
+        }
 
-        Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Contains("No treatments yet.", page);
-        Assert.Contains("No benefit lines yet.", page);
-        Assert.Contains("No tiers yet.", page);
-        Assert.DoesNotContain("<span>Wellness injection</span>", page);
-        Assert.DoesNotContain("birthday credit", page);
-        // Diamond is also a word on the standard tier-name ladders, shown below her items.
-        Assert.DoesNotContain("Diamond", page.Split("Tier name ladders")[0]);
-        Assert.DoesNotContain("<option value=\"", page.Split("</select>")[^1]);
+        Assert.All(pages, page =>
+        {
+            Assert.DoesNotContain("<span>Wellness injection</span>", page);
+            Assert.DoesNotContain("birthday credit", page);
+            // Diamond is also a word on the standard tier-name ladders, which are on a tab of their own.
+            Assert.DoesNotContain("Diamond", page);
+            Assert.DoesNotContain("<option value=\"", page.Split("</select>")[^1]);
+        });
     }
 
     // Her page, in her layout: a link in the header, and nothing of the operator's.
@@ -370,7 +470,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     [Fact]
     public async Task The_page_gives_each_benefit_line_an_anchor_and_its_caps_beside_it()
     {
-        var (_, page) = await Get("/known-items", [Features.Campaigns]);
+        var (_, page) = await Get("/known-items?show=benefit-lines", [Features.Campaigns]);
         var line = Assert.Single((await app.KnownItems.ForClientAsync(SalonOne.Name)).Benefits);
 
         var item = Regex.Match(page, $"<li id=\"known-line-{line.Id}\" class=\"known-line\" tabindex=\"-1\">(.*?)</li>", RegexOptions.Singleline);
@@ -412,11 +512,18 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var links = Regex.Matches(page, "<a class=\"caps-link\" href=\"([^\"]*)\">Change this line's range</a>");
         Assert.NotEmpty(links);
         Assert.Equal(Regex.Matches(page, "is outside your usual range for this line").Count, links.Count);
-        // Above the highest: the link starts her in Highest.
-        Assert.All(links, l => Assert.Equal($"known-items?cap=highest-percent#known-line-{line.Id}", l.Groups[1].Value));
+        // Above the highest: the link opens Benefit lines and starts her in Highest.
+        var link = $"known-items?show=benefit-lines&cap=highest-percent#known-line-{line.Id}";
+        Assert.All(links, l => Assert.Equal(link, l.Groups[1].Value));
         // A space between the message and the link, never "...(up to 5%).Change this line's range".
         Assert.Equal(links.Count, Regex.Matches(page, "</span> <a class=\"caps-link\"").Count);
         Assert.DoesNotContain("</span><a class=\"caps-link\"", page);
+
+        // Followed, it lands on the line, with the box it names among the line's own.
+        var (_, known) = await Get("/" + link.Split('#')[0], [Features.Campaigns], [salonThree.GroupId]);
+        var item = Regex.Match(known, $"<li id=\"known-line-{line.Id}\".*?</li>", RegexOptions.Singleline);
+        Assert.True(item.Success);
+        Assert.Contains("data-cap=\"highest-percent\"", item.Value);
     }
 
     [Fact]
@@ -477,5 +584,25 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     {
         public const string Tiers = Neelam.Web.Components.Shared.KnownItemLists.Tiers;
         public const string Treatments = Neelam.Web.Components.Shared.KnownItemLists.Treatments;
+    }
+}
+
+/// <summary>The Known items page on the demo, held as its circuit holds it (<see cref="OpenCampaignPage"/>).</summary>
+public class KnownItemsTabPageTests(DemoApp app) : IClassFixture<DemoApp>
+{
+    // What an action says, here an add refused, shows under the tabs, above the kind it is about.
+    [Fact]
+    public async Task What_an_action_says_shows_under_the_tabs()
+    {
+        await using var page = await OpenCampaignPage.OpenAsync<Neelam.Web.Components.Pages.KnownItemsPage>(
+            app, new Dictionary<string, object?>());
+
+        await page.ClickAsync("add-treatment");
+
+        var html = await page.HtmlAsync();
+        var said = html.IndexOf("Fill in the treatment", StringComparison.Ordinal);
+        Assert.True(said > 0, "the refusal is on the page");
+        Assert.InRange(html.IndexOf("<nav class=\"tabs\"", StringComparison.Ordinal), 0, said - 1);
+        Assert.True(said < html.IndexOf("aria-label=\"Treatments and services\"", StringComparison.Ordinal));
     }
 }

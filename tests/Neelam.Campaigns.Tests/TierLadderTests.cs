@@ -315,10 +315,11 @@ public class TierLadderPageTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task The_known_items_page_shows_the_ladders_in_force_and_whose_they_are()
     {
         await Later().UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
-        var standard = await Page("/known-items");
+        // On their own tab of the page (owner, 2026-11-03: one kind at a time).
+        var standard = await Page("/known-items?show=ladders");
         await Later().SaveLaddersAsync(SalonOne.Name,
             new TierLadders([new TierLadder("Glow", ["Glow", "Radiance", "Luminous"], ordered: true)]), Actor.Demo);
-        var own = await Page("/known-items");
+        var own = await Page("/known-items?show=ladders");
         await Later().UseStandardLaddersAsync(SalonOne.Name, Actor.Demo);
 
         Assert.Contains("Tier name ladders", standard);

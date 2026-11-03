@@ -48,14 +48,15 @@ public static class FindingPlace
     public static string CapBox(OutsideLimit outside) => CapBox(outside.AboveHighest, outside.Amount.Field.Name);
 
     /// <summary>
-    /// Where to change the limits a finding holds an amount to: the Known items page at that line, with
-    /// the box to start in ("known-items?cap=highest-percent#known-line-{id}", relative to the site's
+    /// Where to change the limits a finding holds an amount to: the Known items page open on its Benefit
+    /// lines tab, at that line, with the box to start in
+    /// ("known-items?show=benefit-lines&amp;cap=highest-percent#known-line-{id}", relative to the site's
     /// base, as the site's other links are). Null for a finding that is not about one of her lines'
     /// limits.
     /// </summary>
     public static string? KnownLineLink(Finding finding) =>
         finding.KnownLine is { Length: > 0 } id
-            ? $"known-items{(finding.KnownCap is { Length: > 0 } cap ? $"?cap={Uri.EscapeDataString(cap)}" : "")}#{KnownLineAnchor(id)}"
+            ? $"{KnownItemsTab.Link(KnownItemsTab.BenefitLines)}{(finding.KnownCap is { Length: > 0 } cap ? $"&cap={Uri.EscapeDataString(cap)}" : "")}#{KnownLineAnchor(id)}"
             : null;
 
     // The label itself, or the label followed by a part of it (" › ...") or a paragraph (", ...").

@@ -653,8 +653,9 @@ public class KnownItemsTests
         Assert.Equal(2, findings.Count);
         Assert.All(findings, f => Assert.Contains("outside your usual range", f.Message));
         Assert.Equal([FiveToTen.Id, credit.Id], findings.Select(f => f.KnownLine));
-        Assert.Equal($"known-items?cap=highest-percent#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(findings[0]));
-        Assert.Equal($"known-items?cap=highest-amount#known-line-{credit.Id}", FindingPlace.KnownLineLink(findings[1]));
+        // On the Known items page's Benefit lines tab, where the line is (owner, 2026-11-03: one kind at a time).
+        Assert.Equal($"known-items?show=benefit-lines&cap=highest-percent#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(findings[0]));
+        Assert.Equal($"known-items?show=benefit-lines&cap=highest-amount#known-line-{credit.Id}", FindingPlace.KnownLineLink(findings[1]));
         Assert.Equal($"known-line-{credit.Id}", FindingPlace.KnownLineAnchor(credit.Id));
     }
 
@@ -664,7 +665,7 @@ public class KnownItemsTests
         var finding = Assert.Single(NearMisses(WithBenefit(new PercentOff(3, "any qualifying treatments")), Knowing(FiveToTen)));
 
         Assert.Equal("lowest-percent", finding.KnownCap);
-        Assert.Equal($"known-items?cap=lowest-percent#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(finding));
+        Assert.Equal($"known-items?show=benefit-lines&cap=lowest-percent#known-line-{FiveToTen.Id}", FindingPlace.KnownLineLink(finding));
     }
 
     // Only a line's limits lead there: a near miss of one of her lines (which names the line), a line

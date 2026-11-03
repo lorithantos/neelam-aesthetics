@@ -19,8 +19,19 @@
 else if (_session is not null)
 {
     var items = _session.Items;
+    var tab = KnownItemsTab.Chosen(Show, Cap);
     <KnownItemLists Known="items" />
     <p class="muted">What @_displayName writes again and again, spelled once. While writing a campaign you pick from these instead of retyping them, and the checks point out a line that nearly matches one.</p>
+
+    @* One kind at a time (owner, 2026-11-03: "Selection is much easier than scrolling down a long page
+       finding what selections exist"). Each tab is a link to this page naming its kind, so back and
+       refresh keep it, and only the chosen kind is drawn. Status and problems show under the tabs. *@
+    <nav class="tabs" aria-label="Kinds of known items">
+        @foreach (var (kind, name) in Tabs(items))
+        {
+            <a href="@KnownItemsTab.Link(kind)" aria-current="@(kind == tab ? "page" : null)">@name</a>
+        }
+    </nav>
 
     @if (_session.Message is not null)
     {
@@ -28,120 +39,152 @@ else if (_session is not null)
     }
     <Problems Messages="_session.Errors" />
 
-    <h2>Treatments and services</h2>
-    <section class="card" aria-label="Treatments and services">
-        @if (items.Treatments.Count == 0)
-        {
-            <p>No treatments yet.</p>
-        }
-        <ul class="known-items">
-            @foreach (var item in items.Treatments)
+    @* Each tab's way to add one comes first, above what she has. *@
+    @if (tab == KnownItemsTab.Treatments)
+    {
+        <h2>Treatments and services</h2>
+        <section class="card" aria-label="Treatments and services">
+            <div class="field">
+                <label for="new-treatment">Add a treatment</label>
+                <input id="new-treatment" @bind="_session.NewTreatment.Name" @bind:event="oninput" />
+                <span class="field-help">Spelled the way every campaign should spell it, such as "Wellness injection".</span>
+            </div>
+            <div class="field">
+                <label for="new-treatment-price">Regular price, in dollars (optional)</label>
+                <input id="new-treatment-price" inputmode="decimal" @bind="_session.NewTreatment.RegularPrice" @bind:event="oninput" />
+                <span class="field-help">What it usually costs, such as 5,100.</span>
+            </div>
+            <button class="button primary" data-testid="add-treatment" @onclick="() => _session.AddTreatmentAsync()">Add treatment</button>
+            @if (items.Treatments.Count == 0)
             {
-                <li>
-                    @if (_session.Editing?.Id == item.Id && _session.EditTreatment is { } editing)
-                    {
-                        <div class="field">
-                            <label for="edit-treatment">Name</label>
-                            <input id="edit-treatment" @bind="editing.Name" @bind:event="oninput" />
-                        </div>
-                        <div class="field">
-                            <label for="edit-treatment-price">Regular price, in dollars (optional)</label>
-                            <input id="edit-treatment-price" inputmode="decimal" @bind="editing.RegularPrice" @bind:event="oninput" />
-                        </div>
-                        @EditActions
-                    }
-                    else
-                    {
-                        <span>@item.Shown</span>
-                        @ItemActions(item)
-                    }
-                </li>
+                <p>No treatments yet.</p>
             }
-        </ul>
-        <div class="field">
-            <label for="new-treatment">Add a treatment</label>
-            <input id="new-treatment" @bind="_session.NewTreatment.Name" @bind:event="oninput" />
-            <span class="field-help">Spelled the way every campaign should spell it, such as "Wellness injection".</span>
-        </div>
-        <div class="field">
-            <label for="new-treatment-price">Regular price, in dollars (optional)</label>
-            <input id="new-treatment-price" inputmode="decimal" @bind="_session.NewTreatment.RegularPrice" @bind:event="oninput" />
-            <span class="field-help">What it usually costs, such as 5,100.</span>
-        </div>
-        <button class="button primary" @onclick="() => _session.AddTreatmentAsync()">Add treatment</button>
-    </section>
-
-    <h2>Benefit lines</h2>
-    <section class="card" aria-label="Benefit lines">
-        @if (items.Benefits.Count == 0)
-        {
-            <p>No benefit lines yet.</p>
-        }
-        <ul class="known-items">
-            @foreach (var item in items.Benefits)
-            {
-                @* Each line has its own anchor, so a finding about its range can link straight here;
-                   arrive.js scrolls to it, marks it for a moment and puts focus in the box the
-                   link names (data-cap, FindingPlace.CapBox), or its first. *@
-                <li id="@FindingPlace.KnownLineAnchor(item.Id)" class="known-line" tabindex="-1">
-                    @if (_session.Editing?.Id == item.Id && _session.EditBenefit is { } editing && _session.EditLimits is { } limits)
-                    {
-                        <BenefitFields Benefit="editing" Id="edit" Label="Benefit" Changed="KindMayHaveChanged" />
-                        @LimitFields(limits, editing, "edit")
-                        @EditActions
-                    }
-                    else
-                    {
-                        <span>@item.Shown</span>
-                        @CapsFields(item)
-                        @ItemActions(item)
-                    }
-                </li>
-            }
-        </ul>
-        <h3>Add a benefit line</h3>
-        <p class="field-help">The amounts you type are the usual ones: picking the line in a campaign fills them in, and you can change them there.</p>
-        <BenefitFields Benefit="_session.NewBenefit" Id="new" Label="Kind of benefit" Changed="KindMayHaveChanged" />
-        @LimitFields(_session.NewLimits, _session.NewBenefit, "new")
-        <button class="button primary" @onclick="() => _session.AddBenefitAsync()">Add benefit line</button>
-    </section>
-
-    <h2>Offers and tiers</h2>
-    <section class="card" aria-label="Offers and tiers">
-        @if (items.Tiers.Count == 0)
-        {
-            <p>No tiers yet.</p>
-        }
-        @foreach (var item in items.Tiers)
-        {
-            <section class="card tier" aria-label="@item.Name">
-                @if (_session.Editing?.Id == item.Id && _session.EditTier is { } editing)
+            <ul class="known-items">
+                @foreach (var item in items.Treatments)
                 {
-                    @TierFields(editing, "edit")
-                    @EditActions
-                }
-                else
-                {
-                    <h3>@item.Name, @item.PriceShown</h3>
-                    <ul>
-                        @foreach (var line in item.Benefits)
+                    <li>
+                        @if (_session.Editing?.Id == item.Id && _session.EditTreatment is { } editing)
                         {
-                            <li>@line.Describe()</li>
+                            <div class="field">
+                                <label for="edit-treatment">Name</label>
+                                <input id="edit-treatment" @bind="editing.Name" @bind:event="oninput" />
+                            </div>
+                            <div class="field">
+                                <label for="edit-treatment-price">Regular price, in dollars (optional)</label>
+                                <input id="edit-treatment-price" inputmode="decimal" @bind="editing.RegularPrice" @bind:event="oninput" />
+                            </div>
+                            @EditActions
                         }
-                    </ul>
-                    @ItemActions(item)
+                        else
+                        {
+                            <span>@item.Shown</span>
+                            @ItemActions(item)
+                        }
+                    </li>
                 }
-            </section>
-        }
-        <h3>Build a tier</h3>
-        @TierFields(_session.NewTier, "new")
-        <button class="button primary" @onclick="() => _session.AddTierAsync()">Add tier</button>
-    </section>
-
-    <LaddersSection />
+            </ul>
+        </section>
+    }
+    else if (tab == KnownItemsTab.BenefitLines)
+    {
+        <h2>Benefit lines</h2>
+        <section class="card" aria-label="Benefit lines">
+            <h3>Add a benefit line</h3>
+            <p class="field-help">The amounts you type are the usual ones: picking the line in a campaign fills them in, and you can change them there.</p>
+            <BenefitFields Benefit="_session.NewBenefit" Id="new" Label="Kind of benefit" Changed="KindMayHaveChanged" />
+            @LimitFields(_session.NewLimits, _session.NewBenefit, "new")
+            <button class="button primary" @onclick="() => _session.AddBenefitAsync()">Add benefit line</button>
+            @if (items.Benefits.Count == 0)
+            {
+                <p>No benefit lines yet.</p>
+            }
+            <ul class="known-items">
+                @foreach (var item in items.Benefits)
+                {
+                    @* Each line has its own anchor, so a finding about its range can link straight here
+                       (to this tab, FindingPlace.KnownLineLink); arrive.js scrolls to it, marks it for a
+                       moment and puts focus in the box the link names (data-cap, FindingPlace.CapBox),
+                       or its first. *@
+                    <li id="@FindingPlace.KnownLineAnchor(item.Id)" class="known-line" tabindex="-1">
+                        @if (_session.Editing?.Id == item.Id && _session.EditBenefit is { } editing && _session.EditLimits is { } limits)
+                        {
+                            <BenefitFields Benefit="editing" Id="edit" Label="Benefit" Changed="KindMayHaveChanged" />
+                            @LimitFields(limits, editing, "edit")
+                            @EditActions
+                        }
+                        else
+                        {
+                            <span>@item.Shown</span>
+                            @CapsFields(item)
+                            @ItemActions(item)
+                        }
+                    </li>
+                }
+            </ul>
+        </section>
+    }
+    else if (tab == KnownItemsTab.Tiers)
+    {
+        <h2>Offers and tiers</h2>
+        <section class="card" aria-label="Offers and tiers">
+            <h3>Build a tier</h3>
+            @TierFields(_session.NewTier, "new")
+            <button class="button primary" @onclick="() => _session.AddTierAsync()">Add tier</button>
+            @if (items.Tiers.Count == 0)
+            {
+                <p>No tiers yet.</p>
+            }
+            @foreach (var item in items.Tiers)
+            {
+                <section class="card tier" aria-label="@item.Name">
+                    @if (_session.Editing?.Id == item.Id && _session.EditTier is { } editing)
+                    {
+                        @TierFields(editing, "edit")
+                        @EditActions
+                    }
+                    else
+                    {
+                        <h3>@item.Name, @item.PriceShown</h3>
+                        <ul>
+                            @foreach (var line in item.Benefits)
+                            {
+                                <li>@line.Describe()</li>
+                            }
+                        </ul>
+                        @ItemActions(item)
+                    }
+                </section>
+            }
+        </section>
+    }
+    else
+    {
+        <LaddersSection />
+    }
 }
 
 @code {
+    /// <summary>Which kind the page shows (<see cref="KnownItemsTab"/>): <c>?show=tiers</c>. Anything else, Treatments.</summary>
+    [SupplyParameterFromQuery(Name = "show")]
+    public string? Show { get; set; }
+
+    /// <summary>
+    /// The limit box a finding's link starts her in (<see cref="FindingPlace.CapBox(bool, string)"/>), read by
+    /// arrive.js; here, only that such a link opens Benefit lines, its tab, even without <c>?show=</c>.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = "cap")]
+    public string? Cap { get; set; }
+
+    // The tabs in order, each with how many she has of its kind. The ladders carry no count: the section
+    // reads them itself, only when shown, and with none of her own they are the standard ones.
+    private static IEnumerable<(string Kind, string Name)> Tabs(KnownItems items) =>
+    [
+        (KnownItemsTab.Treatments, $"Treatments ({items.Treatments.Count})"),
+        (KnownItemsTab.BenefitLines, $"Benefit lines ({items.Benefits.Count})"),
+        (KnownItemsTab.Tiers, $"Tiers ({items.Tiers.Count})"),
+        (KnownItemsTab.Ladders, "Tier name ladders"),
+    ];
+
     private string? _denied;
     private string? _displayName;
     private KnownItemsSession? _session;
