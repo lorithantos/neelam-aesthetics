@@ -19,15 +19,20 @@ public sealed class TemplateSession : IWatched<SaveRef>
 {
     private readonly CampaignStore _store;
 
-    private TemplateSession(CampaignStore store, Guid? id, TemplateEditor editor, SaveRef? latest, SaveRef? restorable = null)
+    private TemplateSession(
+        CampaignStore store, Guid? id, TemplateEditor editor, SaveRef? latest, SaveRef? restorable = null, int versions = 0)
     {
         _store = store;
         Id = id;
         Editor = editor;
         Latest = latest;
         Restorable = restorable;
+        _versions = versions;
         if (latest is not null) MarkSaved();
     }
+
+    // How many saves of the template are in use: undoing the only one takes the template off her list.
+    private int _versions;
 
     // The template as last saved or opened, to tell an edit since then; null before the first save, and
     // for one opened with errors, which then always counts as holding something unsaved.
@@ -59,6 +64,16 @@ public sealed class TemplateSession : IWatched<SaveRef>
     public DateTimeOffset? RestorableUntil => Restorable is null ? null : _store.RestorableUntil(Restorable);
 
     /// <summary>
+    /// True when undoing the last save leaves no version in use: the template goes from her list,
+    /// restorable for the grace period, so the page calls it deleting, as the campaign page does
+    /// (owner, 2026-11-03).
+    /// </summary>
+    public bool UndoDeletesTheTemplate => Latest is not null && _versions <= 1;
+
+    /// <summary>What the page asks before an undo, with the grace period in words (<see cref="ChangeWords.UndoQuestion"/>).</summary>
+    public string UndoQuestion => ChangeWords.Template.UndoQuestion(_store.UndoGracePeriod, UndoDeletesTheTemplate);
+
+    /// <summary>
     /// True when the form holds anything not in <see cref="Latest"/>, or nothing is saved yet. A form
     /// that cannot be built as a template (it has errors) holds something unsaved by definition.
     /// </summary>
@@ -84,11 +99,12 @@ public sealed class TemplateSession : IWatched<SaveRef>
     /// </summary>
     public static async Task<TemplateSession?> OpenAsync(CampaignStore store, Guid id, BlockCatalog catalog, CancellationToken ct = default)
     {
-        var latest = (await store.HistoryAsync(DocumentKind.Template, id, ct)).FirstOrDefault();
+        var history = await store.HistoryAsync(DocumentKind.Template, id, ct);
+        var latest = history.FirstOrDefault();
         return latest is null
             ? null
             : new TemplateSession(store, id, TemplateEditor.Open(await store.LoadTemplateAsync(latest, ct), catalog), latest,
-                await store.RestorableAsync(DocumentKind.Template, id, ct));
+                await store.RestorableAsync(DocumentKind.Template, id, ct), history.Count);
     }
 
     /// <summary>The undone version of a template Restore would bring back, or null.</summary>
@@ -145,6 +161,7 @@ public sealed class TemplateSession : IWatched<SaveRef>
         var template = Editor.Build();
         Id ??= Guid.NewGuid();
         Latest = await _store.SaveTemplateAsync(Id.Value, template, ct);
+        _versions++;
         // Saved over: an undone version below the new one is no longer offered back.
         Restorable = null;
         MarkSaved();
@@ -207,7 +224,9 @@ public sealed class TemplateSession : IWatched<SaveRef>
     // Reads the template back from storage after an undo or a restore.
     private async Task<bool> ReopenAsync(CancellationToken ct)
     {
-        Latest = (await _store.HistoryAsync(DocumentKind.Template, Id!.Value, ct)).FirstOrDefault();
+        var history = await _store.HistoryAsync(DocumentKind.Template, Id!.Value, ct);
+        Latest = history.FirstOrDefault();
+        _versions = history.Count;
         Restorable = await _store.RestorableAsync(DocumentKind.Template, Id.Value, ct);
         if (Latest is null)
         {

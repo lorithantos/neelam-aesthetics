@@ -23,6 +23,7 @@
    click landing back on the list. *@
 @attribute [StreamRendering]
 @rendermode InteractiveServer
+@inherits WatchedComponent<SaveRef>
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
@@ -35,10 +36,6 @@
 @inject ProofreadSwitch Proofreading
 @inject IProofreader Proofreader
 @inject DailyProofreadAllowance Allowance
-@inject TimeProvider Clock
-@inject CampaignSignals Signals
-@inject Microsoft.Extensions.Options.IOptions<CampaignWatchOptions> WatchOptions
-@implements IDisposable
 
 <PageTitle>@Title</PageTitle>
 
@@ -90,7 +87,7 @@ else if (_session is not null)
     var warningsFirst = WarningsBeforeExport();
     // What storage says changed since this page's version, by its last read: anything, and the page
     // says so, and neither the export nor its list of warnings is offered from it.
-    var change = _watch?.Change ?? CampaignChange.None;
+    var change = StorageChange;
     // The export only from a read of storage since it was last not offered, that agrees with the page:
     // never from what the page holds alone (ExportConfirmed).
     var exportStale = change != CampaignChange.None && (exportReport is not null || warningsFirst.Count > 0);
@@ -163,33 +160,19 @@ else if (_session is not null)
         }
     </div>
 
-    @if (change != CampaignChange.None)
-    {
-        @* The owner's "modified" (2026-10-11). Nothing on the page is replaced until she chooses: what
-           she typed stays, and Load the latest says what it does to it. *@
-        <section class="card" role="alert" data-testid="modified-notice">
-            <p data-testid="modified-what">@DraftSession.ChangedNotice(change)</p>
-            @if (_session.HasUnsavedChanges)
-            {
-                <p class="field-help" data-testid="modified-unsaved">Your changes on this page are not saved. Loading the latest replaces them, so copy anything you want to keep first.</p>
-            }
-            @* Keep mine (owner, 2026-10-11) where the page holds another version than the newest: hers,
-               edited or not, saved again as the newest; nothing is deleted. Not for an approval
-               changed elsewhere, where the content is the same and there is nothing to keep. *@
-            @if (change is CampaignChange.SavedSince or CampaignChange.Undone)
-            {
-                var edited = _session.HasUnsavedChanges;
-                <button class="button" data-testid="keep-mine" disabled="@(errors.Count > 0)" @onclick="KeepMineAsync">@(edited ? "Keep mine" : "Use this version again")</button>
-            }
-            <button class="button primary" data-testid="load-latest" @onclick="LoadLatestAsync">Load the latest</button>
-            @if (change is CampaignChange.SavedSince or CampaignChange.Undone)
-            {
-                <p class="field-help" data-testid="keep-mine-help">@(_session.HasUnsavedChanges
-                    ? "Keep mine saves what's on this page as the newest version."
-                    : "Use this version again saves this version as the newest.") The other version stays in the campaign's history.</p>
-            }
-        </section>
-    }
+    @* The owner's "modified" (2026-10-11). Nothing on the page is replaced until she chooses: what she
+       typed stays, and Load the latest says what it does to it. Keep mine (owner, 2026-10-11) where the
+       page holds another version than the newest: hers, edited or not, saved again as the newest;
+       nothing is deleted. Not for an approval changed elsewhere, where the content is the same and
+       there is nothing to keep. *@
+    var edited = _session.HasUnsavedChanges;
+    <ModifiedNotice Words="ChangeWords.Campaign" Change="change" OnLoadLatest="LoadLatestAsync"
+                    Unsaved="@(edited ? ModifiedNotice.ChangesNotSaved : null)"
+                    KeepMine="KeepMineWhen.OnChange" OnKeepMine="KeepMineAsync" KeepMineDisabled="errors.Count > 0"
+                    KeepMineLabel="@(edited ? "Keep mine" : "Use this version again")"
+                    KeepMineHelp="@((edited
+                        ? "Keep mine saves what's on this page as the newest version."
+                        : "Use this version again saves this version as the newest.") + " The other version stays in the campaign's history.")" />
 
     <div class="workspace">
         <div class="workspace-main">
@@ -315,24 +298,12 @@ else if (_session is not null)
                 @if (_session.Latest is { } latest)
                 {
                     <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
-                    @* Undo last save only while there is a version before the newest to go back to:
-                       with none, undoing it would be the same as deleting. *@
-                    @if (_confirmingUndo)
-                    {
-                        <p>@_session.UndoQuestion</p>
-                        <button class="button danger" data-testid="undo-confirm" @onclick="UndoAsync">Undo it</button>
-                        <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
-                    }
-                    else if (!_session.UndoDeletesTheCampaign)
-                    {
-                        <button class="button" data-testid="undo-button" @onclick="() => (_confirmingUndo, _confirmingDelete) = (true, false)">Undo last save</button>
-                    }
                 }
-                @if (_session.Restorable is not null)
-                {
-                    <p class="field-help">The last undo can be taken back until @Times.DateAndTime(_session.RestorableUntil!.Value).</p>
-                    <button class="button" @onclick="RestoreAsync">Restore undone save</button>
-                }
+                @* Undo last save only while there is a version before the newest to go back to: with
+                   none, undoing it would be the same as deleting, which Delete campaign below offers. *@
+                <UndoRestore CanUndo="_session.Latest is not null" Confirming="_confirmingUndo" ConfirmingChanged="ConfirmUndo"
+                             Question="@_session.UndoQuestion" UndoDeletes="_session.UndoDeletesTheCampaign" OnUndo="UndoAsync"
+                             RestorableUntil="_session.RestorableUntil" Times="Times" OnRestore="RestoreAsync" />
                 @* Delete takes the whole campaign, every version, restorable for the grace period
                    (Priya, 2026-10-31). In the Save card, last and set apart, in the destructive style and
                    saying so in words, not colour alone (owner, 2026-10-31: "let's make it very clear that
@@ -814,6 +785,13 @@ else
     private bool _confirmingUndo;
     private bool _confirmingDelete;
 
+    // Asking before an undo closes the question before a delete; Keep it closes only its own.
+    private void ConfirmUndo(bool asking)
+    {
+        _confirmingUndo = asking;
+        if (asking) _confirmingDelete = false;
+    }
+
     // Her templates, the newest version of each, for the Template picker: read as the page opens, and
     // again after each template action and Load the latest, so a version saved meanwhile is seen.
     private IReadOnlyList<SaveRef> _templates = [];
@@ -944,9 +922,8 @@ else
         }
         await LoadTemplatesAsync();
         // What the campaign was just opened with is storage's as of now; listening and the timer start
-        // once the page is live (OnAfterRenderAsync), never while it is rendered ahead of time.
-        _watch = new PageWatch<SaveRef>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
-        _watch.Watch(_session);
+        // once the page is live (WatchedComponent), never while it is rendered ahead of time.
+        Watch(_session);
         try
         {
             await LoadChecksAsync(client, actor);
@@ -973,58 +950,31 @@ else
 
     private Actor? _actor;
 
-    // Reads storage for changes to this campaign: at once on this instance (CampaignSignals), every
-    // CampaignWatch:Interval from anywhere, after each of the page's own actions, and before the export
-    // is offered again. Null until the page has opened.
-    private PageWatch<SaveRef>? _watch;
-
     // The watch's read last seen when the export was not offered (no approval in force): it is offered
-    // again only from a later read, so it never comes back from what the page alone holds.
+    // again only from a later read, so it never comes back from what the page alone holds. The watch
+    // (WatchedComponent.Watcher) also reads before the export is offered again; null until the page has opened.
     private int _exportVoidAt;
     private int? _exportCheckAsked;
 
     private bool ExportConfirmed(CampaignChange change) =>
-        change == CampaignChange.None && _watch is not null && _watch.Observations > _exportVoidAt;
+        change == CampaignChange.None && Watcher is not null && Watcher.Observations > _exportVoidAt;
 
-    // The watch's news, on this page's circuit, and the page drawn again with it.
-    private Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
-    {
-        await work();
-        StateHasChanged();
-    });
-
+    // Live on its circuit, the watch started (WatchedComponent.OnAfterRender, from the first render after
+    // the campaign is open; the page renders "One moment" before): whether the export may be offered.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_watch is null) return;
-        // Live on its circuit: from the first render after the campaign is open (the page renders
-        // "One moment" before), and only once.
-        _watch.Start();
+        if (Watcher is not { } watch) return;
         if (_session?.CurrentApproval is null)
         {
-            _exportVoidAt = _watch.Observations;
+            _exportVoidAt = watch.Observations;
             return;
         }
         // Offered again since the last read: read once more, and the export shows if storage agrees.
-        if (_watch.Observations <= _exportVoidAt && _exportCheckAsked != _exportVoidAt)
+        if (watch.Observations <= _exportVoidAt && _exportCheckAsked != _exportVoidAt)
         {
             _exportCheckAsked = _exportVoidAt;
-            await _watch.CheckAsync();
+            await watch.CheckAsync();
             StateHasChanged();
-        }
-    }
-
-    // One of the page's own actions: what storage says while it runs is not news, and storage is read
-    // again once it is done, so the page knows where it stands, someone else's change included.
-    private async Task ActingAsync(Func<Task> action)
-    {
-        _watch?.Begin();
-        try
-        {
-            await action();
-        }
-        finally
-        {
-            if (_watch is not null) await _watch.EndAsync();
         }
     }
 
@@ -1046,7 +996,7 @@ else
             _unreadable = ex.Message;
         }
         _session = latest;
-        _watch!.Watch(latest);
+        Watch(latest);
         ForgetTemplateChoice();
         await LoadTemplatesAsync();
         if (latest is not null)
@@ -1085,7 +1035,7 @@ else
         var before = _session.Latest;
         var saved = await _session.SaveAsync();
         // A campaign saved for the first time is watched from now.
-        if (isNew) _watch?.Watch(_session);
+        if (isNew) Watch(_session);
         _message = DraftSession.SavedMessage(before, saved, Times);
         _confirmingUndo = _confirmingDelete = false;
         // A new version: what was said of the last one's proofread, or of a fix put in, no longer applies.
@@ -1151,7 +1101,7 @@ else
         // Nothing left in use: the campaign is gone from the list, and can still be restored.
         _undone = _session.Restorable;
         _session = null;
-        _watch?.Watch(null);
+        Watch(null);
         _message = null;
         if (_undone is null) _missing = "Campaign not found";
     });
@@ -1174,7 +1124,7 @@ else
         ForgetTemplateChoice();
         _undone = _session.Restorable;
         _session = null;
-        _watch?.Watch(null);
+        Watch(null);
         _message = null;
         if (_undone is null) _missing = "Campaign not found";
     });
@@ -1191,7 +1141,7 @@ else
     private Task RestoreUndoneAsync() => ActingAsync(async () =>
     {
         _session = await DraftSession.RestoreAsync(_store!, _undone!);
-        _watch?.Watch(_session);
+        Watch(_session);
         _undone = null;
         ForgetTemplateChoice();
         await LoadTemplatesAsync();
@@ -1315,7 +1265,4 @@ else
     // Square's name for each kind, from the same table the assistant export writes its types from.
     private static string KindName(BlockKind kind) =>
         SquareWidgets.ByKind.TryGetValue(kind, out var widget) ? widget.DisplayName : kind.ToString();
-
-    // With the circuit: the timer stops and the page stops listening.
-    public void Dispose() => _watch?.Dispose();
 }

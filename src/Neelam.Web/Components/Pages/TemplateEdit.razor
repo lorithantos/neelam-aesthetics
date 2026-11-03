@@ -8,16 +8,13 @@
    newest. Save itself is not checked yet (phase 3). *@
 @attribute [Authorize(Policy = Features.Templates)]
 @rendermode InteractiveServer
+@inherits WatchedComponent<SaveRef>
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
 @inject BlockCatalog Blocks
-@inject CampaignSignals Signals
-@inject TimeProvider Clock
 @inject IAuthorizationService Authorization
-@inject Microsoft.Extensions.Options.IOptions<CampaignWatchOptions> WatchOptions
 @inject ILogger<TemplateEdit> Log
-@implements IDisposable
 
 <PageTitle>@Title</PageTitle>
 
@@ -45,8 +42,6 @@ else if (_session is not null)
     var errors = editor.Errors();
     var advice = editor.Advice(_policy, _photos.Select(p => p.Name).ToList());
     var missing = editor.Missing(_baseline);
-    // What storage says changed since this page's version, by its last read.
-    var change = _watch?.Change ?? CampaignChange.None;
 
     <h1>@Title</h1>
     <KnownItemLists Known="_known" />
@@ -70,19 +65,10 @@ else if (_session is not null)
         }
     }
 
-    @if (change != CampaignChange.None)
-    {
-        @* The owner's "modified" (2026-10-11), as on the campaign page. Nothing on the page is replaced
-           until she chooses: what she typed stays, and Load the latest says what it does to it. *@
-        <section class="card" role="alert" data-testid="modified-notice">
-            <p data-testid="modified-what">@TemplateSession.ChangedNotice(change)</p>
-            @if (_session.HasUnsavedChanges)
-            {
-                <p class="field-help" data-testid="modified-unsaved">Your changes on this page are not saved. Loading the latest replaces them, so copy anything you want to keep first.</p>
-            }
-            <button class="button primary" data-testid="load-latest" @onclick="LoadLatestAsync">Load the latest</button>
-        </section>
-    }
+    @* The owner's "modified" (2026-10-11), as on the campaign page, without Keep mine: what she typed
+       stays until she loads the latest, and the notice says what loading does to it. *@
+    <ModifiedNotice Words="ChangeWords.Template" Change="StorageChange" OnLoadLatest="LoadLatestAsync"
+                    Unsaved="@(_session.HasUnsavedChanges ? ModifiedNotice.ChangesNotSaved : null)" />
 
     <div class="workspace">
         <div class="workspace-main">
@@ -299,22 +285,12 @@ else if (_session is not null)
                 @if (_session.Latest is { } latest)
                 {
                     <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
-                    @if (_confirmingUndo)
-                    {
-                        <p>@ChangeWords.Template.UndoQuestion(_store!.UndoGracePeriod)</p>
-                        <button class="button danger" data-testid="undo-confirm" @onclick="UndoAsync">Undo it</button>
-                        <button class="button" @onclick="() => _confirmingUndo = false">Keep it</button>
-                    }
-                    else
-                    {
-                        <button class="button" data-testid="undo-button" @onclick="() => _confirmingUndo = true">Undo last save</button>
-                    }
                 }
-                @if (_session.Restorable is not null)
-                {
-                    <p class="field-help">The last undo can be taken back until @Times.DateAndTime(_session.RestorableUntil!.Value).</p>
-                    <button class="button" @onclick="RestoreAsync">Restore undone save</button>
-                }
+                @* Undoing the only save deletes the template, restorable for the grace period, so it is
+                   called that (owner, 2026-11-03), as on the campaign page; the template has no other Delete. *@
+                <UndoRestore CanUndo="_session.Latest is not null" @bind-Confirming="_confirmingUndo" Question="@_session.UndoQuestion"
+                             UndoDeletes="_session.UndoDeletesTheTemplate" DeleteLabel="Delete template" OnUndo="UndoAsync"
+                             RestorableUntil="_session.RestorableUntil" Times="Times" OnRestore="RestoreAsync" />
             </section>
 
             @if (advice.Count > 0)
@@ -409,37 +385,8 @@ else if (_session is not null)
             Log.LogError(ex, "Could not read the known items of {Client}; the template page goes on without them.", client.Value);
         }
         // What the template was just opened with is storage's as of now; listening and the timer start
-        // once the page is live (OnAfterRender), never while it is rendered ahead of time.
-        _watch = new PageWatch<SaveRef>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
-        _watch.Watch(_session);
-    }
-
-    // Reads storage for changes to this template: at once on this instance (CampaignSignals), every
-    // CampaignWatch:Interval from anywhere, and after each of the page's own actions.
-    private PageWatch<SaveRef>? _watch;
-
-    // The watch's news, on this page's circuit, and the page drawn again with it.
-    private Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
-    {
-        await work();
-        StateHasChanged();
-    });
-
-    protected override void OnAfterRender(bool firstRender) => _watch?.Start();
-
-    // One of the page's own actions: what storage says while it runs is not news, and storage is read
-    // again once it is done, so the page knows where it stands, someone else's change included.
-    private async Task ActingAsync(Func<Task> action)
-    {
-        _watch?.Begin();
-        try
-        {
-            await action();
-        }
-        finally
-        {
-            if (_watch is not null) await _watch.EndAsync();
-        }
+        // once the page is live (WatchedComponent), never while it is rendered ahead of time.
+        Watch(_session);
     }
 
     // "Load the latest": the template as storage has it now, replacing what is on the page, unsaved
@@ -449,7 +396,7 @@ else if (_session is not null)
         _confirmingUndo = false;
         var id = _session!.Id!.Value;
         _session = await TemplateSession.OpenAsync(_store!, id, Blocks);
-        _watch!.Watch(_session);
+        Watch(_session);
         if (_session is not null)
         {
             _message = "The latest version is open.";
@@ -466,7 +413,7 @@ else if (_session is not null)
         var isNew = _session!.Id is null;
         var saved = await _session.SaveAsync();
         // A template saved for the first time is watched from now.
-        if (isNew) _watch?.Watch(_session);
+        if (isNew) Watch(_session);
         _message = $"Saved at {Times.TimeOfDay(saved.SavedAt)}.";
         _confirmingUndo = false;
         // The address now names the template, so a reload opens what was saved.
@@ -497,7 +444,7 @@ else if (_session is not null)
         // Nothing left in use: the template is gone from the list, and can still be restored.
         _undone = _session.Restorable;
         _session = null;
-        _watch?.Watch(null);
+        Watch(null);
         _message = null;
         _missing = _undone is null;
     });
@@ -513,12 +460,9 @@ else if (_session is not null)
     private Task RestoreUndoneAsync() => ActingAsync(async () =>
     {
         _session = await TemplateSession.RestoreAsync(_store!, _undone!, Blocks);
-        _watch?.Watch(_session);
+        Watch(_session);
         _undone = null;
         _missing = _session is null;
         if (_session is not null) _message = "The undone save is back and open.";
     });
-
-    // With the circuit: the timer stops and the page stops listening.
-    public void Dispose() => _watch?.Dispose();
 }

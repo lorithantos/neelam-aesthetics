@@ -3,43 +3,25 @@
    a working copy until she saves them as her own. Another tab or person may change them while this is
    open (2026-10-11, phase 2): as for the baseline, PageWatch tells the section, each save is made only
    while her newest version is still the one shown, and "Use the standard ladders" deletes nothing. *@
+@inherits WatchedComponent<DocumentVersion>
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
-@inject CampaignSignals Signals
-@inject TimeProvider Clock
-@inject Microsoft.Extensions.Options.IOptions<CampaignWatchOptions> WatchOptions
-@inject ILogger<LaddersSection> Log
-@implements IDisposable
 
 @if (_client is not null && _inForce is not null && _working is not null)
 {
-    var change = _watch?.Change ?? CampaignChange.None;
     <h2 id="ladders-heading">Tier name ladders</h2>
     <section class="card" aria-labelledby="ladders-heading">
         <p class="muted" data-testid="ladders-status">@(_inForce.IsOwn ? "Your own ladders." : "The standard ladders.")
             Tier names that use these words tell readers which tier is which. The checks point out two tiers
             on the same word, and, on an ordered ladder, a higher word that costs less. Neither stops an email.</p>
 
-        @if (change != CampaignChange.None || _refused is not null)
-        {
-            @* As for the baseline: what she changed here stays until she loads the latest; after a save
-               refused, Keep mine saves hers over the other version. *@
-            <div class="card" role="alert" data-testid="ladders-modified">
-                @if (change != CampaignChange.None)
-                {
-                    <p data-testid="ladders-modified-what">@HeldDocument.ChangedNotice(WatchSubject.Ladders, change)</p>
-                }
-                @if (_refused is not null)
-                {
-                    <p data-testid="ladders-refused">@_refused.Value.Message</p>
-                    <button class="button" data-testid="ladders-keep-mine" @onclick="KeepMineAsync">Keep mine</button>
-                }
-                <button class="button primary" data-testid="ladders-load-latest" @onclick="LoadLatestAsync">Load the latest</button>
-                <p class="field-help">@(_refused is not null
-                    ? "Keep mine saves yours as the newest; the other version stays stored. Load the latest shows the other version and replaces what you changed here."
-                    : "Load the latest replaces what you changed here and have not saved.")</p>
-            </div>
-        }
+        @* As for the baseline: what she changed here stays until she loads the latest; after a save
+           refused, Keep mine saves hers over the other version. *@
+        <ModifiedNotice Words="ChangeWords.Ladders" Change="StorageChange" Refused="@_refused?.Message" KeepMine="KeepMineWhen.AfterRefusal"
+                        OnKeepMine="KeepMineAsync" OnLoadLatest="LoadLatestAsync" Prefix="ladders-" TestId="ladders-modified" Inline="true"
+                        Help="@(_refused is not null
+                            ? "Keep mine saves yours as the newest; the other version stays stored. Load the latest shows the other version and replaces what you changed here."
+                            : "Load the latest replaces what you changed here and have not saved.")" />
         @if (_working.Ladders.Count == 0)
         {
             <p>No ladders: tier names are not read against any.</p>
@@ -117,9 +99,8 @@
     private bool _newOrdered;
     private string? _message;
 
-    // Her ladders as this section shows them, and the section's look at storage for changes to them.
+    // Her ladders as this section shows them, which the section's look at storage watches.
     private HeldDocument? _held;
-    private PageWatch<DocumentVersion>? _watch;
 
     // A save refused because her ladders changed since they were shown: what was said, and the same save
     // again over the other version, for Keep mine.
@@ -130,8 +111,7 @@
         (_client, _) = await Workspace.ClientDataAsync();
         if (_client is null) return;
         await LoadAsync();
-        _watch = new PageWatch<DocumentVersion>(Signals, Clock, WatchOptions.Value.Interval, OnCircuitAsync, Log);
-        _watch.Watch(_held);
+        Watch(_held);
     }
 
     private async Task LoadAsync()
@@ -142,20 +122,11 @@
         _refused = null;
     }
 
-    // The watch's news, on this section's circuit, and the section drawn again with it.
-    private Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
-    {
-        await work();
-        StateHasChanged();
-    });
-
-    protected override void OnAfterRender(bool firstRender) => _watch?.Start();
-
     // One save: refused when her ladders changed since they were shown, and then offered again as Keep
-    // mine. Done, the section reads her ladders again; what storage says meanwhile is not news.
-    private async Task SavingAsync(Func<bool, Task<string>> save)
+    // mine. Done, the section reads her ladders again, and watches what it holds now; what storage says
+    // meanwhile is not news.
+    private Task SavingAsync(Func<bool, Task<string>> save) => ActingAsync(async () =>
     {
-        _watch?.Begin();
         try
         {
             _message = await save(false);
@@ -168,13 +139,9 @@
         }
         finally
         {
-            if (_watch is not null)
-            {
-                _watch.Watch(_held);
-                await _watch.EndAsync();
-            }
+            Watch(_held);
         }
-    }
+    });
 
     // "Keep mine": the refused save, made over the other version, which stays stored.
     private async Task KeepMineAsync()
@@ -184,9 +151,8 @@
     }
 
     // "Load the latest": her ladders as storage has them now, replacing what she changed here. Only ever on her click.
-    private async Task LoadLatestAsync()
+    private Task LoadLatestAsync() => ActingAsync(async () =>
     {
-        _watch?.Begin();
         try
         {
             await LoadAsync();
@@ -194,16 +160,9 @@
         }
         finally
         {
-            if (_watch is not null)
-            {
-                _watch.Watch(_held);
-                await _watch.EndAsync();
-            }
+            Watch(_held);
         }
-    }
-
-    // With the circuit: the timer stops and the section stops listening.
-    public void Dispose() => _watch?.Dispose();
+    });
 
     private void Change(int index, TierLadder ladder)
     {

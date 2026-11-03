@@ -1,0 +1,112 @@
+@* The owner's "modified" (2026-10-11), one notice for every page that watches storage: what changed and
+   that another tab or person did it, then "Load the latest", which is only ever her click. Nothing on the
+   page is replaced until she chooses. Where Keep mine is offered, and what the help under it says, are
+   each page's own (owner, 2026-10-11): on a change on the campaign page, only after a refused save in the
+   baseline and ladders sections, never on the template and Look pages. Test ids keep each page's own
+   names: Prefix before every one, TestId for the notice itself. *@
+
+@if (Change != CampaignChange.None || Refused is not null)
+{
+    @if (Inline)
+    {
+        <div class="card" role="alert" data-testid="@TestId">@Content</div>
+    }
+    else
+    {
+        <section class="card" role="alert" data-testid="@TestId">@Content</section>
+    }
+}
+
+@code {
+    /// <summary>What a page says beside "Load the latest" when it holds unsaved changes it would lose.</summary>
+    public const string ChangesNotSaved =
+        "Your changes on this page are not saved. Loading the latest replaces them, so copy anything you want to keep first.";
+
+    /// <summary>The words for what the page shows.</summary>
+    [Parameter, EditorRequired]
+    public ChangeWords Words { get; set; } = default!;
+
+    /// <summary>What storage says changed, by the page's last read.</summary>
+    [Parameter]
+    public CampaignChange Change { get; set; }
+
+    /// <summary>Why the page's own save was just refused, or null; shown even before the read after it says what changed.</summary>
+    [Parameter]
+    public string? Refused { get; set; }
+
+    /// <summary>When Keep mine is offered beside "Load the latest".</summary>
+    [Parameter]
+    public KeepMineWhen KeepMine { get; set; }
+
+    [Parameter]
+    public string KeepMineLabel { get; set; } = "Keep mine";
+
+    [Parameter]
+    public bool KeepMineDisabled { get; set; }
+
+    [Parameter]
+    public EventCallback OnKeepMine { get; set; }
+
+    /// <summary>Under the buttons while Keep mine is offered: what it does.</summary>
+    [Parameter]
+    public string? KeepMineHelp { get; set; }
+
+    /// <summary>Above the buttons: what loading does to what she has not saved, or null to say nothing.</summary>
+    [Parameter]
+    public string? Unsaved { get; set; }
+
+    /// <summary>Under the buttons, always.</summary>
+    [Parameter]
+    public string? Help { get; set; }
+
+    [Parameter, EditorRequired]
+    public EventCallback OnLoadLatest { get; set; }
+
+    /// <summary>Before every test id inside the notice, such as "baseline-".</summary>
+    [Parameter]
+    public string Prefix { get; set; } = "";
+
+    /// <summary>The notice's own test id.</summary>
+    [Parameter]
+    public string TestId { get; set; } = "modified-notice";
+
+    /// <summary>Inside another card (a section of a page): a div rather than a section of its own.</summary>
+    [Parameter]
+    public bool Inline { get; set; }
+
+    private bool KeepMineOffered => KeepMine switch
+    {
+        KeepMineWhen.OnChange => Change is CampaignChange.SavedSince or CampaignChange.Undone,
+        KeepMineWhen.AfterRefusal => Refused is not null,
+        _ => false,
+    };
+
+    private RenderFragment Content => __builder =>
+    {
+        @if (Change != CampaignChange.None)
+        {
+            <p data-testid="@($"{Prefix}modified-what")">@Words.Notice(Change)</p>
+        }
+        @if (Unsaved is not null)
+        {
+            <p class="field-help" data-testid="@($"{Prefix}modified-unsaved")">@Unsaved</p>
+        }
+        @if (Refused is not null)
+        {
+            <p data-testid="@($"{Prefix}refused")">@Refused</p>
+        }
+        @if (KeepMineOffered)
+        {
+            <button class="button" data-testid="@($"{Prefix}keep-mine")" disabled="@KeepMineDisabled" @onclick="OnKeepMine">@KeepMineLabel</button>
+        }
+        <button class="button primary" data-testid="@($"{Prefix}load-latest")" @onclick="OnLoadLatest">Load the latest</button>
+        @if (KeepMineOffered && KeepMineHelp is not null)
+        {
+            <p class="field-help" data-testid="@($"{Prefix}keep-mine-help")">@KeepMineHelp</p>
+        }
+        @if (Help is not null)
+        {
+            <p class="field-help">@Help</p>
+        }
+    };
+}

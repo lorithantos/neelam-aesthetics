@@ -1,0 +1,80 @@
+@* Undo last save and Restore, as the campaign, template and Look pages offer them (owner, 2026-10-09:
+   "Undo is forgiving for a day"): Undo asks first, with the question ChangeWords builds, and the undone
+   save can be restored until its grace period ends. When undoing the only save would delete the
+   document, the page calls it a delete (owner, 2026-11-03): with no DeleteLabel the button is not
+   offered, the page having its own Delete (the campaign page); with one, it is offered under that
+   name, and asks "Delete it" (the template page, which has no other). Whether she is being asked is
+   the page's, so its other actions can close the question. Test ids keep each page's own names. *@
+
+@if (CanUndo)
+{
+    @if (Confirming)
+    {
+        <p>@Question</p>
+        <button class="button danger" data-testid="@ConfirmId" @onclick="OnUndo">@(UndoDeletes ? "Delete it" : "Undo it")</button>
+        <button class="button" @onclick="() => ConfirmingChanged.InvokeAsync(false)">Keep it</button>
+    }
+    else if (!UndoDeletes || DeleteLabel is not null)
+    {
+        <button class="button" data-testid="@UndoId" @onclick="() => ConfirmingChanged.InvokeAsync(true)">@(UndoDeletes ? DeleteLabel : "Undo last save")</button>
+    }
+}
+@if (RestorableUntil is { } until)
+{
+    <p class="field-help" data-testid="@RestorableId">The last undo can be taken back until @Times.DateAndTime(until).</p>
+    <button class="button" data-testid="@RestoreId" @onclick="OnRestore">@RestoreLabel</button>
+}
+
+@code {
+    /// <summary>Whether there is a save to undo.</summary>
+    [Parameter]
+    public bool CanUndo { get; set; }
+
+    /// <summary>Whether the page is asking before an undo.</summary>
+    [Parameter]
+    public bool Confirming { get; set; }
+
+    [Parameter]
+    public EventCallback<bool> ConfirmingChanged { get; set; }
+
+    /// <summary>What is asked before an undo (<see cref="ChangeWords.UndoQuestion"/>).</summary>
+    [Parameter, EditorRequired]
+    public string Question { get; set; } = "";
+
+    /// <summary>Undoing the last save leaves nothing in use: it deletes the document, which can be restored.</summary>
+    [Parameter]
+    public bool UndoDeletes { get; set; }
+
+    /// <summary>The button's name when undoing deletes, or null to offer no button then.</summary>
+    [Parameter]
+    public string? DeleteLabel { get; set; }
+
+    [Parameter]
+    public EventCallback OnUndo { get; set; }
+
+    /// <summary>Until when the last undo can be taken back, or null when there is nothing to restore.</summary>
+    [Parameter]
+    public DateTimeOffset? RestorableUntil { get; set; }
+
+    /// <summary>The client's own zone, for that time.</summary>
+    [Parameter, EditorRequired]
+    public LocalTime Times { get; set; } = default!;
+
+    [Parameter]
+    public EventCallback OnRestore { get; set; }
+
+    [Parameter]
+    public string RestoreLabel { get; set; } = "Restore undone save";
+
+    [Parameter]
+    public string UndoId { get; set; } = "undo-button";
+
+    [Parameter]
+    public string ConfirmId { get; set; } = "undo-confirm";
+
+    [Parameter]
+    public string? RestorableId { get; set; }
+
+    [Parameter]
+    public string? RestoreId { get; set; }
+}
