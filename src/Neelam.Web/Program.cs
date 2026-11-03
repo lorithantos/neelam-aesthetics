@@ -94,12 +94,14 @@ builder.Services.AddSingleton(services =>
     new DailyProofreadAllowance(proofread.MaxPerClientPerDay, services.GetRequiredService<TimeProvider>()));
 
 // Undo marks a save and the sweep deletes it once the grace period has passed (owner, 2026-10-09).
-// The period is a setting, Undo:GracePeriod, required: the app refuses to start without it.
+// The period is a setting, Undo:GracePeriod, required: the app refuses to start without it, or with one
+// outside Undo:GracePeriodMinimum and Undo:GracePeriodMaximum (an hour and 90 days; owner, 2026-11-03).
 builder.Services.AddOptions<UndoOptions>()
     .Bind(builder.Configuration.GetSection(UndoOptions.Section))
     .Validate(undo => undo.Problem() is null,
-        "Undo:GracePeriod (required) and Undo:SweepInterval must be positive time spans, such as 1.00:00:00, " +
-        "and Undo:SweepInterval at most 49 days.")
+        "Undo:GracePeriod (required) must lie between Undo:GracePeriodMinimum and Undo:GracePeriodMaximum " +
+        "(01:00:00 and 90.00:00:00 unless set), such as 1.00:00:00, and Undo:SweepInterval must be a positive " +
+        "time span of at most 49 days.")
     .ValidateOnStart();
 var metadata = new TableMetadata(storageClients);
 builder.Services.AddSingleton<IClientDirectory>(metadata);

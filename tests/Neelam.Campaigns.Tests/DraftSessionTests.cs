@@ -201,7 +201,8 @@ public class DraftSessionTests
     [InlineData("00:01:00", "a minute")]
     [InlineData("00:00:30", "30 seconds")]
     [InlineData("00:00:01", "a second")]
-    [InlineData("00:01:30", "1.5 minutes")]
+    // Was "1.5 minutes": since 2026-11-03 (owner) what fits no unit is its wholes, rounded down, with a "+".
+    [InlineData("00:01:30", "1 minute+")]
     public void A_grace_period_reads_in_its_largest_whole_unit(string period, string words) =>
         Assert.Equal(words, TimeWords.Period(TimeSpan.Parse(period, System.Globalization.CultureInfo.InvariantCulture)));
 

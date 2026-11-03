@@ -12,9 +12,20 @@ public sealed class UndoOptions
     /// <summary>
     /// How long an undone save can still be restored. No default on purpose: the setting
     /// (<c>Undo:GracePeriod</c>, such as <c>1.00:00:00</c>) is required, and the app refuses to
-    /// start without a positive one.
+    /// start without one between <see cref="GracePeriodMinimum"/> and <see cref="GracePeriodMaximum"/>.
     /// </summary>
     public TimeSpan GracePeriod { get; set; }
+
+    /// <summary>
+    /// The shortest grace period the app starts with (<c>Undo:GracePeriodMinimum</c>): an hour unless set
+    /// (owner, 2026-11-03: "set as 90 days, and one hour"). Tests keep to it too, moving their clocks
+    /// rather than shortening the wait (owner: "the tests shouldn't need any smaller limits as they should
+    /// not be using a real clock").
+    /// </summary>
+    public TimeSpan GracePeriodMinimum { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>The longest grace period the app starts with (<c>Undo:GracePeriodMaximum</c>): 90 days unless set.</summary>
+    public TimeSpan GracePeriodMaximum { get; set; } = TimeSpan.FromDays(90);
 
     /// <summary>How often the sweep looks for saves whose grace period has passed. Hourly unless set.</summary>
     public TimeSpan SweepInterval { get; set; } = TimeSpan.FromHours(1);
@@ -29,6 +40,9 @@ public sealed class UndoOptions
     /// <summary>Why these settings cannot run, or null when they can.</summary>
     public string? Problem() =>
         GracePeriod <= TimeSpan.Zero ? "Undo:GracePeriod must be set to a positive time span, such as 1.00:00:00."
+        : GracePeriod < GracePeriodMinimum || GracePeriod > GracePeriodMaximum
+            ? $"Undo:GracePeriod must lie between Undo:GracePeriodMinimum ({GracePeriodMinimum:c}) and " +
+              $"Undo:GracePeriodMaximum ({GracePeriodMaximum:c}), such as 1.00:00:00; it is {GracePeriod:c}."
         : SweepInterval < TimeSpan.FromMilliseconds(1)
             ? "Undo:SweepInterval must be a positive time span of at least a millisecond, such as 01:00:00."
         : SweepInterval > LongestSweepInterval

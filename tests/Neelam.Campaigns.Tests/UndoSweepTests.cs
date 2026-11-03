@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,6 +76,52 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.NotNull(new UndoOptions().Problem());
         Assert.NotNull(new UndoOptions { GracePeriod = TimeSpan.FromDays(1), SweepInterval = TimeSpan.Zero }.Problem());
         Assert.Null(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }.Problem());
+    }
+
+    // The owner's limits (2026-11-03: "set as 90 days, and one hour"): a grace period outside them is
+    // refused, its edges allowed. Read from the settings, not fixed in the check.
+    [Theory]
+    [InlineData("00:59:59", false)]
+    [InlineData("01:00:00", true)]
+    [InlineData("1.00:00:00", true)]
+    [InlineData("90.00:00:00", true)]
+    [InlineData("90.00:00:01", false)]
+    public void A_grace_period_must_lie_between_an_hour_and_90_days(string period, bool runs) =>
+        Assert.Equal(runs, new UndoOptions { GracePeriod = TimeSpan.Parse(period, CultureInfo.InvariantCulture) }.Problem() is null);
+
+    [Fact]
+    public void The_limits_are_the_settings_own()
+    {
+        UndoOptions Narrower(TimeSpan period) =>
+            new() { GracePeriod = period, GracePeriodMinimum = TimeSpan.FromHours(2), GracePeriodMaximum = TimeSpan.FromDays(2) };
+
+        Assert.Contains("between Undo:GracePeriodMinimum (02:00:00) and Undo:GracePeriodMaximum (2.00:00:00)",
+            Narrower(TimeSpan.FromHours(1)).Problem());
+        Assert.NotNull(Narrower(TimeSpan.FromDays(3)).Problem());
+        Assert.Null(Narrower(TimeSpan.FromDays(2)).Problem());
+    }
+
+    // As for CampaignWatch:Interval: a grace period outside the limits stops the app as it starts.
+    [Fact]
+    public void An_app_set_with_a_grace_period_outside_the_limits_does_not_start()
+    {
+        using var configured = app.WithWebHostBuilder(builder => builder.UseSetting("Undo:GracePeriod", "91.00:00:00"));
+
+        var refused = Assert.ThrowsAny<Exception>(() => configured.Services);
+        Assert.Contains("Undo:GracePeriod (required) must lie between Undo:GracePeriodMinimum and Undo:GracePeriodMaximum", refused.ToString());
+    }
+
+    // Set in appsettings.json and as the code's defaults: the two say the same, so leaving one out of a
+    // configuration never moves a limit.
+    [Fact]
+    public void The_shipped_limits_are_the_code_s_defaults()
+    {
+        var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "appsettings.json")))![UndoOptions.Section]!;
+        var defaults = new UndoOptions();
+
+        Assert.Equal((TimeSpan.FromHours(1), TimeSpan.FromDays(90)), (defaults.GracePeriodMinimum, defaults.GracePeriodMaximum));
+        Assert.Equal(defaults.GracePeriodMinimum, TimeSpan.Parse((string)settings[nameof(UndoOptions.GracePeriodMinimum)]!, CultureInfo.InvariantCulture));
+        Assert.Equal(defaults.GracePeriodMaximum, TimeSpan.Parse((string)settings[nameof(UndoOptions.GracePeriodMaximum)]!, CultureInfo.InvariantCulture));
     }
 
     // The sweep's timer throws on an interval it cannot wait (over about 49.7 days, or under a
