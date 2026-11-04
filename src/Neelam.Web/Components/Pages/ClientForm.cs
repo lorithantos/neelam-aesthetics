@@ -20,6 +20,13 @@ public sealed class ClientForm
     /// <summary>The time zone's IANA id, such as America/New_York; blank for the default, Pacific.</summary>
     public string TimeZone { get; set; } = "";
 
+    /// <summary>
+    /// The client's approvals required as its row has it, carried through an edit unchanged: the page has
+    /// no field for it yet (owner, 2026-11-03), and the table's update replaces the whole row, so an edit
+    /// that left it out would set the client back to one. Null for a new client, and one that names none.
+    /// </summary>
+    public int? ApprovalsRequired { get; private init; }
+
     public static ClientForm Of(ClientRecord client) => new()
     {
         Name = client.Name.Value,
@@ -28,6 +35,7 @@ public sealed class ClientForm
         Description = client.Description ?? "",
         Phones = string.Join("\n", client.Phones.Select(p => p.Formatted)),
         TimeZone = client.TimeZone ?? "",
+        ApprovalsRequired = client.ApprovalsRequired,
     };
 
     /// <returns>The record, or null with what is wrong.</returns>
@@ -63,7 +71,7 @@ public sealed class ClientForm
         var description = Description.Replace("\r\n", "\n").Trim();
         return errors.Count == 0
             ? (new ClientRecord(name!, group, DisplayName.Trim(), description.Length > 0 ? description : null)
-                { Phones = new PhoneNumbers(phones), TimeZone = zone.Length > 0 ? zone : null }, [])
+                { Phones = new PhoneNumbers(phones), TimeZone = zone.Length > 0 ? zone : null, ApprovalsRequired = this.ApprovalsRequired }, [])
             : (null, errors);
     }
 }

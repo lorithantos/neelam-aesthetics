@@ -468,8 +468,28 @@ else if (_session is not null)
                 }
                 else if (approval is not null)
                 {
-                    <p class="approved" role="status" data-testid="approved">Approved by @approval.By, @Times.DateAndTime(approval.At).</p>
+                    <p class="approved" role="status" data-testid="approved">Approved by @approval.Names, @Times.DateAndTime(approval.LastAt).</p>
                     <p class="field-help">The approval is of this saved version. Any change, or a new save, needs approving again.</p>
+                    <button class="button" data-testid="withdraw-button" @onclick="WithdrawAsync">Withdraw approval</button>
+                }
+                else if (_session.CurrentPartApproval is { } soFar)
+                {
+                    @* A client needing more than one approver (owner, 2026-11-03): not approved until enough
+                       different people have, so the export stays shut and the next person can approve. *@
+                    <p role="status" data-testid="approval-progress">@DraftSession.PartApprovalWords(soFar, _session.ApprovalsRequired)</p>
+                    <p class="field-help" data-testid="approval-still-needed">@DraftSession.StillNeededWords(soFar, _session.ApprovalsRequired)</p>
+                    @if (cannotApprove is not null)
+                    {
+                        <p class="field-help">@cannotApprove</p>
+                    }
+                    else
+                    {
+                        <div class="field">
+                            <label for="approver">Your name</label>
+                            <input id="approver" data-testid="approver" @bind="_approver" @bind:event="oninput" />
+                        </div>
+                        <button class="button primary" data-testid="approve-button" disabled="@string.IsNullOrWhiteSpace(_approver)" @onclick="ApproveAsync">Approve</button>
+                    }
                     <button class="button" data-testid="withdraw-button" @onclick="WithdrawAsync">Withdraw approval</button>
                 }
                 else
@@ -908,7 +928,19 @@ else
             _canReview = (await Authorization.AuthorizeAsync((await AuthenticationState).User, Features.Review)).Succeeded;
 
         var actor = _actor = await Workspace.ActorAsync();
-        var store = _store = Stores.Campaigns(client, actor);
+        // How many people must approve a version, from her registration: refused, like the rest of the
+        // registration, when its row cannot be read, rather than taken as one.
+        int approvalsRequired;
+        try
+        {
+            approvalsRequired = await Workspace.ApprovalsRequiredAsync(client);
+        }
+        catch (RegistrationUnreadableException ex)
+        {
+            _unreadable = ex.Message;
+            return;
+        }
+        var store = _store = Stores.Campaigns(client, actor, approvalsRequired);
         if (Id is { } id)
         {
             _session = await DraftSession.OpenAsync(store, id);
@@ -1160,7 +1192,9 @@ else
         {
             if (!await ChecksStillPassAsync()) return;
             var approval = await _session!.ApproveAsync(_approver, _policy, Business);
-            _message = $"Approved by {approval.By}.";
+            _message = _session.CurrentPartApproval is { } soFar
+                ? DraftSession.PartApprovalWords(soFar, _session.ApprovalsRequired)
+                : $"Approved by {approval.Names}.";
             _approver = "";
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)

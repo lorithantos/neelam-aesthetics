@@ -154,7 +154,8 @@ public static partial class AssistantExport
             exported,
             new ExportedReview(
                 report.Proofread,
-                new ExportedApproval(approvedBy.By, approvedBy.At.ToUniversalTime()),
+                // Everyone who approved it and when the last did; with one approver, exactly who and when.
+                new ExportedApproval(approvedBy.Names, approvedBy.LastAt.ToUniversalTime()),
                 worthALook,
                 seen,
                 report.Proofread ? null : DemoNotice));

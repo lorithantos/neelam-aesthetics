@@ -160,8 +160,10 @@ internal sealed class TestRecords(TimeProvider clock)
 
     /// <summary>A client's drafts and templates over <paramref name="container"/>, recorded against <paramref name="actor"/>.</summary>
     public CampaignStore Campaigns(
-        IBlobBackend container, TimeSpan grace, ClientName? client = null, Actor? actor = null) =>
-        new(container, clock, grace, Approvals, Recorder.For(client ?? DefaultClient, actor ?? Actor.Demo));
+        IBlobBackend container, TimeSpan grace, ClientName? client = null, Actor? actor = null,
+        int approvalsRequired = ClientRecord.DefaultApprovalsRequired) =>
+        new(container, clock, grace, Approvals, Recorder.For(client ?? DefaultClient, actor ?? Actor.Demo),
+            approvalsRequired: approvalsRequired);
 
     public ImageLibrary Images(IBlobBackend container, ClientName? client = null, Actor? actor = null) =>
         new(container, clock, Recorder.For(client ?? DefaultClient, actor ?? Actor.Demo));

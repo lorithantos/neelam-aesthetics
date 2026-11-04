@@ -169,6 +169,38 @@ public sealed class DraftSession : IWatched<SaveRef>
             : Latest?.Approval;
 
     /// <summary>
+    /// For a client that needs more than one approver: <see cref="Latest"/>'s approvals so far, while the
+    /// form still holds exactly what they approved, her label aside, and they are fewer than needed, so it
+    /// is not approved yet (<see cref="SaveRef.PartApproval"/>). Null otherwise, and always with one
+    /// approver required.
+    /// </summary>
+    public Approval? CurrentPartApproval =>
+        _savedContent is null || Editor.Errors().Count > 0 || ContentOf(Editor.Draft) != _savedContent
+            ? null
+            : Latest?.PartApproval;
+
+    /// <summary>How many different people must approve a version before it counts as approved; one unless the client's registration says more.</summary>
+    public int ApprovalsRequired => _store.ApprovalsRequired;
+
+    /// <summary>
+    /// What the Approve card says of a version approved so far by fewer people than the client needs
+    /// (owner, 2026-11-03): "Approved by 1 of 2: Priya." Proposed wording, the owner's to change.
+    /// </summary>
+    public static string PartApprovalWords(Approval soFar, int required) =>
+        $"Approved by {soFar.Approvers.Count} of {required}: {soFar.Names}.";
+
+    /// <summary>
+    /// What the Approve card says under <see cref="PartApprovalWords"/>: how many more approvals the
+    /// version needs before it can be copied into Square. Proposed wording, the owner's to change.
+    /// </summary>
+    public static string StillNeededWords(Approval soFar, int required)
+    {
+        int more = required - soFar.Approvers.Count;
+        string who = more == 1 ? "one more person" : $"{more} more people";
+        return $"It needs approving by {who} before it can be copied into Square.";
+    }
+
+    /// <summary>
     /// An earlier version's approval that a later save has left behind, so the page can say the
     /// campaign was approved and is no longer; null when <see cref="Latest"/> is approved itself or
     /// no earlier version was.
@@ -391,7 +423,13 @@ public sealed class DraftSession : IWatched<SaveRef>
     /// undone, with its approval as the page shows it (<see cref="ChangeSince"/>): read again here, at
     /// the click, since another tab or person may have saved, undone or approved since the page opened.
     /// </summary>
-    /// <exception cref="InvalidOperationException">It cannot be approved; <see cref="CannotApprove"/> says why.</exception>
+    /// <remarks>
+    /// For a client that needs more than one approver, each different person's approval is added to the
+    /// version's, and it is approved once there are as many as needed (<see cref="ApprovalsRequired"/>):
+    /// until then the result is the approvals so far, which <see cref="CurrentPartApproval"/> also gives.
+    /// </remarks>
+    /// <returns>The version's approval, or with more approvers still needed, its approvals so far.</returns>
+    /// <exception cref="InvalidOperationException">It cannot be approved; <see cref="CannotApprove"/> says why. Or this person has already approved it and it needs someone else.</exception>
     /// <exception cref="CampaignChangedException">Storage has changed since the page's version; nothing is approved.</exception>
     public async Task<Approval> ApproveAsync(
         string approvedBy, CampaignPolicy? policy = null, BusinessContext? business = null, CancellationToken ct = default)
@@ -402,13 +440,16 @@ public sealed class DraftSession : IWatched<SaveRef>
         Latest = await _store.ApproveAsync(Latest!, approvedBy, ct);
         SupersededApproval = null;
         Raise();
-        return Latest.Approval!;
+        return Latest.Approval ?? Latest.PartApproval!;
     }
 
-    /// <summary>Withdraws the approval of the saved version; the campaign stays as it is.</summary>
+    /// <summary>
+    /// Withdraws the approval of the saved version, or its approvals so far when it needs more; the
+    /// campaign stays as it is.
+    /// </summary>
     public async Task WithdrawApprovalAsync(CancellationToken ct = default)
     {
-        if (Latest?.Approval is null) throw new InvalidOperationException("There is no approval to withdraw.");
+        if (Latest?.Approval is null && Latest?.PartApproval is null) throw new InvalidOperationException("There is no approval to withdraw.");
         Latest = await _store.WithdrawApprovalAsync(Latest, ct);
         Raise();
     }
@@ -433,16 +474,27 @@ public sealed class DraftSession : IWatched<SaveRef>
         if (newest is null) return CampaignChange.Deleted;
         if (newest.BlobName != Latest.BlobName)
             return newest.SavedAt > Latest.SavedAt ? CampaignChange.SavedSince : CampaignChange.Undone;
-        if (SameApproval(newest.Approval, Latest.Approval)) return CampaignChange.None;
-        return newest.Approval is null ? CampaignChange.ApprovalWithdrawn : CampaignChange.Approved;
+        if (SameApproval(newest.Approval, Latest.Approval) && SameApproval(newest.PartApproval, Latest.PartApproval))
+            return CampaignChange.None;
+        // With more than one approver needed, approvals so far count too: fewer, or none, is withdrawn.
+        Approval? now = newest.Approval ?? newest.PartApproval;
+        Approval? held = Latest.Approval ?? Latest.PartApproval;
+        return now is null || (held is not null && now.Approvers.Count < held.Approvers.Count)
+            ? CampaignChange.ApprovalWithdrawn
+            : CampaignChange.Approved;
     }
 
-    // The same person at the same moment. Storage may keep a time coarser than the clock gave it, so
+    // The same people at the same moments. Storage may keep a time coarser than the clock gave it, so
     // within a second is the same: two approvals by one name inside a second change nothing she sees.
     private static bool SameApproval(Approval? stored, Approval? held) =>
         stored is null
             ? held is null
-            : held is not null && stored.By == held.By && Math.Abs((stored.At - held.At).Ticks) < TimeSpan.TicksPerSecond;
+            : held is not null && SameApprovers(stored.Approvers, held.Approvers);
+
+    private static bool SameApprovers(IReadOnlyList<Approver> stored, IReadOnlyList<Approver> held) =>
+        stored.Count == held.Count
+        && stored.Zip(held).All(pair => pair.First.By == pair.Second.By
+                                        && Math.Abs((pair.First.At - pair.Second.At).Ticks) < TimeSpan.TicksPerSecond);
 
     /// <summary>What the page says at its top once it knows storage has changed (<see cref="ChangeWords.Campaign"/>).</summary>
     public static string ChangedNotice(CampaignChange change) => ChangeWords.Campaign.Notice(change);
@@ -678,7 +730,10 @@ public sealed class DraftSession : IWatched<SaveRef>
         var before = Latest;
         // Only her label changed since an approved save: what was approved is what is saved, so the
         // approval goes with it to the new save.
-        var keeps = before?.Approval is not null && CurrentApproval == before.Approval ? before : null;
+        // Approvals so far, for a client needing more than one, go with it the same way.
+        var keeps = before?.Approval is not null && CurrentApproval == before.Approval ? before
+            : before?.PartApproval is not null && CurrentPartApproval == before.PartApproval ? before
+            : null;
         Latest = await _store.SaveDraftAsync(Id.Value, Editor.Title, Editor.Draft, ct);
         try
         {

@@ -19,10 +19,16 @@ namespace Neelam.Campaigns.Storage;
 /// text), comma-separated. Null on a row written before keys were kept (2026-10-09), which shows the
 /// list once more.
 /// </param>
+/// <param name="MoreApprovers">
+/// Everyone after <paramref name="ApprovedBy"/> who approved the same save, in order, for a client that
+/// needs more than one approver (owner, 2026-11-03); null while there is only the first, which with one
+/// approver required is always, so such a row is written exactly as before. An older build reading a
+/// row that has them sees the first approver alone.
+/// </param>
 public sealed record ApprovalRecord(
     ClientName Client, Guid CampaignId, string Stamp, string ApprovedBy, DateTimeOffset ApprovedAt,
     DateTimeOffset? WithdrawnAt = null, string? WarningsSeenBy = null, DateTimeOffset? WarningsSeenAt = null,
-    string? WarningsSeenKeys = null)
+    string? WarningsSeenKeys = null, IReadOnlyList<Approver>? MoreApprovers = null)
 {
     public bool Withdrawn => WithdrawnAt is not null;
 
@@ -32,7 +38,11 @@ public sealed record ApprovalRecord(
         WarningsSeen = WarningsSeenBy is { Length: > 0 } by && WarningsSeenAt is { } at
             ? new WarningsSeen(by, at, WarningsSeenKeys is null ? null : KeysOf(WarningsSeenKeys))
             : null,
+        Others = this.MoreApprovers is { Count: > 0 } more ? more : null,
     };
+
+    /// <summary>How many people have approved the save: the first and any after.</summary>
+    public int ApproverCount => 1 + (this.MoreApprovers?.Count ?? 0);
 
     /// <summary>
     /// What one campaign's rows say was seen at export (owner, 2026-10-09: "yes, carry across saves"):

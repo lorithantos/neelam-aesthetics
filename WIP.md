@@ -325,6 +325,55 @@ unrecoverable, while an event saying which save was deleted, and when, is wanted
   caller; a cancellation nobody asked for, such as a timeout inside the table client, is logged as one.
 - **Not built:** no page reads the trail (thread item "activity view (client and operator, under
   support-grant rules)"). Dismissals are not in the table yet.
+- **Approvals required (owner, 2026-11-03; built the same day, not deployed, not tried in a browser).**
+  The owner: "Obviously at least one approver, but make the number a config setting. For now she's the
+  only one, so set hers to one."
+  - **Where it lives:** registration data, beside the time zone: an optional `ApprovalsRequired` (Int32)
+    on the client's row in the `clients` table (`ClientRecord.ApprovalsRequired`; `ApprovalsNeeded` is it
+    or 1). Left out, it is one, so every client registered before, Neelam included, needs one with no
+    data written; nothing was added to her row. **Below one is refused, never clamped:** the table's
+    rules refuse it on add and update (`ClientDirectoryRules.CheckRegistration`), a row holding one
+    anyway (or a value that is not a whole number; Int64 is read too) cannot be read (`TableMetadata.ToClient`
+    throws, as for a bad phone number), and `ClientWorkspace.ApprovalsRequiredAsync` refuses it from any
+    directory, so the campaign page shows "This campaign can't be checked yet" rather than taking it as one.
+    `CampaignStore` refuses a number below one when made.
+  - **How the operator sets it:** no page yet (not asked for). Merge the column into the client's row
+    (partition `client`, row key the client's name) with `az storage entity merge --auth-mode login`,
+    giving the property its Edm.Int32 type, or add it in Storage Explorer as Int32; merge, not replace,
+    so the other columns stay. Removing the column goes back to one. The Clients page's edit carries the number through unchanged (`ClientForm`), since
+    its update replaces the whole row.
+  - **What counts as approved:** a version is approved once that many **different** people have approved
+    it (names compared ignoring case and spaces at the ends). The approval row gains an optional
+    `MoreApprovers` column, a JSON array of `{"by","at"}` for everyone after the first, who stays in
+    `ApprovedBy`/`ApprovedAt`; it is written only when there is a second approver, so with one required
+    every row is written exactly as before (pinned by `ApprovalsRequiredTests.With_one_approval_required_every_row_is_written_as_before`,
+    through approve, Export anyway, a label-only save and a withdrawal). The store is given the number
+    (`ClientStores.Campaigns(client, actor, approvalsRequired)`, read by the campaign page through
+    `ClientWorkspace.ApprovalsRequiredAsync`); `SaveRef.Approval` is set only once the version is complete,
+    so the export gate, Delete's refusal, Update to template's "approved" and the rest are unchanged code;
+    short of it, `SaveRef.PartApproval` / `DraftSession.CurrentPartApproval` carry the approvals so far.
+    The same person approving twice is refused: "Priya has already approved this version. It needs
+    approving by someone else too." Another tab's approval meanwhile is a change (`ChangeSince` compares
+    every approver), so a stale page is refused as before. Withdraw approval takes back every approval so
+    far; undo withdraws them as it does one; a label-only save carries them.
+  - **The Approve card** with approvals still needed: "Approved by 1 of 2: Priya." (`approval-progress`),
+    "It needs approving by one more person before it can be copied into Square." (`approval-still-needed`),
+    the name box and Approve for the next person, and Withdraw approval; no export. Once complete:
+    "Approved by Priya and Sam, {when the last did}." The assistant JSON's `review.approval.by` names
+    everyone ("Priya and Sam") and `at` is when the last approved; with one approver both are as before.
+  - **Rolling back to the build before:** it reads every row (the new column is ignored), and sees a
+    version approved by its first approver alone, so for a client set above one an older build would let
+    a part-approved version export. Neelam's is one, so nothing changes for her.
+  - **Judgement calls, the owner's to overrule:** the card's wording above; "different people" is the
+    typed name, since nobody signs in yet (once sign-in exists it should be the signed-in identity);
+    Withdraw approval on a part-approved version takes back all of its approvals, not only one person's;
+    a part-approved campaign can still be deleted (only a complete approval keeps it as a record); the
+    export names everyone in its one `by` string rather than gaining a list (the schema's description says so).
+  - **Tests:** `ApprovalsRequiredTests` (the row's column both ways, refusal below one and of a non-number,
+    the Clients page edit, one required unchanged, two required, the export's names, withdraw, a label-only
+    save, another tab, an old row and a new one), `ApprovalsRequiredPageTests` (the card on the demo for a
+    client set to two, then the export once the second approves), `ClientWorkspaceTests.The_approvals_required_are_the_row_s_or_one_and_never_below_one`;
+    each mutation-checked. Not tried in a browser.
 
 ## JSON export for an assistant (owner, 2026-10-09)
 
@@ -780,7 +829,7 @@ Do not settle these on the owner's behalf. Bring options with a recommendation.
    - Open: App Service built-in auth or Microsoft.Identity.Web? Either can put the group and app-role claims in the token.
    - Open: how clients' people get accounts with no setup of their own. Guests invited into the operator's directory, or Microsoft Entra External ID (an emailed code or an existing account)? External ID is likely kinder for non-technical users, but it is a separate setup.
    - **Owner's constraint, 2026-10-09:** a client's people (Priya first) must not be made to sign in to an unfinished site and then to a new one later. Until the real site exists they see only public, no-data pages (`/how-it-works`); their first sign-in is one that lasts. That favours an identity that is theirs (their own email or existing account), the same for every deployment, and a site address that does not change at go-live.
-3. **Approval.** Is one approver enough, or must a second person approve before export? *The other half, whether warnings must be acknowledged individually, was answered by the owner on 2026-10-09: no. They are shown at export, once per campaign while they read the same (carried across saves), and never block ("This is handholding, not handcuffs"); see "Worth a look is shown at export" under Decided.*
+3. **Approval.** Is one approver enough, or must a second person approve before export? *Decided by the owner on 2026-11-03: "Obviously at least one approver, but make the number a config setting. For now she's the only one, so set hers to one." Built the same day; see "Approvals required" under "Approvals and the activity trail".* *The other half, whether warnings must be acknowledged individually, was answered by the owner on 2026-10-09: no. They are shown at export, once per campaign while they read the same (carried across saves), and never block ("This is handholding, not handcuffs"); see "Worth a look is shown at export" under Decided.*
 4. **Claude.** *Decided 2026-10-09; see "The LLM proofread's model and route" under Decided.* Left here for its notes: server-side refusal fallbacks were left out because they aren't available on Foundry, and a refusal currently blocks the email until a person dismisses it. *(2026-10-10, on the Anthropic API: the request opts into `fallbacks: "default"`, so a classifier decline is run again server-side on the model Anthropic recommends; on the demo a refusal that still comes back is said plainly and blocks nothing, the rules standing as they are; in Enforced it is still a blocker until dismissed, and no page offers the dismissal yet.)*
 5. **Placeholders the owner should replace:**
    - the "Gold Member" tier name and the `example.com` join and terms links in the fixtures

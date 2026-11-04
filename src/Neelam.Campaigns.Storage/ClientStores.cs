@@ -78,8 +78,12 @@ public sealed class ClientStores
     /// through it goes on the client's activity trail, and the editing sessions over it signal their
     /// changes to the other pages open on this instance.
     /// </summary>
-    public CampaignStore Campaigns(ClientName client, Actor actor) =>
-        new(_container(client.Value), _clock, _undoGracePeriod, _approvals, _activity.For(client, actor), _signals);
+    /// <param name="approvalsRequired">
+    /// How many different people must approve a version: the client's <see cref="ClientRecord.ApprovalsNeeded"/>.
+    /// Only what approves a campaign needs to give it; listing, undoing and sweeping never ask how many.
+    /// </param>
+    public CampaignStore Campaigns(ClientName client, Actor actor, int approvalsRequired = ClientRecord.DefaultApprovalsRequired) =>
+        new(_container(client.Value), _clock, _undoGracePeriod, _approvals, _activity.For(client, actor), _signals, approvalsRequired);
 
     /// <summary>
     /// What the AI proofread read in the client's photos, by the hash of each image's bytes, in her own

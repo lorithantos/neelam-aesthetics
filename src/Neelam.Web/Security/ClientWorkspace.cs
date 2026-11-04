@@ -95,6 +95,34 @@ public sealed class ClientWorkspace(
         return (registered ?? new BusinessContext(client.ToString())) with { Known = known };
     }
 
+    /// <summary>
+    /// How many different people must approve a campaign version of the client before it counts as
+    /// approved (owner, 2026-11-03): the number its row in the clients table names, else one, also when
+    /// the table has no row for it. One read of the table, once per page.
+    /// </summary>
+    /// <exception cref="RegistrationUnreadableException">
+    /// The clients table holds a row that cannot be read, such as a number below one: the approval rests
+    /// on it, so the page does not go on as though it were one.
+    /// </exception>
+    public async Task<int> ApprovalsRequiredAsync(ClientName client, CancellationToken ct = default)
+    {
+        try
+        {
+            ClientRecord? record = (await clients.ListAsync(ct)).FirstOrDefault(c => c.Name == client);
+            // The table refuses such a number as it reads the row; refused here too, whatever holds it.
+            if (ClientRecord.ProblemWithApprovals(record?.ApprovalsRequired) is { } problem)
+            {
+                throw new InvalidDataException($"Client {client.Value}: {problem}");
+            }
+            return record?.ApprovalsNeeded ?? ClientRecord.DefaultApprovalsRequired;
+        }
+        catch (Exception ex) when (IsMalformedRow(ex))
+        {
+            log.LogError(ex, "The clients table has a row that cannot be read, so the approvals {Client} needs are unknown.", client.Value);
+            throw new RegistrationUnreadableException(ex);
+        }
+    }
+
     // What reading a row the code cannot make sense of throws: a missing or mistyped column, a client
     // name or phone number that is not one. Not an outage or a cancellation, which are other failures.
     private static bool IsMalformedRow(Exception ex) =>

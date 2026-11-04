@@ -17,9 +17,15 @@ public enum DocumentKind { Draft, Template }
 /// so the save's content and stamp, and the approvals keyed by it, stay exactly as they were. Null for
 /// every other save; a draft's own JSON wins when it records a template (<see cref="CampaignStore.LoadDraftAsync"/>).
 /// </param>
+/// <param name="PartApproval">
+/// For a client that needs more than one approver (<see cref="CampaignStore.ApprovalsRequired"/>): the
+/// approvals of this save so far, while they stand and are fewer than needed. It does not count as
+/// approved, so <paramref name="Approval"/> stays null until the last one needed is given. Null when
+/// nobody has approved it, or once it is approved, and always with one approver required.
+/// </param>
 public sealed record SaveRef(
     DocumentKind Kind, Guid Id, DateTimeOffset SavedAt, string Title, string BlobName, DateTimeOffset? UndoneAt = null,
-    Approval? Approval = null, TemplateLink? Template = null);
+    Approval? Approval = null, TemplateLink? Template = null, Approval? PartApproval = null);
 
 /// <summary>A template a campaign's save was linked to by id, and the version it was made from when that could be known.</summary>
 public sealed record TemplateLink(Guid Id, DateTimeOffset? Version);
@@ -59,11 +65,36 @@ public sealed record NewestOnly<T>(bool Done, T? Newest, T? Undone = null) where
 /// this instance; null where nothing listens. The store itself never raises it, so a write made
 /// straight through the store is seen only by the pages' periodic look, as one from another instance is.
 /// </param>
+/// <param name="approvalsRequired">
+/// How many different people must approve a save before it counts as approved: the client's
+/// <see cref="ClientRecord.ApprovalsNeeded"/>, one unless its registration says otherwise.
+/// </param>
 public sealed class CampaignStore(
     IBlobBackend blobs, TimeProvider clock, TimeSpan undoGracePeriod, IApprovalStore approvals, ActivityTrail activity,
-    CampaignSignals? signals = null)
+    CampaignSignals? signals = null, int approvalsRequired = ClientRecord.DefaultApprovalsRequired)
 {
     private const string TitleKey = "title";
+
+    private readonly int _approvalsRequired = approvalsRequired >= 1
+        ? approvalsRequired
+        : throw new ArgumentOutOfRangeException(nameof(approvalsRequired), approvalsRequired, ClientRecord.ProblemWithApprovals(approvalsRequired));
+
+    /// <summary>How many different people must approve a save before it counts as approved; at least one.</summary>
+    public int ApprovalsRequired => this._approvalsRequired;
+
+    // A save with its standing approval row, if any: approved once the row has as many approvers as the
+    // client needs, otherwise approved in part. With one required, every standing row approves.
+    private SaveRef WithApproval(SaveRef save, ApprovalRecord? row, WarningsSeen? seen)
+    {
+        if (row is null)
+        {
+            return save with { Approval = null, PartApproval = null };
+        }
+        Approval approval = row.Approval with { WarningsSeen = seen };
+        return row.ApproverCount >= this._approvalsRequired
+            ? save with { Approval = approval, PartApproval = null }
+            : save with { Approval = null, PartApproval = approval };
+    }
 
     /// <summary>The in-process signal the editing sessions raise after each change; null where nothing listens.</summary>
     public CampaignSignals? Signals => signals;
@@ -97,9 +128,7 @@ public sealed class CampaignStore(
         var seen = ApprovalRecord.SeenAcross(rows);
         var standing = rows.Where(a => !a.Withdrawn).ToDictionary(a => a.Stamp, StringComparer.Ordinal);
         return saves
-            .Select(s => standing.TryGetValue(SaveStamp.Of(s.SavedAt), out var a)
-                ? s with { Approval = a.Approval with { WarningsSeen = seen } }
-                : s)
+            .Select(s => standing.TryGetValue(SaveStamp.Of(s.SavedAt), out var a) ? this.WithApproval(s, a, seen) : s)
             .ToList();
     }
 
@@ -148,7 +177,7 @@ public sealed class CampaignStore(
         if (!await blobs.SetMetadataAsync(save.BlobName, UndoMark.With(blob.Metadata, at), ct))
             throw new InvalidOperationException("That save is already gone.");
         await RecordAsync(save, ActivityAction.Undone, ct);
-        return save with { UndoneAt = at, Approval = null };
+        return save with { UndoneAt = at, Approval = null, PartApproval = null };
     }
 
     /// <summary>
@@ -210,7 +239,14 @@ public sealed class CampaignStore(
     /// is undone or deleted, as the record. Whether the campaign may be approved is the caller's to
     /// decide (<see cref="DraftSession"/>).
     /// </summary>
-    /// <exception cref="InvalidOperationException">The save is gone or undone.</exception>
+    /// <remarks>
+    /// For a client that needs more than one approver (<see cref="ApprovalsRequired"/>), a save approved by
+    /// fewer people than that so far gets this approver added to its row, and it counts as approved once
+    /// that many different people have (the names compared ignoring case); until then the save comes back
+    /// with <see cref="SaveRef.PartApproval"/> and no <see cref="SaveRef.Approval"/>. Otherwise, as it always
+    /// has with one approver, the row is written afresh in this approver's name.
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">The save is gone or undone, or this person has already approved it and more are needed.</exception>
     public async Task<SaveRef> ApproveAsync(SaveRef save, string approvedBy, CancellationToken ct = default)
     {
         Expect(save, DocumentKind.Draft);
@@ -226,17 +262,35 @@ public sealed class CampaignStore(
         // Approved again after a withdrawal, the save's row is replaced: what was seen on it stays,
         // since she was shown it.
         var earlier = rows.FirstOrDefault(r => r.Stamp == stamp);
-        var row = new ApprovalRecord(Client, save.Id, stamp, approval.By, approval.At,
-            WarningsSeenBy: earlier?.WarningsSeenBy, WarningsSeenAt: earlier?.WarningsSeenAt,
-            WarningsSeenKeys: earlier?.WarningsSeenKeys);
+        ApprovalRecord row;
+        if (earlier is { Withdrawn: false } part && part.ApproverCount < this._approvalsRequired)
+        {
+            // Approved so far by fewer than the client needs: this one is added, if it is someone new.
+            if (part.Approval.IsApprovedBy(approval.By))
+            {
+                throw new InvalidOperationException(
+                    $"{approval.By} has already approved this version. It needs approving by someone else too.");
+            }
+            List<Approver> more = [.. part.MoreApprovers ?? [], new Approver(approval.By, approval.At)];
+            row = part with { MoreApprovers = more };
+        }
+        else
+        {
+            row = new ApprovalRecord(Client, save.Id, stamp, approval.By, approval.At,
+                WarningsSeenBy: earlier?.WarningsSeenBy, WarningsSeenAt: earlier?.WarningsSeenAt,
+                WarningsSeenKeys: earlier?.WarningsSeenKeys);
+        }
         await approvals.PutAsync(row, ct);
         await RecordAsync(save, ActivityAction.Approved, ct, activity.Actor.NameFor(approval.By));
         // What was seen at export on any of the campaign's saves counts on this one too.
         var seen = ApprovalRecord.SeenAcross(rows.Where(r => r.Stamp != stamp).Append(row));
-        return current with { Approval = approval with { WarningsSeen = seen } };
+        return this.WithApproval(current, row, seen);
     }
 
-    /// <summary>Takes an approval back: the save stays, unapproved, and the row stays, marked withdrawn.</summary>
+    /// <summary>
+    /// Takes an approval back: the save stays, unapproved, and the row stays, marked withdrawn. A save
+    /// approved so far by fewer people than the client needs has every approval so far withdrawn with it.
+    /// </summary>
     /// <exception cref="InvalidOperationException">The save is gone, or it has no approval to withdraw.</exception>
     public async Task<SaveRef> WithdrawApprovalAsync(SaveRef save, CancellationToken ct = default)
     {
@@ -247,7 +301,7 @@ public sealed class CampaignStore(
                        ?? throw new InvalidOperationException("There is no approval to withdraw.");
         await approvals.PutAsync(approved with { WithdrawnAt = clock.GetUtcNow() }, ct);
         await RecordAsync(save, ActivityAction.ApprovalWithdrawn, ct);
-        return current with { Approval = null };
+        return current with { Approval = null, PartApproval = null };
     }
 
     /// <summary>
@@ -267,7 +321,8 @@ public sealed class CampaignStore(
         await approvals.PutAsync(row with { Stamp = SaveStamp.Of(later.SavedAt), WithdrawnAt = null }, ct);
         // On the later save, by whoever saved it: ids only, as every event.
         await RecordAsync(later, ActivityAction.ApprovalCarriedToLabelOnlySave, ct);
-        return later with { Approval = row.Approval with { WarningsSeen = ApprovalRecord.SeenAcross(rows) } };
+        // Approved in part, it is carried as it is: the approvals so far, and the rest still to come.
+        return this.WithApproval(later, row, ApprovalRecord.SeenAcross(rows));
     }
 
     /// <summary>
@@ -289,8 +344,9 @@ public sealed class CampaignStore(
     {
         Expect(save, DocumentKind.Draft);
         var rows = await RowsAsync(save.Id, ct);
-        var row = Standing(rows, save)
-                  ?? throw new InvalidOperationException("Approve this version first: export is of an approved version.");
+        var row = Standing(rows, save) is { } standing && standing.ApproverCount >= this._approvalsRequired
+            ? standing
+            : throw new InvalidOperationException("Approve this version first: export is of an approved version.");
         if (ApprovalRecord.SeenAcross(rows)?.Keys is not { } known || !shown.All(known.Contains))
         {
             // Signed in, the user; in Prototype, the name typed for this version's approval, as approvals are.
@@ -306,7 +362,7 @@ public sealed class CampaignStore(
             await RecordAsync(save, ActivityAction.WarningsSeenAtExport, ct, by);
             rows = rows.Where(r => r.Stamp != row.Stamp).Append(row).ToList();
         }
-        return save with { Approval = row.Approval with { WarningsSeen = ApprovalRecord.SeenAcross(rows) } };
+        return this.WithApproval(save, row, ApprovalRecord.SeenAcross(rows));
     }
 
     /// <summary>

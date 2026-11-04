@@ -21,6 +21,27 @@ public sealed record ClientRecord(ClientName Name, Guid GroupId, string DisplayN
     /// </summary>
     public string? TimeZone { get; init; }
 
+    /// <summary>
+    /// How many different people must approve a campaign version before it counts as approved and can be
+    /// exported (owner, 2026-11-03: "Obviously at least one approver, but make the number a config
+    /// setting. For now she's the only one, so set hers to one."); null when the row does not say, which
+    /// means <see cref="DefaultApprovalsRequired"/>, so every client registered before has one. Never
+    /// below one: <see cref="ClientDirectoryRules"/> refuses it, and a row holding one anyway cannot be read.
+    /// </summary>
+    public int? ApprovalsRequired { get; init; }
+
+    /// <summary>What a registration that names no number of approvals means: one.</summary>
+    public const int DefaultApprovalsRequired = 1;
+
+    /// <summary>The number of approvals in force for the client: its own, or <see cref="DefaultApprovalsRequired"/>.</summary>
+    public int ApprovalsNeeded => this.ApprovalsRequired ?? DefaultApprovalsRequired;
+
+    /// <summary>Why a number of approvals cannot be a client's, or null when it can: a campaign needs at least one approver.</summary>
+    public static string? ProblemWithApprovals(int? approvalsRequired) =>
+        approvalsRequired is < 1
+            ? $"A campaign needs at least one approver, so the number of approvals required cannot be {approvalsRequired}."
+            : null;
+
     /// <summary>What the checks and the proofread are told about who is sending the email.</summary>
     public BusinessContext Business => new(DisplayName, Description) { Phones = Phones };
 }
@@ -34,7 +55,7 @@ public interface IClientDirectory
     Task AddAsync(ClientRecord client, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Changes a client's display name, description, phone numbers and time zone. Its name and Entra group are who it is,
+    /// Changes a client's display name, description, phone numbers, time zone and approvals required. Its name and Entra group are who it is,
     /// so an update naming an unknown client, or a different group, is refused.
     /// </summary>
     Task UpdateAsync(ClientRecord client, CancellationToken cancellationToken = default);
@@ -43,10 +64,17 @@ public interface IClientDirectory
 /// <summary>The clients table's rules, the same for every implementation of it.</summary>
 public static class ClientDirectoryRules
 {
-    /// <summary>Refuses a registration, added or changed, whose time zone this machine does not know, naming it.</summary>
+    /// <summary>
+    /// Refuses a registration, added or changed, whose time zone this machine does not know, naming it,
+    /// or that needs fewer than one approval.
+    /// </summary>
     public static void CheckRegistration(ClientRecord client)
     {
         if (LocalTime.ProblemWith(client.TimeZone) is { } problem) throw new ArgumentException(problem);
+        if (ClientRecord.ProblemWithApprovals(client.ApprovalsRequired) is { } approvals)
+        {
+            throw new ArgumentException(approvals);
+        }
     }
 
     /// <summary>Refuses an update that would change who a client is rather than how it is described.</summary>

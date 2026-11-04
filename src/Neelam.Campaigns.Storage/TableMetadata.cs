@@ -106,11 +106,19 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
         if (client.Phones.Count > 0) row["Phones"] = string.Join(",", client.Phones.Select(p => p.Digits));
         // The zone's IANA id; left out for the default.
         if (!string.IsNullOrWhiteSpace(client.TimeZone)) row["TimeZone"] = client.TimeZone;
+        // How many approvals a campaign needs; left out when the registration does not say (one).
+        if (client.ApprovalsRequired is { } approvals)
+        {
+            row[ApprovalsRequiredColumn] = approvals;
+        }
         return row;
     }
 
-    // A row written before phone numbers or time zones were registered has none. A zone is read as
-    // written, known or not: the pages fall back to the default for one they cannot use.
+    internal const string ApprovalsRequiredColumn = "ApprovalsRequired";
+
+    // A row written before phone numbers, time zones or approvals required were registered has none. A
+    // zone is read as written, known or not: the pages fall back to the default for one they cannot use.
+    // A number of approvals below one is refused here, where it is read, rather than taken as one.
     internal static ClientRecord ToClient(TableEntity row) =>
         new(new ClientName(row.RowKey),
             row.GetGuid("GroupId") ?? throw new InvalidDataException($"Client {row.RowKey} has no Entra group."),
@@ -122,7 +130,30 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
                     ?? throw new InvalidDataException($"Client {row.RowKey} has a phone number that is not one: '{digits}'.")))
                 : PhoneNumbers.None,
             TimeZone = row.GetString("TimeZone") is { Length: > 0 } zone ? zone : null,
+            ApprovalsRequired = ApprovalsRequiredOf(row),
         };
+
+    // Written as Int32 by this code; Int64 is what a number typed into a table editor may become, so it
+    // is read too while it fits. Anything else, or a number below one, makes the row unreadable.
+    private static int? ApprovalsRequiredOf(TableEntity row)
+    {
+        if (!row.TryGetValue(ApprovalsRequiredColumn, out object? value) || value is null)
+        {
+            return null;
+        }
+        int approvals = value switch
+        {
+            int whole => whole,
+            long wide when wide is >= int.MinValue and <= int.MaxValue => (int)wide,
+            _ => throw new InvalidDataException(
+                $"Client {row.RowKey} has an {ApprovalsRequiredColumn} that is not a whole number: '{value}'."),
+        };
+        if (ClientRecord.ProblemWithApprovals(approvals) is { } problem)
+        {
+            throw new InvalidDataException($"Client {row.RowKey}: {problem}");
+        }
+        return approvals;
+    }
 
     // One partition per client; rows sort by when the grant was given, and the id keeps two grants
     // in the same instant apart.
@@ -167,7 +198,36 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
         if (approval.WarningsSeenAt is { } seenAt) row["WarningsSeenAt"] = seenAt;
         // Which warnings she had been shown by then, as hashes only (Finding.SeenKey).
         if (approval.WarningsSeenKeys is { } seenKeys) row["WarningsSeen"] = seenKeys;
+        // Everyone after the first who approved the save, for a client needing more than one; left out
+        // while there is only the first, so with one approver required a row is written as it always was.
+        if (approval.MoreApprovers is { Count: > 0 } more)
+        {
+            row[MoreApproversColumn] = System.Text.Json.JsonSerializer.Serialize(
+                more.Select(a => new ApproverColumn(a.By, a.At)).ToList(), ApproverJson);
+        }
         return row;
+    }
+
+    internal const string MoreApproversColumn = "MoreApprovers";
+
+    // One later approver as the MoreApprovers column holds them: a JSON array of {"by", "at"}.
+    private sealed record ApproverColumn(string By, DateTimeOffset At);
+
+    private static readonly System.Text.Json.JsonSerializerOptions ApproverJson = new(System.Text.Json.JsonSerializerDefaults.Web);
+
+    private static IReadOnlyList<Approver>? MoreApproversOf(TableEntity row)
+    {
+        if (row.GetString(MoreApproversColumn) is not { Length: > 0 } json)
+        {
+            return null;
+        }
+        List<ApproverColumn> more = System.Text.Json.JsonSerializer.Deserialize<List<ApproverColumn>>(json, ApproverJson)
+                                    ?? throw new InvalidDataException($"An approval row's {MoreApproversColumn} is not a list: '{row.RowKey}'.");
+        if (more.Any(a => string.IsNullOrWhiteSpace(a.By)))
+        {
+            throw new InvalidDataException($"An approval row names a later approver with no name: '{row.RowKey}'.");
+        }
+        return more.Count == 0 ? null : more.Select(a => new Approver(a.By, a.At)).ToList();
     }
 
     internal static ApprovalRecord ToApproval(TableEntity row)
@@ -186,7 +246,8 @@ public sealed class TableMetadata : IClientDirectory, ISupportGrantStore, IAppro
             withdrawnAt,
             row.GetString("WarningsSeenBy"),
             row.GetDateTimeOffset("WarningsSeenAt"),
-            row.GetString("WarningsSeen"));
+            row.GetString("WarningsSeen"),
+            MoreApproversOf(row));
     }
 
     // One partition per client; rows sort by time, and the id keeps two events in the same instant

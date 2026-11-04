@@ -51,7 +51,7 @@
           "additionalProperties": false,
           "required": ["by", "at"],
           "properties": {
-            "by": { "description": "Who approved it.", "type": "string", "minLength": 1 },
+            "by": { "description": "Who approved it; when the client needs more than one approver, everyone who did, as \"Priya and Sam\".", "type": "string", "minLength": 1 },
             "at": { "description": "When, in UTC.", "type": "string", "format": "date-time" }
           }
         },

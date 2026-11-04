@@ -55,6 +55,24 @@ public class ClientWorkspaceTests
         Assert.DoesNotContain("Mars", entry.Message);
     }
 
+    // How many approvals a campaign needs (owner, 2026-11-03): the row's own number, else one, also with
+    // no row; a number below one, whatever holds it, is unreadable rather than taken as one.
+    [Fact]
+    public async Task The_approvals_required_are_the_row_s_or_one_and_never_below_one()
+    {
+        ClientWorkspace workspace = Over(new InMemoryClientDirectory(
+            new ClientRecord(SalonOne, Guid.NewGuid(), "Salon One") { ApprovalsRequired = 2 }));
+
+        Assert.Equal(2, await workspace.ApprovalsRequiredAsync(SalonOne));
+        Assert.Equal(1, await workspace.ApprovalsRequiredAsync(SalonTwo));
+
+        InMemoryClientDirectory broken = new();
+        broken.Put(new ClientRecord(SalonOne, Guid.NewGuid(), "Salon One") { ApprovalsRequired = 0 });
+        ListLogger<ClientWorkspace> log = new();
+        await Assert.ThrowsAsync<RegistrationUnreadableException>(() => Over(broken, log).ApprovalsRequiredAsync(SalonOne));
+        Assert.Contains("test-salon-one", Assert.Single(log.Entries).Message);
+    }
+
     // Each client reads its own zone, whichever row the table lists first.
     [Fact]
     public async Task Two_clients_with_different_zones_each_see_their_own()
