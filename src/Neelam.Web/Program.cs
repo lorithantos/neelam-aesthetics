@@ -132,6 +132,9 @@ builder.Services.AddOptions<WorkingCopyOptions>()
         "WorkingCopy:Debounce must be positive, WorkingCopy:Cap no shorter than it and at most a day, and " +
         "WorkingCopy:KeepUnchanged positive, such as 00:00:05, 00:01:00 and 7.00:00:00.")
     .ValidateOnStart();
+// Where a working copy goes when storage cannot be reached: the server's disk, under WorkingCopy:DiskPath.
+builder.Services.AddSingleton<IWorkingCopyDisk>(services =>
+    new DiskWorkingCopies(services.GetRequiredService<IOptions<WorkingCopyOptions>>().Value.DiskPath));
 builder.Services.AddSingleton(services => new ClientStores(
     storageClients, services.GetRequiredService<TimeProvider>(),
     services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,

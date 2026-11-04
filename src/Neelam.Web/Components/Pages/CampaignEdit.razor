@@ -37,6 +37,7 @@
 @inject IProofreader Proofreader
 @inject DailyProofreadAllowance Allowance
 @inject Microsoft.Extensions.Options.IOptions<WorkingCopyOptions> WorkingCopySettings
+@inject IWorkingCopyDisk WorkingCopyDisk
 
 <PageTitle>@Title</PageTitle>
 
@@ -980,13 +981,14 @@ else
             return;
         }
         var store = _store = Stores.Campaigns(client, actor, approvalsRequired);
-        _keeper = new WorkingCopyKeeper(store.WorkingCopies, Clock, WorkingCopySettings.Value, OnCircuitAsync, Logs.CreateLogger<WorkingCopyKeeper>());
+        _keeper = new WorkingCopyKeeper(store.WorkingCopies, WorkingCopyDisk, client, Clock, WorkingCopySettings.Value, OnCircuitAsync,
+            Logs.CreateLogger<WorkingCopyKeeper>());
         if (Id is { } id)
         {
             _session = await DraftSession.OpenAsync(store, id);
             if (_session is null) _undone = await DraftSession.RestorableAsync(store, id);
             if (_session is null && _undone is null) _missing = "Campaign not found";
-            if (_session is not null) await BringBackAsync(_session, id);
+            if (_session is not null) await BringBackAsync(_session);
         }
         else if (TemplateId is { } templateId)
         {
@@ -1033,28 +1035,12 @@ else
     // The working copy brought back into the form on opening, while the page says so; null otherwise.
     private WorkingCopy? _broughtBack;
 
-    // On opening a saved campaign: a working copy that differs from its newest save goes into the form, unsaved,
-    // and the page says so with Discard. One that cannot be read is logged and left for the next write to replace.
-    private async Task BringBackAsync(DraftSession session, Guid id)
-    {
-        WorkingCopy? copy = null;
-        var known = true;
-        try
-        {
-            copy = await _store!.WorkingCopies.ReadAsync(id);
-        }
-        catch (Exception ex) when (StorageFailed.Is(ex) || ex is InvalidDataException)
-        {
-            Log.LogWarning(ex, "Could not read the working copy of campaign {Campaign}; the campaign opens as saved.", id);
-            known = false;
-        }
-        if (copy is not null && !session.IsNewestSave(copy.Json))
-        {
-            session.BringBack(copy.Draft);
-            _broughtBack = copy;
-        }
-        _keeper!.Track(session, copy, known);
-    }
+    // On opening a saved campaign: a working copy, from storage or the server's disk, that differs from its newest
+    // save goes into the form, unsaved, and the page says so with Discard (WorkingCopyKeeper.OpenAsync).
+    private async Task BringBackAsync(DraftSession session) => _broughtBack = await _keeper!.OpenAsync(session);
+
+    // A save storage could not take: what she typed is kept on the server's disk.
+    private Task SaveFailedAsync() => _keeper?.ToDiskAsync() ?? Task.CompletedTask;
 
     // The working copy goes: she saved, or the form is being replaced from storage. Never fails the action.
     private async Task ForgetWorkingCopyAsync(Guid id)
@@ -1164,7 +1150,7 @@ else
         {
             _message = ex.Message;
         }
-    }, "Not saved", Say);
+    }, "Not saved", Say, SaveFailedAsync);
 
     private Task SaveAsync() => ActingAsync(async () =>
     {
@@ -1186,7 +1172,7 @@ else
         // changes: navigating would load the page afresh, at the top and without the saved line.
         if (isNew) await ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{saved.Id}").AbsoluteUri);
         await ShowTitleAsync(Title);
-    }, "Not saved", Say);
+    }, "Not saved", Say, SaveFailedAsync);
 
     // The browser's address, replaced in place. A failure is only logged: the save stands, and the
     // campaign is in her list whatever the address bar says.

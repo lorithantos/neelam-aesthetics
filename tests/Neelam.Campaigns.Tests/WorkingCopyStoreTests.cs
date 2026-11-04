@@ -217,6 +217,20 @@ public class WorkingCopyOptionsTests
         Assert.Equal(defaults.KeepUnchanged, TimeSpan.Parse((string)settings[nameof(WorkingCopyOptions.KeepUnchanged)]!, CultureInfo.InvariantCulture));
     }
 
+    // On App Service, under /home, which persists across restarts, and outside /home/site/wwwroot, which a deploy replaces.
+    [Fact]
+    public void The_disk_fallback_s_path_is_shipped_as_the_code_s_default_under_home_and_outside_the_site()
+    {
+        var settings = JsonNode.Parse(File.ReadAllText(Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "appsettings.json")))![WorkingCopyOptions.Section]!;
+        var defaults = new WorkingCopyOptions();
+
+        Assert.Equal("/home/data/working", defaults.DiskPath);
+        Assert.Equal(defaults.DiskPath, (string?)settings[nameof(WorkingCopyOptions.DiskPath)]);
+        Assert.NotNull(new WorkingCopyOptions { DiskPath = "" }.Problem());
+        Assert.NotNull(new WorkingCopyOptions { DiskPath = "data/working" }.Problem());
+        Assert.NotNull(new WorkingCopyOptions { DiskPath = "/home/site/wwwroot/working" }.Problem());
+    }
+
     [Fact]
     public void Settings_that_cannot_run_are_refused()
     {

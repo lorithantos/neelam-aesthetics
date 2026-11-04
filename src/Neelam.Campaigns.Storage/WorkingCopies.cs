@@ -102,14 +102,23 @@ public sealed class WorkingCopies(IBlobBackend blobs, TimeProvider clock)
         foreach (var blob in listed)
         {
             // A name this app did not write is left alone rather than guessed at.
-            if (!Guid.TryParseExact(blob.Name[Prefix.Length..].Replace(".json", "", StringComparison.Ordinal), "N", out var id)
-                || blob.Name != Name(id))
-                continue;
-            var stale = Stamp(blob.Metadata, WrittenAtKey) is not { } written || now - written >= keep;
+            if (IdOf(blob) is not { } id) continue;
+            var stale = WrittenAtOf(blob) is not { } written || now - written >= keep;
             if ((stale || !withSaves.Contains(id)) && await blobs.DeleteIfUnchangedAsync(blob.Name, blob.ETag, ct)) removed++;
         }
         return removed;
     }
+
+    /// <summary>The campaign a listed working copy is of, or null for a name this app did not write.</summary>
+    internal static Guid? IdOf(BlobEntry blob) =>
+        blob.Name.StartsWith(Prefix, StringComparison.Ordinal)
+        && Guid.TryParseExact(blob.Name[Prefix.Length..].Replace(".json", "", StringComparison.Ordinal), "N", out var id)
+        && blob.Name == Name(id)
+            ? id
+            : null;
+
+    /// <summary>When a listed working copy was last written, from its metadata.</summary>
+    internal static DateTimeOffset? WrittenAtOf(BlobEntry blob) => Stamp(blob.Metadata, WrittenAtKey);
 
     private static DateTimeOffset? Stamp(IReadOnlyDictionary<string, string> metadata, string key) =>
         metadata.TryGetValue(key, out var stamp) && SaveStamp.TryRead(stamp + ".json", out var at) ? at : null;
@@ -149,9 +158,19 @@ public sealed class WorkingCopyOptions
     /// <summary>How long the sweep keeps a working copy nobody has written since. Seven days unless set.</summary>
     public TimeSpan KeepUnchanged { get; set; } = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// Where a working copy goes on the server's disk when storage cannot be reached (<see cref="DiskWorkingCopies"/>).
+    /// On App Service on Linux under <c>/home</c>, which persists, and outside <c>/home/site/wwwroot</c>, which a
+    /// deploy replaces. <c>/home/data/working</c> unless set.
+    /// </summary>
+    public string DiskPath { get; set; } = "/home/data/working";
+
     /// <summary>Why these settings cannot run, or null when they can.</summary>
     public string? Problem() =>
-        Debounce <= TimeSpan.Zero || Cap < Debounce
+        string.IsNullOrWhiteSpace(DiskPath) || !Path.IsPathRooted(DiskPath)
+            || DiskPath.Replace('\\', '/').Contains("/site/wwwroot", StringComparison.OrdinalIgnoreCase)
+            ? "WorkingCopy:DiskPath must be a full path outside the site's wwwroot, such as /home/data/working."
+        : Debounce <= TimeSpan.Zero || Cap < Debounce
             ? "WorkingCopy:Debounce must be a positive time span, such as 00:00:05, and WorkingCopy:Cap no shorter than it, such as 00:01:00."
         : Cap > TimeSpan.FromDays(1)
             ? "WorkingCopy:Cap must be at most a day, such as 00:01:00."

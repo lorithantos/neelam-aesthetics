@@ -382,6 +382,189 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal("Mine, typed", Held(save.Id));
     }
 
+    // ---- The server-disk fallback (owner, 2026-11-03) ----
+
+    private Func<string, Exception?> WorkingDown => name =>
+        name.StartsWith(WorkingCopies.Prefix, StringComparison.Ordinal) ? StorageFailure.Busy() : null;
+
+    private string? OnDisk(Guid id) => app.Disk.Held(DemoApp.Client, id)?.Draft.SubjectText();
+
+    // Typed, and the write storage could not take put on the disk instead.
+    private async Task OnDiskFirst(OpenCampaignPage page, ManualClock clock, Guid id, string subject)
+    {
+        Container.Failure = WorkingDown;
+        try
+        {
+            await Typed(page, clock, subject, Settings.Debounce);
+            clock.Advance(Settings.Debounce);
+            await Settled(page);
+        }
+        finally
+        {
+            Container.Failure = null;
+        }
+        Assert.Equal(subject, OnDisk(id));
+    }
+
+    [Fact]
+    public async Task A_write_storage_cannot_take_goes_to_the_server_s_disk_until_storage_answers()
+    {
+        var save = await Saved();
+        var clock = Clock();
+        await using var page = await Open(save.Id, clock);
+
+        await OnDiskFirst(page, clock, save.Id, "Mine, on the disk");
+
+        Assert.Null(Held(save.Id));
+        var copy = app.Disk.Held(DemoApp.Client, save.Id)!;
+        Assert.Equal(save.SavedAt, copy.BasedOn);
+        Assert.Equal(clock.Now, copy.WrittenAt);
+        // Storage answers again: the next write puts it in storage, and the disk copy goes.
+        clock.Advance(Settings.Cap);
+        await Settled(page);
+        Assert.Equal("Mine, on the disk", Held(save.Id));
+        Assert.Null(OnDisk(save.Id));
+    }
+
+    [Fact]
+    public async Task A_save_storage_cannot_take_goes_to_the_server_s_disk()
+    {
+        var save = await Saved();
+        await using var page = await Open(save.Id, Clock());
+        await page.TypeAsync("subject", "Mine, not saved");
+
+        await StorageDown.WhileDown(app, () => page.ClickAsync("save-button"));
+
+        Assert.Equal(StorageFailed.NotDone("Not saved"), RenderedPage.Named(await page.HtmlAsync(), "page-message"));
+        Assert.Equal("Mine, not saved", OnDisk(save.Id));
+        Assert.Single(await Store.HistoryAsync(DocumentKind.Draft, save.Id));
+    }
+
+    [Fact]
+    public async Task On_opening_a_disk_copy_newer_than_storage_s_is_brought_back_and_moved_into_storage()
+    {
+        var save = await Saved();
+        await Written(save.Id, "Older, in storage", save);
+        app.Clock.Now += TimeSpan.FromMinutes(1);
+        var disk = new DiskCopy(save.Id, CampaignJson.SerializeDraft(WorkingCopyStoreTests.Edited("Newer, on the disk")), save.SavedAt, app.Clock.Now);
+        app.Disk.Put(DemoApp.Client, disk);
+
+        await using var page = await Open(save.Id, Clock());
+
+        var html = await page.HtmlAsync();
+        Assert.Equal("Newer, on the disk", RenderedPage.Attribute(html, "subject", "value"));
+        Assert.Equal(WorkingCopyWords.BroughtBack(Times.DateAndTime(disk.WrittenAt)), RenderedPage.Named(html, "working-copy-what"));
+        Assert.Equal("Discard", RenderedPage.Named(html, "working-copy-discard"));
+        Assert.Equal("Newer, on the disk", Held(save.Id));
+        Assert.Null(OnDisk(save.Id));
+    }
+
+    [Fact]
+    public async Task On_opening_a_disk_copy_older_than_what_storage_holds_is_dropped()
+    {
+        var save = await Saved();
+        app.Disk.Put(DemoApp.Client, new DiskCopy(save.Id,
+            CampaignJson.SerializeDraft(WorkingCopyStoreTests.Edited("Older, on the disk")), save.SavedAt, app.Clock.Now));
+        app.Clock.Now += TimeSpan.FromMinutes(1);
+        await Written(save.Id, "Newer, in storage", save);
+
+        await using var page = await Open(save.Id, Clock());
+
+        Assert.Equal("Newer, in storage", RenderedPage.Attribute(await page.HtmlAsync(), "subject", "value"));
+        Assert.Null(OnDisk(save.Id));
+    }
+
+    [Fact]
+    public async Task A_save_removes_the_disk_copy_too()
+    {
+        var save = await Saved();
+        var clock = Clock();
+        await using var page = await Open(save.Id, clock);
+        await OnDiskFirst(page, clock, save.Id, "On the disk, then saved");
+
+        await page.ClickAsync("save-button");
+
+        Assert.Null(OnDisk(save.Id));
+        Assert.Null(Held(save.Id));
+    }
+
+    [Fact]
+    public async Task Discard_removes_the_disk_copy_too()
+    {
+        var save = await Saved();
+        await Written(save.Id, "Brought back", save);
+        var clock = Clock();
+        await using var page = await Open(save.Id, clock);
+        await OnDiskFirst(page, clock, save.Id, "On the disk, then discarded");
+
+        await page.ClickAsync("working-copy-discard");
+
+        Assert.Null(OnDisk(save.Id));
+        Assert.Null(Held(save.Id));
+    }
+
+    [Fact]
+    public async Task Deleting_the_campaign_removes_the_disk_copy_too()
+    {
+        var save = await Saved();
+        var clock = Clock();
+        await using var page = await Open(save.Id, clock);
+        await OnDiskFirst(page, clock, save.Id, "On the disk, then deleted");
+
+        await page.ClickAsync("delete-button");
+        await page.ClickAsync("delete-confirm");
+
+        Assert.Null(OnDisk(save.Id));
+    }
+
+    [Fact]
+    public async Task A_disk_the_fallback_cannot_write_to_is_logged_and_never_escapes()
+    {
+        var save = await Saved();
+        var clock = Clock();
+        var logs = new KeeperLogs();
+        await using var page = await Open(save.Id, clock, logs);
+        app.Disk.Failure = () => new IOException("No space left on device.");
+        Container.Failure = WorkingDown;
+        try
+        {
+            await Typed(page, clock, "Mine, typed", Settings.Debounce);
+            clock.Advance(Settings.Debounce);
+            var html = await page.HtmlAsync();
+
+            Assert.Equal("Mine, typed", RenderedPage.Attribute(html, "subject", "value"));
+            Assert.IsType<IOException>(Assert.Single(logs.Keeper.Entries, e => e.Level == LogLevel.Error).Error);
+        }
+        finally
+        {
+            Container.Failure = null;
+            app.Disk.Failure = null;
+        }
+        // Nothing stopped: storage is tried again after the cap, as for any failed write.
+        clock.Advance(Settings.Cap);
+        await Settled(page);
+        Assert.Equal("Mine, typed", Held(save.Id));
+    }
+
+    // Changed back to what was saved: nothing unsaved is left, so the copy of what was goes.
+    [Fact]
+    public async Task Changed_back_to_the_newest_save_its_working_copy_goes()
+    {
+        var save = await Saved(subject: "Saved subject");
+        var clock = Clock();
+        await using var page = await Open(save.Id, clock);
+        await Typed(page, clock, "For a while", Settings.Debounce);
+        clock.Advance(Settings.Debounce);
+        await Settled(page);
+        Assert.Equal("For a while", Held(save.Id));
+
+        await Typed(page, clock, "Saved subject", Settings.Debounce);
+        clock.Advance(Settings.Debounce);
+        await Settled(page);
+
+        Assert.Null(Held(save.Id));
+    }
+
     // A campaign never saved has no id and no address she could open it at again: nothing is kept for it.
     [Fact]
     public async Task A_campaign_never_saved_has_no_working_copy()

@@ -550,7 +550,17 @@ public sealed class CampaignStore(
     /// <inheritdoc cref="SweepAsync(CancellationToken)"/>
     /// <param name="workingCopiesKept">How long a working copy nobody writes is kept (<see cref="WorkingCopyOptions.KeepUnchanged"/>).</param>
     /// <param name="ct">Cancels the run; the next one finishes it.</param>
-    public async Task<int> SweepAsync(TimeSpan workingCopiesKept, CancellationToken ct = default)
+    public Task<int> SweepAsync(TimeSpan workingCopiesKept, CancellationToken ct = default) => SweepAsync(workingCopiesKept, null, ct);
+
+    /// <inheritdoc cref="SweepAsync(CancellationToken)"/>
+    /// <param name="workingCopiesKept">How long a working copy nobody writes is kept (<see cref="WorkingCopyOptions.KeepUnchanged"/>).</param>
+    /// <param name="disk">
+    /// The working copies' disk fallback, swept by the same rules and one more: a disk copy storage already holds
+    /// something as new as (a save, or the working copy, written at or after it) was taken into storage, and goes.
+    /// Null to leave the disk alone.
+    /// </param>
+    /// <param name="ct">Cancels the run; the next one finishes it.</param>
+    public async Task<int> SweepAsync(TimeSpan workingCopiesKept, IWorkingCopyDisk? disk, CancellationToken ct = default)
     {
         var proofreads = new List<string>();
         // Her photo readings (proofread/images/) belong to her photos, not to any one save.
@@ -561,10 +571,12 @@ public sealed class CampaignStore(
 
         // Listed before the saves, as the proofreads are: a working copy is written only after its campaign's first save.
         var workingCopies = await WorkingCopies.ListAsync(ct);
+        IReadOnlyList<DiskCopy> onDisk = disk is null ? [] : await disk.ListAsync(Client, ct);
 
         var deleted = 0;
         var remaining = new HashSet<string>(StringComparer.Ordinal);
         var withSaves = new HashSet<Guid>();
+        var newestSave = new Dictionary<Guid, DateTimeOffset>();
         foreach (var kind in Enum.GetValues<DocumentKind>())
         {
             foreach (var (save, etag) in await ListEntriesAsync(kind, $"{Prefix(kind)}/", ct))
@@ -578,13 +590,36 @@ public sealed class CampaignStore(
                 {
                     remaining.Add(ProofreadName(save));
                     withSaves.Add(save.Id);
+                    if (!newestSave.TryGetValue(save.Id, out var newest) || save.SavedAt > newest) newestSave[save.Id] = save.SavedAt;
                 }
             }
         }
         foreach (var orphan in proofreads.Where(p => !remaining.Contains(p)))
             await blobs.DeleteAsync(orphan, ct);
         await WorkingCopies.SweepAsync(workingCopies, withSaves, workingCopiesKept, ct);
+        if (disk is not null) await SweepDiskAsync(disk, onDisk, workingCopies, withSaves, newestSave, workingCopiesKept, ct);
         return deleted;
+    }
+
+    // The disk fallback's copies: taken into storage already, unwritten for the period, or of a campaign gone.
+    private async Task SweepDiskAsync(
+        IWorkingCopyDisk disk, IReadOnlyList<DiskCopy> onDisk, IReadOnlyList<BlobEntry> workingCopies, HashSet<Guid> withSaves,
+        Dictionary<Guid, DateTimeOffset> newestSave, TimeSpan keep, CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        var inStorage = new Dictionary<Guid, DateTimeOffset>();
+        foreach (var blob in workingCopies)
+        {
+            if (WorkingCopies.IdOf(blob) is { } id && WorkingCopies.WrittenAtOf(blob) is { } at) inStorage[id] = at;
+        }
+        foreach (var copy in onDisk)
+        {
+            var taken = (newestSave.TryGetValue(copy.CampaignId, out var saved) && saved >= copy.WrittenAt)
+                        || (inStorage.TryGetValue(copy.CampaignId, out var written) && written >= copy.WrittenAt);
+            var stale = now - copy.WrittenAt >= keep;
+            var gone = !withSaves.Contains(copy.CampaignId);
+            if (taken || stale || gone) await disk.RemoveAsync(Client, copy.CampaignId, ct);
+        }
     }
 
     /// <summary>

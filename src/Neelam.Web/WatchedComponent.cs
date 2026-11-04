@@ -83,7 +83,8 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
     /// <paramref name="notDone"/>, such as "Not saved". The action changes what the page shows only once
     /// storage has answered, so the form is left exactly as she typed it. Anything else still escapes.
     /// </summary>
-    protected async Task ActingAsync(Func<Task> action, string notDone, Action<string> say)
+    /// <param name="failed">After storage failed and she was told: the campaign page's save keeps the form on the server's disk.</param>
+    protected async Task ActingAsync(Func<Task> action, string notDone, Action<string> say, Func<Task>? failed = null)
     {
         Watcher?.Begin();
         await BeforeActingAsync();
@@ -95,6 +96,7 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
         {
             Logs.CreateLogger(GetType()).LogError(ex, "{Action}: storage failed under the page's own action; the page is left as it was.", notDone);
             say(StorageFailed.NotDone(notDone));
+            if (failed is not null) await failed();
         }
         finally
         {

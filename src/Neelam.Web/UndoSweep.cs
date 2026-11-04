@@ -20,7 +20,8 @@ namespace Neelam.Web;
 /// </param>
 public sealed class UndoSweep(
     ClientStores stores, IClientDirectory clients, IEnumerable<PrototypeCallerSource> prototype,
-    IOptions<UndoOptions> options, IOptions<WorkingCopyOptions> workingCopies, TimeProvider clock, ILogger<UndoSweep> log) : BackgroundService
+    IOptions<UndoOptions> options, IOptions<WorkingCopyOptions> workingCopies, IWorkingCopyDisk disk, TimeProvider clock,
+    ILogger<UndoSweep> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -66,7 +67,7 @@ public sealed class UndoSweep(
         {
             try
             {
-                deleted += await stores.Campaigns(client, Actor.UndoSweep).SweepAsync(workingCopies.Value.KeepUnchanged, ct);
+                deleted += await stores.Campaigns(client, Actor.UndoSweep).SweepAsync(workingCopies.Value.KeepUnchanged, disk, ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {

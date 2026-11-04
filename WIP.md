@@ -646,6 +646,26 @@ misses.
   placeholder (`WorkingCopyWords`), the owner's to approve. Templates have no working copy yet (thread item).
   Tests: `WorkingCopyStoreTests`, `WorkingCopyPageTests` (in a circuit, `ManualClock`), `UndoSweepTests`.
   **Not verified against Azure:** the conditional upload's status codes (412/409/404) in `AzureBlobBackend.ReplaceAsync`.
+  **Owner, 2026-11-03, on that report:** every placeholder sentence approved as is; the stale-tab-after-Undo risk left
+  as it is; Undo, Restore, Load the latest and restoring a deleted campaign discarding the copy kept; a failed write
+  logged and not shown kept; no activity rows kept. Reversed: never-saved campaigns must be protected ("No typing
+  means no harm, no foul").
+- **Server-disk fallback (owner, 2026-11-03; built the same day, not deployed).** When storage cannot take a
+  working-copy write or an explicit Save (Save, Keep mine), the form goes to the server's disk instead
+  (`IWorkingCopyDisk`, `DiskWorkingCopies`): `{WorkingCopy:DiskPath}/{client}/{campaign id}.json`, ids only in the
+  name; `WorkingCopy:DiskPath` is `/home/data/working` (under `/home`, outside `/home/site/wwwroot`; pinned, and the
+  app refuses a relative path or one under wwwroot). Opening a campaign brings back a disk copy newer than both the
+  copy in storage and the newest save, with the same notice and Discard, and takes it into storage there and then
+  (deleting the file); otherwise the keeper's next successful write does. Save, Discard, Delete (and Undo, Restore,
+  Load the latest, which go through the same removal) remove it too. The sweep (`UndoSweep`, through
+  `CampaignStore.SweepAsync(keep, disk)`) removes a disk copy that a save or the copy in storage has caught up with,
+  one unwritten for `WorkingCopy:KeepUnchanged`, and one whose campaign has no saves left. The disk failing is
+  logged and never reaches her. Also since: changing the form back to the newest save removes the working copy
+  (it used to stay and come back on opening). **/home on this plan:** `infra/site.bicep` is `kind: 'app,linux'`
+  with `DOTNETCORE|10.0` (a built-in image, not a custom container) and does not set
+  `WEBSITES_ENABLE_APP_SERVICE_STORAGE`; the Learn pages found describe that setting for custom containers only, so
+  that /home persists for this site is App Service's documented default for built-in Linux images, not something
+  infra pins. Tests: `WorkingCopyDiskTests` (one on the real disk, in a temp folder), `WorkingCopyPageTests`, `UndoSweepTests`.
 - **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
   `KnownItemRemoved`) by the item's id, never its text.
 - **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and

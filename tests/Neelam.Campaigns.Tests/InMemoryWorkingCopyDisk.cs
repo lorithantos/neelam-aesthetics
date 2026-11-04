@@ -1,0 +1,53 @@
+using System.Collections.Concurrent;
+using Neelam.Campaigns.Storage;
+
+namespace Neelam.Campaigns.Tests;
+
+/// <summary>
+/// The server's disk for working copies, in memory: what <see cref="DiskWorkingCopies"/> does, by client and
+/// campaign id. <see cref="Failure"/> makes every call throw, as a full or unwritable disk would.
+/// </summary>
+internal sealed class InMemoryWorkingCopyDisk : IWorkingCopyDisk
+{
+    private readonly ConcurrentDictionary<(string Client, Guid Id), DiskCopy> _copies = new();
+
+    /// <summary>When set, what every call throws; null, the default, fails nothing.</summary>
+    public Func<Exception>? Failure { get; set; }
+
+    /// <summary>The copy held for a campaign, or null.</summary>
+    public DiskCopy? Held(ClientName client, Guid id) => _copies.TryGetValue((client.Value, id), out var copy) ? copy : null;
+
+    /// <summary>Puts a copy straight on the disk, as an earlier run of the app might have left it.</summary>
+    public void Put(ClientName client, DiskCopy copy) => _copies[(client.Value, copy.CampaignId)] = copy;
+
+    private void ThrowIfFailing()
+    {
+        if (Failure is { } failure) throw failure();
+    }
+
+    public Task WriteAsync(ClientName client, DiskCopy copy, CancellationToken ct = default)
+    {
+        ThrowIfFailing();
+        _copies[(client.Value, copy.CampaignId)] = copy;
+        return Task.CompletedTask;
+    }
+
+    public Task<DiskCopy?> ReadAsync(ClientName client, Guid campaignId, CancellationToken ct = default)
+    {
+        ThrowIfFailing();
+        return Task.FromResult(Held(client, campaignId));
+    }
+
+    public Task<bool> RemoveAsync(ClientName client, Guid campaignId, CancellationToken ct = default)
+    {
+        ThrowIfFailing();
+        return Task.FromResult(_copies.TryRemove((client.Value, campaignId), out _));
+    }
+
+    public Task<IReadOnlyList<DiskCopy>> ListAsync(ClientName client, CancellationToken ct = default)
+    {
+        ThrowIfFailing();
+        IReadOnlyList<DiskCopy> listed = _copies.Where(c => c.Key.Client == client.Value).Select(c => c.Value).ToList();
+        return Task.FromResult(listed);
+    }
+}

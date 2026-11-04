@@ -322,15 +322,22 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var store = stores.Campaigns(SalonOne.Name, Actor.Demo);
         var save = await store.SaveDraftAsync(Guid.NewGuid(), "Saved", DraftFixtures.Finished());
         await store.WorkingCopies.WriteAsync(save.Id, WorkingCopyStoreTests.Edited("Unsaved"), save.SavedAt, BlobExpected.Nothing);
+        // And the disk fallback's copy of it, with the same setting.
+        // Written a second after the save and the copy in storage, as storage went down: newer than both.
+        var disk = new InMemoryWorkingCopyDisk();
+        clock.Now += TimeSpan.FromSeconds(1);
+        disk.Put(SalonOne.Name, new DiskCopy(save.Id, CampaignJson.SerializeDraft(WorkingCopyStoreTests.Edited("Unsaved")), save.SavedAt, clock.Now));
         clock.Now += TimeSpan.FromDays(2);
         UndoSweep Keeping(TimeSpan keep) => new(stores, new InMemoryClientDirectory(SalonOne), [],
             Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }),
-            Options.Create(new WorkingCopyOptions { KeepUnchanged = keep }), clock, NullLogger<UndoSweep>.Instance);
+            Options.Create(new WorkingCopyOptions { KeepUnchanged = keep }), disk, clock, NullLogger<UndoSweep>.Instance);
 
         await Keeping(TimeSpan.FromDays(3)).SweepOnceAsync();
         Assert.NotNull(await store.WorkingCopies.ReadAsync(save.Id));
+        Assert.NotNull(disk.Held(SalonOne.Name, save.Id));
         await Keeping(TimeSpan.FromDays(2)).SweepOnceAsync();
         Assert.Null(await store.WorkingCopies.ReadAsync(save.Id));
+        Assert.Null(disk.Held(SalonOne.Name, save.Id));
         Assert.Contains(save.BlobName, containers.For(SalonOne.Name.Value).Blobs.Keys);
     }
 
@@ -346,7 +353,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     private static UndoSweep SweepOver(
         ClientStores stores, IClientDirectory clients, TimeProvider clock, params PrototypeCallerSource[] prototype) =>
         new(stores, clients, prototype, Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }),
-            Options.Create(new WorkingCopyOptions()), clock, NullLogger<UndoSweep>.Instance);
+            Options.Create(new WorkingCopyOptions()), new InMemoryWorkingCopyDisk(), clock, NullLogger<UndoSweep>.Instance);
 
     private sealed class UnreachableContainer : IBlobBackend
     {

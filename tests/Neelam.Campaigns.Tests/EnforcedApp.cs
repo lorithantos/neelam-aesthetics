@@ -58,6 +58,7 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
     internal InMemoryActivityLog Activity { get; } = new();
     internal InMemoryKnownItems KnownItems { get; } = new();
     internal InMemoryStartRecords StartRecords { get; } = new();
+    internal InMemoryWorkingCopyDisk Disk { get; } = new();
     internal ManualClock Clock { get; } = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
     /// <summary>The app's own stores, over <see cref="Containers"/>.</summary>
@@ -91,6 +92,8 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
             // Apart from Containers: the record of starts is written in the background while a test's
             // pages read the settings container, which the in-memory container does not lock for.
             services.RemoveAll<IStartRecords>().AddSingleton<IStartRecords>(StartRecords);
+            // The working copies' disk fallback in memory: no test writes to the server's disk.
+            services.RemoveAll<IWorkingCopyDisk>().AddSingleton<IWorkingCopyDisk>(Disk);
         });
     }
 }
