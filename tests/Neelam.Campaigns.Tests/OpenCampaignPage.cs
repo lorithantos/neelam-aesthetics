@@ -41,8 +41,16 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
         OpenAsync<CampaignEdit>(app, new Dictionary<string, object?> { [nameof(CampaignEdit.Id)] = (Guid?)id }, replacing);
 
     /// <summary>Any page or component of the app, held as its circuit holds it, with these parameters.</summary>
-    public static async Task<OpenCampaignPage> OpenAsync<TComponent>(
-        InMemoryApp app, IReadOnlyDictionary<string, object?> parameters, params object[] replacing) where TComponent : IComponent
+    public static Task<OpenCampaignPage> OpenAsync<TComponent>(
+        InMemoryApp app, IReadOnlyDictionary<string, object?> parameters, params object[] replacing) where TComponent : IComponent =>
+        OpenAtAsync<TComponent>(app, "", parameters, replacing);
+
+    /// <summary>
+    /// <see cref="OpenAsync{TComponent}"/> at <paramref name="address"/>, relative to the site, for a page that
+    /// reads its query (the Known items page's <c>?show=tiers</c>).
+    /// </summary>
+    public static async Task<OpenCampaignPage> OpenAtAsync<TComponent>(
+        InMemoryApp app, string address, IReadOnlyDictionary<string, object?> parameters, params object[] replacing) where TComponent : IComponent
     {
         var scope = app.Services.CreateAsyncScope();
         // Who is asking, set as a circuit sets it when it starts: nobody signed in, as on the demo.
@@ -51,7 +59,7 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
         // Where it is, as a circuit sets it when it starts, for a page that reads its address (a query
         // parameter); nothing here navigates.
         if (scope.ServiceProvider.GetRequiredService<NavigationManager>() is IHostEnvironmentNavigationManager navigation)
-            navigation.Initialize("http://localhost/", "http://localhost/");
+            navigation.Initialize("http://localhost/", "http://localhost/" + address);
         var services = new Replacing(scope.ServiceProvider, [.. replacing, new NoBrowser()]);
         var renderer = new PageRenderer(services, services.GetRequiredService<ILoggerFactory>());
         var root = await renderer.Dispatcher.InvokeAsync(() => renderer.RenderAsync<TComponent>(ParameterView.FromDictionary(
@@ -73,6 +81,19 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
     {
         var handler = _renderer.Handler(_root, testId, "oninput")
             ?? throw new InvalidOperationException($"Nothing named {testId} can be typed into.");
+        await _renderer.DispatchEventAsync(handler, null, new ChangeEventArgs { Value = value });
+        _renderer.ThrowIfFailed();
+    });
+
+    /// <summary>
+    /// Types <paramref name="value"/> into the one field whose id is <paramref name="id"/>, as each keystroke
+    /// tells the page: for a field named only by the id its label points at, as inside the offer,
+    /// promotion and benefit fields.
+    /// </summary>
+    public Task TypeIntoAsync(string id, string value) => _renderer.Dispatcher.InvokeAsync(async () =>
+    {
+        var handler = _renderer.Handler(_root, testId: null, id, "oninput")
+            ?? throw new InvalidOperationException($"Nothing with the id {id} can be typed into.");
         await _renderer.DispatchEventAsync(handler, null, new ChangeEventArgs { Value = value });
         _renderer.ThrowIfFailed();
     });
@@ -190,17 +211,21 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
         }
 
         // The handler the element named testId has for eventName, wherever it is on the page.
-        public ulong? Handler(int componentId, string testId, string eventName)
+        public ulong? Handler(int componentId, string testId, string eventName) => Handler(componentId, testId, id: null, eventName);
+
+        // The handler for eventName of the element named testId, or, with no testId, of the element whose id is id.
+        public ulong? Handler(int componentId, string? testId, string? id, string eventName)
         {
+            var (name, value) = testId is null ? ("id", id) : ("data-testid", testId);
             var frames = GetCurrentRenderTreeFrames(componentId);
             for (var i = 0; i < frames.Count; i++)
             {
                 var frame = frames.Array[i];
-                if (frame.FrameType == RenderTreeFrameType.Component && Handler(frame.ComponentId, testId, eventName) is { } inner)
+                if (frame.FrameType == RenderTreeFrameType.Component && Handler(frame.ComponentId, testId, id, eventName) is { } inner)
                     return inner;
                 if (frame.FrameType != RenderTreeFrameType.Element) continue;
                 var attributes = Attributes(frames.Array, i).ToList();
-                if (!attributes.Any(a => a.AttributeName == "data-testid" && Equals(a.AttributeValue, testId))) continue;
+                if (!attributes.Any(a => a.AttributeName == name && Equals(a.AttributeValue, value))) continue;
                 return attributes.FirstOrDefault(a => a.AttributeName == eventName && a.AttributeEventHandlerId != 0).AttributeEventHandlerId;
             }
             return null;
