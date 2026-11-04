@@ -65,6 +65,61 @@ public class NotSavedYetListTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.DoesNotContain(Container.Reads.Skip(reads.Count), name => name.StartsWith(WorkingCopies.Prefix, StringComparison.Ordinal));
     }
 
+    private DiskCopy OnDisk(Guid id, string title, DateTimeOffset at) =>
+        new(id, CampaignJson.SerializeDraft(WorkingCopyStoreTests.Edited(title)), null, at, title);
+
+    // Storage was down for the whole of her first session on it: the copy reached only the disk, and is listed too.
+    [Fact]
+    public async Task A_never_saved_campaign_only_on_the_disk_is_listed_from_its_name_and_title_alone()
+    {
+        var client = await SignedIn();
+        var id = Guid.NewGuid();
+        app.Disk.Put(Salon.Name, OnDisk(id, "Only on the disk", app.Clock.Now));
+        var contentReads = app.Disk.ContentReads;
+
+        var card = Card(await ListAsync(client), "Only on the disk");
+
+        Assert.Contains(WorkingCopyWords.NotSavedYet("Only on the disk", Times.DateAndTime(app.Clock.Now)), card);
+        Assert.Contains($"<a class=\"button\" href=\"campaigns/{id}\">Open</a>", card);
+        Assert.Contains("<button type=\"submit\" class=\"button\">Discard</button>", card);
+        Assert.Equal(contentReads, app.Disk.ContentReads);
+    }
+
+    // In storage and on the disk both: one row, at the newer of the two times.
+    [Fact]
+    public async Task A_never_saved_campaign_in_storage_and_on_the_disk_is_one_row()
+    {
+        var client = await SignedIn();
+        var id = Guid.NewGuid();
+        var copy = await NeverSaved(id, "In both places");
+        var later = copy.WrittenAt + TimeSpan.FromMinutes(5);
+        app.Disk.Put(Salon.Name, OnDisk(id, "In both places", later));
+
+        var list = await ListAsync(client);
+
+        Assert.Single(Regex.Matches(list, Regex.Escape("aria-label=\"Not saved yet: In both places\"")));
+        Assert.Contains(WorkingCopyWords.NotSavedYet("In both places", Times.DateAndTime(later)), Card(list, "In both places"));
+    }
+
+    [Fact]
+    public async Task Discard_on_the_list_removes_one_only_on_the_disk()
+    {
+        var client = await SignedIn();
+        var id = Guid.NewGuid();
+        app.Disk.Put(Salon.Name, OnDisk(id, "Only on the disk, discarded", app.Clock.Now));
+        var card = Card(await ListAsync(client), "Only on the disk, discarded");
+        var token = Regex.Match(card, "name=\"__RequestVerificationToken\" value=\"([^\"]+)\"").Groups[1].Value;
+
+        await client.PostAsync("/campaigns", new FormUrlEncodedContent(new Dictionary<string, string>
+        {
+            ["_handler"] = $"discard-{id:N}",
+            ["__RequestVerificationToken"] = token,
+        }));
+
+        Assert.Null(app.Disk.Held(Salon.Name, id));
+        Assert.Equal("", Card(await ListAsync(client), "Only on the disk, discarded"));
+    }
+
     [Fact]
     public async Task Discard_on_the_list_removes_it_from_storage_and_the_disk()
     {

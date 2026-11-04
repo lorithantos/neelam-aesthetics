@@ -147,7 +147,19 @@ else if (_campaigns is not null && _templates is not null)
     private async Task ListNotSavedAsync()
     {
         var listed = _campaigns!.Select(c => c.Save.Id).Concat(_deleted!.Select(d => d.Id)).ToHashSet();
-        _notSaved = (await _store!.WorkingCopies.NotSavedYetAsync()).Where(c => !listed.Contains(c.CampaignId)).ToList();
+        // And those that reached only the server's disk, storage being down for all of her first session on
+        // them: from each one's sidecar alone. The disk failing is logged; the list goes on without them.
+        IReadOnlyList<NotSavedYet> onDisk = [];
+        try
+        {
+            onDisk = await WorkingCopyDisk.ListNotSavedYetAsync(_client!);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.LogError(ex, "Could not list the disk copies of {Client}; the list shows those in storage.", _client!.Value);
+        }
+        _notSaved = NotSavedYet.Merge(await _store!.WorkingCopies.NotSavedYetAsync(), onDisk)
+            .Where(c => !listed.Contains(c.CampaignId)).ToList();
     }
 
     // "Discard" on a campaign never saved: its working copy goes, from storage and the server's disk.

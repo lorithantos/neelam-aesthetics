@@ -42,8 +42,10 @@ public class WorkingCopyDiskTests
 
             await disk.WriteAsync(Client, copy);
 
-            var file = Assert.Single(Directory.GetFiles(root, "*", SearchOption.AllDirectories));
-            Assert.Equal(Path.Combine(root, Client.Value, $"{id:N}.json"), file);
+            // The copy and its sidecar, both named by ids alone.
+            Assert.Equal(
+                [Path.Combine(root, Client.Value, $"{id:N}.json"), Path.Combine(root, Client.Value, $"{id:N}.meta.json")],
+                Directory.GetFiles(root, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal));
             var read = await disk.ReadAsync(Client, id);
             Assert.Equal(copy, read);
             Assert.Equal("Typed while storage was down", read!.Draft.SubjectText());
@@ -52,11 +54,38 @@ public class WorkingCopyDiskTests
 
             await disk.WriteAsync(Client, copy with { Json = CampaignJson.SerializeDraft(WorkingCopyStoreTests.Edited("Later")) });
             Assert.Equal("Later", (await disk.ReadAsync(Client, id))!.Draft.SubjectText());
-            Assert.Single(Directory.GetFiles(root, "*", SearchOption.AllDirectories));
+            Assert.Equal(2, Directory.GetFiles(root, "*", SearchOption.AllDirectories).Length);
 
             Assert.True(await disk.RemoveAsync(Client, id));
             Assert.Null(await disk.ReadAsync(Client, id));
+            Assert.Empty(Directory.GetFiles(root, "*", SearchOption.AllDirectories));
             Assert.False(await disk.RemoveAsync(Client, id));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // The campaigns list names a never-saved campaign on the disk from its sidecar alone: its id, title and
+    // time. Here the copy itself is made unreadable, and the row is still there, so nothing of it was read.
+    [Fact]
+    public async Task On_the_real_disk_a_never_saved_copy_is_listed_from_its_sidecar_without_reading_it()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "neelam-working-copy-tests", Guid.NewGuid().ToString("N"));
+        try
+        {
+            var disk = new DiskWorkingCopies(root);
+            var neverSaved = Guid.NewGuid();
+            var saved = Guid.NewGuid();
+            await disk.WriteAsync(Client, Copy(neverSaved, "Spring offer", Start) with { Title = "Spring offer" });
+            await disk.WriteAsync(Client, Copy(saved, "Of a saved one", Start, Start.AddMinutes(-1)) with { Title = "Of a saved one" });
+            await File.WriteAllTextAsync(Path.Combine(root, Client.Value, $"{neverSaved:N}.json"), "not a copy");
+
+            var listed = Assert.Single(await disk.ListNotSavedYetAsync(Client));
+
+            Assert.Equal(new NotSavedYet(neverSaved, "Spring offer", Start), listed);
+            Assert.Empty(await disk.ListNotSavedYetAsync(new ClientName("test-salon-two")));
         }
         finally
         {

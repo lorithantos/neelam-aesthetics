@@ -678,8 +678,11 @@ misses.
   and Discard (a form post removing it from storage and the disk). **Sweep:** a copy with a base stamp still goes
   when its campaign has no saves left; one without goes only once unwritten for `WorkingCopy:KeepUnchanged`; the
   disk copies the same. Placeholder wording (`WorkingCopyWords.NotSavedYet`, `NotSavedYetHeading`). Tests:
-  `WorkingCopyPageTests`, `NotSavedYetListTests`, `WorkingCopyStoreTests`, `WorkingCopyDiskTests`. Not listed: a
-  never-saved campaign whose copy is only on the disk (storage down throughout); its address still opens it.
+  `WorkingCopyPageTests`, `NotSavedYetListTests`, `WorkingCopyStoreTests`, `WorkingCopyDiskTests`. **Owner,
+  2026-11-03: the wording approved as is.** **Since:** one only on the disk (storage down for all of her first
+  session on it) is listed too, from a sidecar beside the copy (`{id}.meta.json`: title, base stamp, time; ids-only
+  names), never from the copy; a campaign in storage and on the disk is one row, at the newer time; the list's
+  Discard removes both.
 - **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
   `KnownItemRemoved`) by the item's id, never its text.
 - **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and

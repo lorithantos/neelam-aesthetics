@@ -249,7 +249,7 @@ public sealed class WorkingCopyKeeper(
         catch (Exception ex) when (StorageFailed.Is(ex))
         {
             log.LogWarning(ex, "Could not write the working copy of campaign {Campaign}; it goes to the disk and is tried again.", id);
-            await WriteToDiskAsync(id, json, basedOn);
+            await WriteToDiskAsync(id, json, basedOn, title);
             _since ??= clock.GetUtcNow();
             Schedule(options.Cap);
         }
@@ -264,14 +264,15 @@ public sealed class WorkingCopyKeeper(
         if (_session is not { Id: { } id } session) return;
         var json = CampaignJson.SerializeDraft(session.Editor.Draft);
         if (session.IsNewestSave(json)) return;
-        await WriteToDiskAsync(id, json, session.Latest?.SavedAt);
+        await WriteToDiskAsync(id, json, session.Latest?.SavedAt, session.Editor.Title);
     }
 
-    private async Task WriteToDiskAsync(Guid id, string json, DateTimeOffset? basedOn)
+    // With the title, for the campaigns list's row of a campaign never saved, kept in the copy's sidecar.
+    private async Task WriteToDiskAsync(Guid id, string json, DateTimeOffset? basedOn, string? title)
     {
         if (await OnDiskAsync(async () =>
             {
-                await disk.WriteAsync(client, new DiskCopy(id, json, basedOn, clock.GetUtcNow()));
+                await disk.WriteAsync(client, new DiskCopy(id, json, basedOn, clock.GetUtcNow(), title));
                 return true;
             }, false, id))
             _onDisk = true;

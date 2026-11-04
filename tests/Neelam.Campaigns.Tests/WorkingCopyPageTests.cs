@@ -658,6 +658,8 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
             id = LastDiskId("Typed while storage was down");
             Assert.Null(Held(id));
             Assert.Null(app.Disk.Held(DemoApp.Client, id)!.BasedOn);
+            // Its title goes with it, for the campaigns list's row.
+            Assert.Equal("Typed while storage was down", app.Disk.Held(DemoApp.Client, id)!.Title);
         }
 
         await using var reopened = await Open(id, Clock());

@@ -178,7 +178,19 @@ public static class WorkingCopyWords
 
 /// <summary>A campaign typed into and never saved, as the campaigns list names it (<see cref="WorkingCopies.NotSavedYetAsync"/>).</summary>
 /// <param name="Title">From its working copy's metadata; null when it had no subject.</param>
-public sealed record NotSavedYet(Guid CampaignId, string? Title, DateTimeOffset WrittenAt);
+public sealed record NotSavedYet(Guid CampaignId, string? Title, DateTimeOffset WrittenAt)
+{
+    /// <summary>
+    /// Those in storage and those on the disk as one list, one row per campaign: where a campaign is in both,
+    /// the newer, newest first.
+    /// </summary>
+    public static IReadOnlyList<NotSavedYet> Merge(IEnumerable<NotSavedYet> stored, IEnumerable<NotSavedYet> onDisk) =>
+        stored.Concat(onDisk)
+            .GroupBy(c => c.CampaignId)
+            .Select(g => g.MaxBy(c => c.WrittenAt)!)
+            .OrderByDescending(c => c.WrittenAt)
+            .ToList();
+}
 
 /// <summary>
 /// When the campaign page writes its working copy, and how long the sweep keeps one nobody writes, from the
