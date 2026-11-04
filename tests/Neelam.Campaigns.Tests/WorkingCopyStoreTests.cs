@@ -164,6 +164,39 @@ public class WorkingCopyStoreTests
         Assert.NotNull(await Copies.ReadAsync(kept.Id));
     }
 
+    // Started on a campaign never saved (no save it started from): it has no saves by nature, so only the
+    // week unwritten removes it. One started from a save still goes when its saves are gone (above).
+    [Fact]
+    public async Task The_sweep_keeps_a_never_saved_campaign_s_copy_until_a_week_unwritten()
+    {
+        var id = Guid.NewGuid();
+        await Copies.WriteAsync(id, Edited("Never saved"), null, BlobExpected.Nothing, "Never saved");
+
+        _clock.Now += TimeSpan.FromDays(7) - TimeSpan.FromTicks(1);
+        Assert.Equal(0, await Store.SweepAsync());
+        Assert.NotNull(await Copies.ReadAsync(id));
+
+        _clock.Now += TimeSpan.FromTicks(1);
+        await Store.SweepAsync();
+        Assert.Null(await Copies.ReadAsync(id));
+    }
+
+    [Fact]
+    public async Task A_never_saved_campaign_s_copy_is_listed_by_its_title_and_time_without_reading_it()
+    {
+        var neverSaved = Guid.NewGuid();
+        var save = await Saved();
+        await Copies.WriteAsync(neverSaved, Edited("Spring offer"), null, BlobExpected.Nothing, "Spring offer");
+        var written = _clock.Now;
+        await Copies.WriteAsync(save.Id, Edited("Of a saved one"), save.SavedAt, BlobExpected.Nothing, "Of a saved one");
+        var reads = _blobs.Reads.Count;
+
+        var listed = Assert.Single(await Copies.NotSavedYetAsync());
+
+        Assert.Equal((neverSaved, "Spring offer", written), (listed.CampaignId, listed.Title, listed.WrittenAt));
+        Assert.Equal(reads, _blobs.Reads.Count);
+    }
+
     // Removed only while it is as listed: one written again between the listing and the delete is a page at work.
     [Fact]
     public async Task The_sweep_leaves_one_written_again_after_it_was_listed()

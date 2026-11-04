@@ -168,6 +168,21 @@ public sealed class DraftSession : IWatched<SaveRef>
     /// </summary>
     public void BringBack(CampaignDraft draft) => Editor = CampaignEditor.Open(draft);
 
+    /// <summary>
+    /// The campaign's id, given now if it has none (owner, 2026-11-03): a new campaign gets it the moment she
+    /// first changes the form, so its working copy and its address name it before any save, and the first save
+    /// is made under it.
+    /// </summary>
+    public Guid TakeId() => Id ??= Guid.NewGuid();
+
+    /// <summary>
+    /// A campaign typed into and never saved, opened again at its address: nothing saved, and an empty form
+    /// until its working copy is brought back into it (<see cref="BringBack"/>). Its first save is made under
+    /// <paramref name="id"/>.
+    /// </summary>
+    public static DraftSession NotSavedYet(CampaignStore store, Guid id) =>
+        new(store, id, CampaignEditor.Open(new CampaignDraft(null, [])), null);
+
     /// <summary>True when the form holds anything not in <see cref="Latest"/>, or nothing is saved yet.</summary>
     public bool HasUnsavedChanges =>
         _saved is null || Editor.Errors().Count > 0 || CampaignJson.SerializeDraft(Editor.Draft) != _saved;
@@ -740,6 +755,7 @@ public sealed class DraftSession : IWatched<SaveRef>
     /// </summary>
     public async Task<SaveRef> SaveAsync(CancellationToken ct = default)
     {
+        // A new campaign's id, given at her first change when there was one (TakeId): its first save is made under it.
         Id ??= Guid.NewGuid();
         var before = Latest;
         // Only her label changed since an approved save: what was approved is what is saved, so the

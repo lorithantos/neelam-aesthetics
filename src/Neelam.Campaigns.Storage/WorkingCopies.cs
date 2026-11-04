@@ -32,6 +32,7 @@ public sealed class WorkingCopies(IBlobBackend blobs, TimeProvider clock)
 
     private const string WrittenAtKey = "writtenat";
     private const string BasedOnKey = "basedon";
+    private const string TitleKey = "title";
 
     internal static string Name(Guid campaignId) => $"{Prefix}{campaignId:N}.json";
 
@@ -63,13 +64,19 @@ public sealed class WorkingCopies(IBlobBackend blobs, TimeProvider clock)
     /// Writes the campaign's working copy in place of the one there, only when what is there is what
     /// <paramref name="expected"/> says: the version this page last wrote, or none.
     /// </summary>
-    /// <param name="basedOn">When the save the form started from was saved; null when it has none.</param>
+    /// <param name="basedOn">When the save the form started from was saved; null for a campaign never saved.</param>
+    /// <param name="title">
+    /// The campaign's title as a save would carry it in its metadata, so the campaigns list can name a campaign
+    /// never saved without reading what it holds; null for none.
+    /// </param>
     /// <returns>Its new ETag; null when another tab wrote or removed it meanwhile, and nothing was written.</returns>
     public Task<string?> WriteAsync(
-        Guid campaignId, CampaignDraft draft, DateTimeOffset? basedOn, BlobExpected expected, CancellationToken ct = default)
+        Guid campaignId, CampaignDraft draft, DateTimeOffset? basedOn, BlobExpected expected, string? title = null,
+        CancellationToken ct = default)
     {
         var metadata = new Dictionary<string, string> { [WrittenAtKey] = SaveStamp.Of(clock.GetUtcNow()) };
         if (basedOn is { } at) metadata[BasedOnKey] = SaveStamp.Of(at);
+        if (!string.IsNullOrWhiteSpace(title)) metadata[TitleKey] = Uri.EscapeDataString(title);
         return blobs.ReplaceAsync(Name(campaignId), BinaryData.FromString(CampaignJson.SerializeDraft(draft)),
             BlobContent.JsonContentType, metadata, expected, ct);
     }
@@ -86,12 +93,28 @@ public sealed class WorkingCopies(IBlobBackend blobs, TimeProvider clock)
     }
 
     /// <summary>
+    /// The campaigns typed into and never saved (owner, 2026-11-03): each working copy started on no save, by
+    /// its id, its title and when it was written, newest first, read from the listing alone; nothing a copy holds
+    /// is read. The caller leaves out any campaign it lists as saved.
+    /// </summary>
+    public async Task<IReadOnlyList<NotSavedYet>> NotSavedYetAsync(CancellationToken ct = default) =>
+        (await ListAsync(ct))
+            .Where(blob => BasedOnOf(blob) is null)
+            .Select(blob => IdOf(blob) is { } id && WrittenAtOf(blob) is { } at
+                ? new NotSavedYet(id, blob.Metadata.TryGetValue(TitleKey, out var title) ? Uri.UnescapeDataString(title) : null, at)
+                : null)
+            .OfType<NotSavedYet>()
+            .OrderByDescending(c => c.WrittenAt)
+            .ToList();
+
+    /// <summary>
     /// Removes, of the working copies <paramref name="listed"/> before the saves were, those written longer ago
-    /// than <paramref name="keep"/>, and those whose campaign has no saves left (<paramref name="withSaves"/>:
-    /// every campaign with a save in its prefix after the sweep, undone or not). Listed first, a copy's
-    /// campaign was saved before the saves were listed, so one missing from them really has none. Each only
-    /// while it is still as listed (its ETag): one written again since is a page still at work, and is left to
-    /// the next run. Nothing is recorded.
+    /// than <paramref name="keep"/>, and those started from a save whose campaign has no saves left
+    /// (<paramref name="withSaves"/>: every campaign with a save in its prefix after the sweep, undone or not).
+    /// One started on a campaign never saved has no saves by nature, so only the period removes it (owner,
+    /// 2026-11-03). Listed first, a copy's campaign was saved before the saves were listed, so one missing from
+    /// them really has none. Each only while it is still as listed (its ETag): one written again since is a page
+    /// still at work, and is left to the next run. Nothing is recorded.
     /// </summary>
     /// <returns>How many were removed.</returns>
     internal async Task<int> SweepAsync(
@@ -104,10 +127,14 @@ public sealed class WorkingCopies(IBlobBackend blobs, TimeProvider clock)
             // A name this app did not write is left alone rather than guessed at.
             if (IdOf(blob) is not { } id) continue;
             var stale = WrittenAtOf(blob) is not { } written || now - written >= keep;
-            if ((stale || !withSaves.Contains(id)) && await blobs.DeleteIfUnchangedAsync(blob.Name, blob.ETag, ct)) removed++;
+            var gone = BasedOnOf(blob) is not null && !withSaves.Contains(id);
+            if ((stale || gone) && await blobs.DeleteIfUnchangedAsync(blob.Name, blob.ETag, ct)) removed++;
         }
         return removed;
     }
+
+    /// <summary>The save a listed working copy started from, from its metadata; null for a campaign never saved.</summary>
+    internal static DateTimeOffset? BasedOnOf(BlobEntry blob) => Stamp(blob.Metadata, BasedOnKey);
 
     /// <summary>The campaign a listed working copy is of, or null for a name this app did not write.</summary>
     internal static Guid? IdOf(BlobEntry blob) =>
@@ -139,7 +166,19 @@ public static class WorkingCopyWords
 
     /// <summary>When another tab wrote the working copy since this page last did.</summary>
     public const string OtherTab = "This campaign is being edited in another tab";
+
+    /// <summary>The campaigns list's heading over the campaigns typed into and never saved. Placeholder wording.</summary>
+    public const string NotSavedYetHeading = "Not saved yet";
+
+    /// <summary>One of them, on the campaigns list (owner's placeholder, 2026-11-03), with Open and Discard beside it.</summary>
+    /// <param name="title">Its title, or "Untitled campaign" for one with no subject yet.</param>
+    /// <param name="when">When its working copy was last written, in her own zone.</param>
+    public static string NotSavedYet(string title, string when) => $"{title}, not saved yet, from {when}";
 }
+
+/// <summary>A campaign typed into and never saved, as the campaigns list names it (<see cref="WorkingCopies.NotSavedYetAsync"/>).</summary>
+/// <param name="Title">From its working copy's metadata; null when it had no subject.</param>
+public sealed record NotSavedYet(Guid CampaignId, string? Title, DateTimeOffset WrittenAt);
 
 /// <summary>
 /// When the campaign page writes its working copy, and how long the sweep keeps one nobody writes, from the

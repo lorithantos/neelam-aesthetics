@@ -100,6 +100,21 @@ public class WorkingCopyDiskTests
     }
 
     [Fact]
+    public async Task The_sweep_keeps_a_never_saved_campaign_s_disk_copy_until_a_week_unwritten()
+    {
+        var id = Guid.NewGuid();
+        _disk.Put(Client, Copy(id, "Never saved", _clock.Now));
+
+        _clock.Now += TimeSpan.FromDays(7) - TimeSpan.FromTicks(1);
+        await Store.SweepAsync(TimeSpan.FromDays(7), _disk);
+        Assert.NotNull(_disk.Held(Client, id));
+
+        _clock.Now += TimeSpan.FromTicks(1);
+        await Store.SweepAsync(TimeSpan.FromDays(7), _disk);
+        Assert.Null(_disk.Held(Client, id));
+    }
+
+    [Fact]
     public async Task The_sweep_removes_a_disk_copy_whose_campaign_is_gone()
     {
         var gone = await Saved();

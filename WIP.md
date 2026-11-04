@@ -666,6 +666,19 @@ misses.
   `WEBSITES_ENABLE_APP_SERVICE_STORAGE`; the Learn pages found describe that setting for custom containers only, so
   that /home persists for this site is App Service's documented default for built-in Linux images, not something
   infra pins. Tests: `WorkingCopyDiskTests` (one on the real disk, in a temp folder), `WorkingCopyPageTests`, `UndoSweepTests`.
+- **Never-saved campaigns protected (owner, 2026-11-03; built the same day, not deployed).** On
+  `/campaigns/new/{templateId}` nothing is kept until she first changes the form; that change gives the campaign
+  its id (`DraftSession.TakeId`), replaces the address with `/campaigns/{id}` (history.replaceState, no new entry)
+  and writes the working copy at once, with no base stamp and the title in its metadata; her first save is made
+  under that id. Opening `/campaigns/{id}` with no saves and no restorable version brings the copy back (storage
+  or disk, as above) with the same notice and Discard (Discard then shows "Campaign not found"). The Campaigns
+  list has **Not saved yet**, from the working copies' listing alone (no base stamp, not listed above or under
+  Recently deleted), one row each: "{title}, not saved yet, from {time}" ("Untitled campaign" with no title), Open
+  and Discard (a form post removing it from storage and the disk). **Sweep:** a copy with a base stamp still goes
+  when its campaign has no saves left; one without goes only once unwritten for `WorkingCopy:KeepUnchanged`; the
+  disk copies the same. Placeholder wording (`WorkingCopyWords.NotSavedYet`, `NotSavedYetHeading`). Tests:
+  `WorkingCopyPageTests`, `NotSavedYetListTests`, `WorkingCopyStoreTests`, `WorkingCopyDiskTests`. Not listed: a
+  never-saved campaign whose copy is only on the disk (storage down throughout); its address still opens it.
 - **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
   `KnownItemRemoved`) by the item's id, never its text.
 - **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and

@@ -569,7 +569,8 @@ public sealed class CampaignStore(
             if (!blob.Name.StartsWith(PhotoReadingStore.Prefix, StringComparison.Ordinal)) proofreads.Add(blob.Name);
         }
 
-        // Listed before the saves, as the proofreads are: a working copy is written only after its campaign's first save.
+        // Listed before the saves, as the proofreads are: a copy started from a save, the only kind "no saves left"
+        // removes, is written only after that save.
         var workingCopies = await WorkingCopies.ListAsync(ct);
         IReadOnlyList<DiskCopy> onDisk = disk is null ? [] : await disk.ListAsync(Client, ct);
 
@@ -617,7 +618,8 @@ public sealed class CampaignStore(
             var taken = (newestSave.TryGetValue(copy.CampaignId, out var saved) && saved >= copy.WrittenAt)
                         || (inStorage.TryGetValue(copy.CampaignId, out var written) && written >= copy.WrittenAt);
             var stale = now - copy.WrittenAt >= keep;
-            var gone = !withSaves.Contains(copy.CampaignId);
+            // Never saved, it has no saves by nature: only the period removes it.
+            var gone = copy.BasedOn is not null && !withSaves.Contains(copy.CampaignId);
             if (taken || stale || gone) await disk.RemoveAsync(Client, copy.CampaignId, ct);
         }
     }

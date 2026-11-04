@@ -17,6 +17,10 @@ internal sealed class InMemoryWorkingCopyDisk : IWorkingCopyDisk
     /// <summary>The copy held for a campaign, or null.</summary>
     public DiskCopy? Held(ClientName client, Guid id) => _copies.TryGetValue((client.Value, id), out var copy) ? copy : null;
 
+    /// <summary>Every copy held for a client.</summary>
+    public IReadOnlyList<DiskCopy> All(ClientName client) =>
+        _copies.Where(c => c.Key.Client == client.Value).Select(c => c.Value).ToList();
+
     /// <summary>Puts a copy straight on the disk, as an earlier run of the app might have left it.</summary>
     public void Put(ClientName client, DiskCopy copy) => _copies[(client.Value, copy.CampaignId)] = copy;
 

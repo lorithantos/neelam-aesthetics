@@ -565,26 +565,111 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Null(Held(save.Id));
     }
 
-    // A campaign never saved has no id and no address she could open it at again: nothing is kept for it.
-    [Fact]
-    public async Task A_campaign_never_saved_has_no_working_copy()
+    // ---- A campaign never saved (owner, 2026-11-03: "No typing means no harm, no foul") ----
+
+    private async Task<OpenCampaignPage> OpenNew(ManualClock clock, params object[] more)
     {
         var templateId = Guid.NewGuid();
         await Store.SaveTemplateAsync(templateId, DraftFixtures.Membership);
-        var clock = Clock();
-        await using var page = await OpenCampaignPage.OpenAsync<CampaignPage>(
-            app, new Dictionary<string, object?> { [nameof(CampaignPage.TemplateId)] = (Guid?)templateId }, clock);
-        var replaces = Container.Replaces;
-        var blobs = WorkingBlobs;
+        return await OpenCampaignPage.OpenAsync<CampaignPage>(
+            app, new Dictionary<string, object?> { [nameof(CampaignPage.TemplateId)] = (Guid?)templateId }, [clock, .. more]);
+    }
 
-        await page.TypeAsync("subject", "Never saved");
+    private IReadOnlyList<string> WorkingNames =>
+        Container.Blobs.Keys.Where(k => k.StartsWith(WorkingCopies.Prefix, StringComparison.Ordinal)).ToList();
+
+    private static Guid IdOf(string name) => Guid.ParseExact(name[WorkingCopies.Prefix.Length..^".json".Length], "N");
+
+    [Fact]
+    public async Task On_a_new_campaign_nothing_is_kept_until_she_changes_the_form()
+    {
+        var clock = Clock();
+        var browser = new RecordingBrowser();
+        await using var page = await OpenNew(clock, browser);
+        var replaces = Container.Replaces;
+
         clock.Advance(Settings.Cap + Settings.Debounce);
         await Settled(page);
 
         Assert.Equal(replaces, Container.Replaces);
-        Assert.Equal(blobs, WorkingBlobs);
-        Assert.Equal(0, clock.WaitingFor(Settings.Debounce));
+        Assert.DoesNotContain(browser.Calls, c => c.Identifier == "history.replaceState");
     }
+
+    [Fact]
+    public async Task Her_first_change_to_a_new_campaign_gives_it_an_id_its_own_address_and_a_working_copy_her_save_keeps()
+    {
+        var clock = Clock();
+        var browser = new RecordingBrowser();
+        await using var page = await OpenNew(clock, browser);
+        var before = WorkingNames;
+
+        await page.TypeAsync("subject", "Typed, never saved");
+        await Settled(page);
+
+        // At once, not after the pause: there is no save to fall back on.
+        var name = Assert.Single(WorkingNames.Except(before));
+        var id = IdOf(name);
+        Assert.Equal("Typed, never saved", Held(id));
+        Assert.Null((await Store.WorkingCopies.ReadAsync(id))!.BasedOn);
+        Assert.Empty(await Store.HistoryAsync(DocumentKind.Draft, id));
+        var moved = Assert.Single(browser.Calls, c => c.Identifier == "history.replaceState");
+        Assert.EndsWith($"/campaigns/{id}", (string)moved.Arguments[2]!);
+
+        await page.ClickAsync("save-button");
+
+        var saved = Assert.Single(await Store.HistoryAsync(DocumentKind.Draft, id));
+        Assert.Equal("Typed, never saved", saved.Title);
+        Assert.Null(Held(id));
+    }
+
+    [Fact]
+    public async Task A_new_campaign_reopened_at_its_address_brings_back_what_she_typed()
+    {
+        var id = Guid.NewGuid();
+        await Store.WorkingCopies.WriteAsync(id, WorkingCopyStoreTests.Edited("Typed before the tab closed"), null, BlobExpected.Nothing);
+        var copy = (await Store.WorkingCopies.ReadAsync(id))!;
+
+        await using var page = await Open(id, Clock());
+
+        var html = await page.HtmlAsync();
+        Assert.Equal("Typed before the tab closed", RenderedPage.Attribute(html, "subject", "value"));
+        Assert.Equal(WorkingCopyWords.BroughtBack(Times.DateAndTime(copy.WrittenAt)), RenderedPage.Named(html, "working-copy-what"));
+        await page.ClickAsync("save-button");
+        Assert.Equal("Typed before the tab closed", Assert.Single(await Store.HistoryAsync(DocumentKind.Draft, id)).Title);
+    }
+
+    [Fact]
+    public async Task A_new_campaign_storage_cannot_take_is_kept_on_the_disk_and_brought_back_from_it()
+    {
+        var clock = Clock();
+        Guid id;
+        await using (var page = await OpenNew(clock))
+        {
+            Container.Failure = WorkingDown;
+            try
+            {
+                await page.TypeAsync("subject", "Typed while storage was down");
+                await Settled(page);
+            }
+            finally
+            {
+                Container.Failure = null;
+            }
+            id = LastDiskId("Typed while storage was down");
+            Assert.Null(Held(id));
+            Assert.Null(app.Disk.Held(DemoApp.Client, id)!.BasedOn);
+        }
+
+        await using var reopened = await Open(id, Clock());
+
+        Assert.Equal("Typed while storage was down", RenderedPage.Attribute(await reopened.HtmlAsync(), "subject", "value"));
+        Assert.Equal("Typed while storage was down", Held(id));
+        Assert.Null(OnDisk(id));
+    }
+
+    // The disk copy of a subject, found by what it holds: the test does not know the id the page gave it.
+    private Guid LastDiskId(string subject) =>
+        Assert.Single(app.Disk.All(DemoApp.Client), c => c.Draft.SubjectText() == subject).CampaignId;
 
     [Fact]
     public async Task Closing_the_page_stops_its_timer()
@@ -601,6 +686,32 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         clock.Advance(Settings.Cap);
         Assert.Equal(replaces, Container.Replaces);
     }
+}
+
+/// <summary>A browser that answers nothing and keeps what the page asked of it, such as moving its address.</summary>
+internal sealed class RecordingBrowser : Microsoft.JSInterop.IJSRuntime
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<(string Identifier, object?[] Arguments)> _calls = new();
+
+    public IReadOnlyList<(string Identifier, object?[] Arguments)> Calls => _calls.ToList();
+
+    public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args)
+    {
+        _calls.Enqueue((identifier, args ?? []));
+        return ValueTask.FromResult(default(TValue)!);
+    }
+
+    public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args) =>
+        InvokeAsync<TValue>(identifier, args);
+
+    public ValueTask SetValueAsync<TValue>(string identifier, TValue value)
+    {
+        _calls.Enqueue((identifier, [value]));
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask SetValueAsync<TValue>(string identifier, TValue value, CancellationToken cancellationToken) =>
+        SetValueAsync(identifier, value);
 }
 
 /// <summary>The working copy's own log, kept; every other category goes nowhere.</summary>

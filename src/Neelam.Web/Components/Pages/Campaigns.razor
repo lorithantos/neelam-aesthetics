@@ -7,6 +7,8 @@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
+@inject IWorkingCopyDisk WorkingCopyDisk
+@inject ILogger<Campaigns> Log
 
 <PageTitle>Campaigns</PageTitle>
 
@@ -62,6 +64,28 @@ else if (_campaigns is not null && _templates is not null)
         </section>
     }
 
+    @* Campaigns she typed into and never saved (owner, 2026-11-03): each from its working copy's name and
+       metadata alone, as Recently deleted reads only names and marks. Open brings back what she typed; Discard
+       removes it. Placeholder wording (WorkingCopyWords). *@
+    @if (_notSaved is { Count: > 0 })
+    {
+        <h2 id="not-saved-yet">@WorkingCopyWords.NotSavedYetHeading</h2>
+        @foreach (var unsaved in _notSaved)
+        {
+            var title = string.IsNullOrWhiteSpace(unsaved.Title) ? "Untitled campaign" : unsaved.Title;
+            <section class="card" aria-label="Not saved yet: @title">
+                <p data-testid="not-saved-@unsaved.CampaignId">@WorkingCopyWords.NotSavedYet(title, Times.DateAndTime(unsaved.WrittenAt))</p>
+                <div class="block-actions">
+                    <a class="button" href="campaigns/@unsaved.CampaignId">Open</a>
+                    <form method="post" @formname="@($"discard-{unsaved.CampaignId:N}")" @onsubmit="() => DiscardAsync(unsaved)">
+                        <AntiforgeryToken />
+                        <button type="submit" class="button">@WorkingCopyWords.Discard</button>
+                    </form>
+                </div>
+            </section>
+        }
+    }
+
     @if (_restoreMessage is not null)
     {
         <p role="alert">@_restoreMessage</p>
@@ -114,6 +138,31 @@ else if (_campaigns is not null && _templates is not null)
         _templates = (await store.LatestAsync(DocumentKind.Template))
             .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
         _deleted = await DraftSession.RecentlyDeletedAsync(store);
+        await ListNotSavedAsync();
+    }
+
+    // Campaigns typed into and never saved; one listed above, or under Recently deleted, is not this.
+    private IReadOnlyList<NotSavedYet>? _notSaved;
+
+    private async Task ListNotSavedAsync()
+    {
+        var listed = _campaigns!.Select(c => c.Save.Id).Concat(_deleted!.Select(d => d.Id)).ToHashSet();
+        _notSaved = (await _store!.WorkingCopies.NotSavedYetAsync()).Where(c => !listed.Contains(c.CampaignId)).ToList();
+    }
+
+    // "Discard" on a campaign never saved: its working copy goes, from storage and the server's disk.
+    private async Task DiscardAsync(NotSavedYet unsaved)
+    {
+        await _store!.WorkingCopies.RemoveAsync(unsaved.CampaignId);
+        try
+        {
+            await WorkingCopyDisk.RemoveAsync(_client!, unsaved.CampaignId);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log.LogError(ex, "Could not remove the disk copy of campaign {Campaign}; the sweep will.", unsaved.CampaignId);
+        }
+        await ListNotSavedAsync();
     }
 
     // Restored, the campaign opens; past its grace period meanwhile, the list says so.

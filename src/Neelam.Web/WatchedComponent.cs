@@ -100,7 +100,7 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
         }
         finally
         {
-            AfterActing();
+            await AfterActingAsync();
             if (Watcher is not null) await Watcher.EndAsync();
         }
     }
@@ -109,9 +109,7 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
     protected virtual Task BeforeActingAsync() => Task.CompletedTask;
 
     /// <summary>After each of them, done or not: the campaign page keeps its working copy again.</summary>
-    protected virtual void AfterActing()
-    {
-    }
+    protected virtual Task AfterActingAsync() => Task.CompletedTask;
 
     /// <summary>With the circuit, after the watch: what else the page holds that must stop with it.</summary>
     protected virtual void Disposing()

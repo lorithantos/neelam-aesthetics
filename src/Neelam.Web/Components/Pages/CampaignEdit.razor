@@ -982,18 +982,18 @@ else
         }
         var store = _store = Stores.Campaigns(client, actor, approvalsRequired);
         _keeper = new WorkingCopyKeeper(store.WorkingCopies, WorkingCopyDisk, client, Clock, WorkingCopySettings.Value, OnCircuitAsync,
-            Logs.CreateLogger<WorkingCopyKeeper>());
+            StartedAsync, Logs.CreateLogger<WorkingCopyKeeper>());
         if (Id is { } id)
         {
             _session = await DraftSession.OpenAsync(store, id);
             if (_session is null) _undone = await DraftSession.RestorableAsync(store, id);
-            if (_session is null && _undone is null) _missing = "Campaign not found";
             if (_session is not null) await BringBackAsync(_session);
+            else if (_undone is null) await OpenNotSavedYetAsync(store, id);
+            if (_session is null && _undone is null) _missing = "Campaign not found";
         }
         else if (TemplateId is { } templateId)
         {
-            // Not saved yet: no id and no address to come back to, so nothing to keep a working copy for
-            // until its first save.
+            // Not saved yet: it gets its id, its address and its working copy at her first change (the keeper).
             _session = await DraftSession.StartAsync(store, templateId);
             if (_session is null) _missing = "Template not found";
             _keeper.Track(_session, null);
@@ -1039,6 +1039,16 @@ else
     // save goes into the form, unsaved, and the page says so with Discard (WorkingCopyKeeper.OpenAsync).
     private async Task BringBackAsync(DraftSession session) => _broughtBack = await _keeper!.OpenAsync(session);
 
+    // A campaign typed into and never saved, opened at its address: its working copy, from storage or the disk,
+    // is all there is, brought back as for a saved one. One started from a save is not this (its saves are gone).
+    private async Task OpenNotSavedYetAsync(CampaignStore store, Guid id)
+    {
+        var unsaved = DraftSession.NotSavedYet(store, id);
+        if (await _keeper!.OpenAsync(unsaved) is not { BasedOn: null } back) return;
+        _session = unsaved;
+        _broughtBack = back;
+    }
+
     // A save storage could not take: what she typed is kept on the server's disk.
     private Task SaveFailedAsync() => _keeper?.ToDiskAsync() ?? Task.CompletedTask;
 
@@ -1052,7 +1062,11 @@ else
     // Her own actions: no working copy is written while one runs, and the form is kept again after it.
     protected override Task BeforeActingAsync() => _keeper?.PauseAsync() ?? Task.CompletedTask;
 
-    protected override void AfterActing() => _keeper?.Resume(_session);
+    protected override Task AfterActingAsync() => _keeper?.ResumeAsync(_session) ?? Task.CompletedTask;
+
+    // A new campaign given its id at her first change: the address names it now, so a reload opens it again.
+    // Only the address changes, as after a first save.
+    private Task StartedAsync(Guid id) => ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{id}").AbsoluteUri);
 
     protected override void Disposing() => _keeper?.Dispose();
 
@@ -1070,7 +1084,7 @@ else
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         // Every change she makes ends in a render: the working copy is set to be written if the form changed.
-        _keeper?.Looked();
+        if (_keeper is not null) await _keeper.LookedAsync();
         if (Watcher is not { } watch) return;
         if (_session?.CurrentApproval is null)
         {

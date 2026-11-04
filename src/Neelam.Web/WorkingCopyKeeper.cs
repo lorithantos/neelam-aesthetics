@@ -7,8 +7,9 @@ namespace Neelam.Web;
 /// One open campaign page's working copy (owner, 2026-11-03): a recovery copy of what the form holds and has
 /// not saved, written <see cref="WorkingCopyOptions.Debounce"/> after she stops changing it, and at least every
 /// <see cref="WorkingCopyOptions.Cap"/> while she goes on (<see cref="WorkingCopies"/>). Never written when it
-/// would hold what it already holds, or the newest save; never for a campaign with no save, which has no
-/// address she could open it again at. Disposed with the page, so its timer stops.
+/// would hold what it already holds, or the newest save. A new campaign is kept from her first change, which
+/// gives it its id and address (owner, 2026-11-03: "No typing means no harm, no foul"). Disposed with the
+/// page, so its timer stops.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -35,9 +36,13 @@ namespace Neelam.Web;
 /// </remarks>
 /// <param name="client">Whose campaigns: the disk copies are kept by client and campaign id.</param>
 /// <param name="onCircuit">Runs work on the page's circuit and then renders the page (the page's own InvokeAsync).</param>
+/// <param name="started">
+/// A new campaign was given its id at her first change (owner, 2026-11-03): the page moves its address to the
+/// campaign's own, so a reload opens it again.
+/// </param>
 public sealed class WorkingCopyKeeper(
     WorkingCopies copies, IWorkingCopyDisk disk, ClientName client, TimeProvider clock, WorkingCopyOptions options,
-    Func<Func<Task>, Task> onCircuit, ILogger log) : IDisposable
+    Func<Func<Task>, Task> onCircuit, Func<Guid, Task> started, ILogger log) : IDisposable
 {
     private DraftSession? _session;
 
@@ -137,16 +142,17 @@ public sealed class WorkingCopyKeeper(
         return back;
     }
 
-    // The form's content, while there is a saved campaign to keep it for.
-    private string? Form() =>
-        _session is { Id: not null, Latest: not null } session ? CampaignJson.SerializeDraft(session.Editor.Draft) : null;
+    // The form's content, while there is a campaign on the page.
+    private string? Form() => _session is { } session ? CampaignJson.SerializeDraft(session.Editor.Draft) : null;
 
     /// <summary>
     /// After each render of the page: when the form has changed since the last look, the write is set for
     /// <see cref="WorkingCopyOptions.Debounce"/> from now, or <see cref="WorkingCopyOptions.Cap"/> from the first
-    /// change not written yet, whichever comes first.
+    /// change not written yet, whichever comes first. On a new campaign, the first change gives it its id and
+    /// its address and is written at once (owner, 2026-11-03): until then nothing is kept, as nothing was typed.
+    /// Never throws.
     /// </summary>
-    public void Looked()
+    public async Task LookedAsync()
     {
         if (IsDisposed || _paused > 0) return;
         var form = Form();
@@ -158,6 +164,20 @@ public sealed class WorkingCopyKeeper(
             return;
         }
         _seen = form;
+        if (_session!.Id is null)
+        {
+            try
+            {
+                var id = _session.TakeId();
+                await started(id);
+                await (_writing = WriteAsync());
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                log.LogError(ex, "Could not start keeping the working copy of a new campaign.");
+            }
+            return;
+        }
         var now = clock.GetUtcNow();
         _since ??= now;
         var due = now + options.Debounce < _since.Value + options.Cap ? now + options.Debounce : _since.Value + options.Cap;
@@ -198,11 +218,13 @@ public sealed class WorkingCopyKeeper(
 
     private async Task WriteAsync()
     {
-        if (IsDisposed || _paused > 0 || _session is not { Id: { } id, Latest: { } latest } session) return;
+        if (IsDisposed || _paused > 0 || _session is not { Id: { } id } session) return;
         _since = null;
-        // Taken whole now, before anything is awaited.
+        // Taken whole now, before anything is awaited. Never saved, it started on no save.
         var draft = session.Editor.Draft;
         var json = CampaignJson.SerializeDraft(draft);
+        var basedOn = session.Latest?.SavedAt;
+        var title = session.Editor.Title;
         if (session.IsNewestSave(json))
         {
             // Changed back to what was saved: nothing unsaved is left to keep, so the copy of what was goes.
@@ -212,12 +234,12 @@ public sealed class WorkingCopyKeeper(
         if (json == _written) return;
         try
         {
-            var etag = await copies.WriteAsync(id, draft, latest.SavedAt, _expected);
+            var etag = await copies.WriteAsync(id, draft, basedOn, _expected, title);
             if (etag is null)
             {
                 // Another tab wrote or removed it since: said, and then the last writer wins.
                 OtherTab = true;
-                etag = await copies.WriteAsync(id, draft, latest.SavedAt, BlobExpected.Anything);
+                etag = await copies.WriteAsync(id, draft, basedOn, BlobExpected.Anything, title);
             }
             _expected = etag is null ? BlobExpected.Anything : BlobExpected.Version(etag);
             _written = json;
@@ -227,7 +249,7 @@ public sealed class WorkingCopyKeeper(
         catch (Exception ex) when (StorageFailed.Is(ex))
         {
             log.LogWarning(ex, "Could not write the working copy of campaign {Campaign}; it goes to the disk and is tried again.", id);
-            await WriteToDiskAsync(id, json, latest.SavedAt);
+            await WriteToDiskAsync(id, json, basedOn);
             _since ??= clock.GetUtcNow();
             Schedule(options.Cap);
         }
@@ -292,13 +314,13 @@ public sealed class WorkingCopyKeeper(
     }
 
     /// <summary>The page's own action is done: the form is kept from here, as <paramref name="session"/> now holds it.</summary>
-    public void Resume(DraftSession? session)
+    public Task ResumeAsync(DraftSession? session)
     {
         if (_paused > 0) _paused--;
         _session = session;
         // A change during the action, or one the action made, is seen at once.
         _seen = null;
-        Looked();
+        return LookedAsync();
     }
 
     /// <summary>
