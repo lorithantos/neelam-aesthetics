@@ -36,8 +36,9 @@ public class CallerSourceTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.NotNull(caller);
         Assert.True(caller.IsOperator);
         Assert.Equal([SalonOne], caller.MemberOf);
-        Assert.True(AccessCheck.Decide(caller, Area.ClientData, SalonOne, [], DateTimeOffset.UtcNow).Allowed);
-        Assert.False(AccessCheck.Decide(caller, Area.ClientData, SalonTwo, [], DateTimeOffset.UtcNow).Allowed);
+        DateTimeOffset now = new(2026, 10, 3, 12, 0, 0, TimeSpan.Zero);
+        Assert.True(AccessCheck.Decide(caller, Area.ClientData, SalonOne, [], now).Allowed);
+        Assert.False(AccessCheck.Decide(caller, Area.ClientData, SalonTwo, [], now).Allowed);
     }
 
     // The undo sweep finds the prototype's client through the prototype caller, registered as

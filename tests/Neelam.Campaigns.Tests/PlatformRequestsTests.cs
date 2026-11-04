@@ -105,14 +105,14 @@ public class PlatformRequestsTests
         var start = app.Services.GetRequiredService<StartLog>();
 
         Assert.Equal(HttpStatusCode.NotFound, (await client.SendAsync(Get("/robots933456.txt"))).StatusCode);
-        var alwaysOn = await client.SendAsync(Get("/", "AlwaysOn"));
+        var alwaysOn = await app.HeldAsync(() => client.SendAsync(Get("/", "AlwaysOn")));
         Assert.Equal(HttpStatusCode.ServiceUnavailable, alwaysOn.StatusCode);
         Assert.Equal("Getting ready…", RenderedPage.Named(await alwaysOn.Content.ReadAsStringAsync(), "getting-ready"));
         Assert.Null(start.Snapshot(0).Held);
         Assert.Null(start.Snapshot(0).FirstRequest);
 
         var visitorAt = app.Clock.Now;
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.SendAsync(Get("/how-it-works", Browser))).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await app.HeldAsync(() => client.SendAsync(Get("/how-it-works", Browser)))).StatusCode);
         var record = start.Snapshot(0);
         Assert.Equal((1, visitorAt), (record.Held!.Shown, record.Held.FirstAt));
         Assert.Equal(StartRecording.GettingReadyRoute, record.FirstRequest!.Route);

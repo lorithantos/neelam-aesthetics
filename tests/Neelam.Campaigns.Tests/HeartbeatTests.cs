@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -29,23 +28,25 @@ public class HeartbeatTests
     [Fact]
     public async Task It_beats_once_a_minute_by_the_app_s_clock()
     {
-        var clock = new SteppingClock(Noon);
+        var clock = new ManualClock(Noon);
         var store = new InMemoryStartRecords();
         var start = StartAt(clock);
         using var heartbeat = Beating(start, store, clock);
 
         await heartbeat.StartAsync(CancellationToken.None);
-        await Until(() => store.Beats.Count == 1 && clock.Waiting == 1);
+        await Until(() => store.Beats.Count == 1 && clock.Waiting == 1, store, clock);
         Assert.Equal((Noon, start.Id), store.Beats[0]);
 
+        // A second short of the minute fires nothing, and a beat comes only from its timer firing.
+        int fired = clock.Fired;
         clock.Advance(TimeSpan.FromSeconds(59));
-        await Task.Delay(100);
+        Assert.Equal(fired, clock.Fired);
         Assert.Single(store.Beats);
 
         clock.Advance(TimeSpan.FromSeconds(1));
-        await Until(() => store.Beats.Count == 2 && clock.Waiting == 1);
+        await Until(() => store.Beats.Count == 2 && clock.Waiting == 1, store, clock);
         clock.Advance(TimeSpan.FromMinutes(1));
-        await Until(() => store.Beats.Count == 3);
+        await Until(() => store.Beats.Count == 3, store, clock);
 
         Assert.Equal([Noon, Noon.AddMinutes(1), Noon.AddMinutes(2)], store.Beats.Select(b => b.At).ToArray());
         await heartbeat.StopAsync(CancellationToken.None);
@@ -58,7 +59,7 @@ public class HeartbeatTests
     [Fact]
     public async Task The_start_reads_the_last_heartbeat_before_its_own_first_beat()
     {
-        var clock = new SteppingClock(Noon);
+        var clock = new ManualClock(Noon);
         var store = new InMemoryStartRecords();
         await store.BeatAsync(Noon.AddMinutes(-7), "20261003T110000000Z-0001");
         var start = StartAt(clock);
@@ -66,7 +67,7 @@ public class HeartbeatTests
 
         await heartbeat.StartAsync(CancellationToken.None);
         Assert.Equal(Noon.AddMinutes(-7), await start.LastAliveBefore.WaitAsync(Patience));
-        await Until(() => store.Beats.Count == 2);
+        await Until(() => store.Beats.Count == 2, store, clock);
 
         Assert.Equal(["beat", "read", "beat"], store.Calls.ToArray());
         var record = start.Snapshot(0);
@@ -81,7 +82,7 @@ public class HeartbeatTests
     [Fact]
     public async Task With_no_heartbeat_before_the_gap_is_not_known()
     {
-        var clock = new SteppingClock(Noon);
+        var clock = new ManualClock(Noon);
         var start = StartAt(clock);
         using var heartbeat = Beating(start, new InMemoryStartRecords(), clock);
 
@@ -97,7 +98,7 @@ public class HeartbeatTests
     [Fact]
     public void A_heartbeat_after_the_start_is_no_gap()
     {
-        var start = StartAt(new SteppingClock(Noon));
+        var start = StartAt(new ManualClock(Noon));
         start.SetLastAliveBefore(Noon.AddSeconds(20));
         Assert.Equal(0, start.Snapshot(0).DownForMs);
     }
@@ -106,7 +107,7 @@ public class HeartbeatTests
     [Fact]
     public void The_last_heartbeat_before_is_set_once()
     {
-        var start = StartAt(new SteppingClock(Noon));
+        var start = StartAt(new ManualClock(Noon));
         start.SetLastAliveBefore(Noon.AddMinutes(-1));
         start.SetLastAliveBefore(Noon.AddMinutes(-9));
         Assert.Equal(60_000, start.DownForMs);
@@ -118,7 +119,7 @@ public class HeartbeatTests
     [Fact]
     public async Task A_failure_is_logged_and_it_beats_again()
     {
-        var clock = new SteppingClock(Noon);
+        var clock = new ManualClock(Noon);
         var store = new FailingStartRecords();
         var log = new ListLogger<Heartbeat>();
         var start = StartAt(clock);
@@ -126,9 +127,9 @@ public class HeartbeatTests
 
         await heartbeat.StartAsync(CancellationToken.None);
         Assert.Null(await start.LastAliveBefore.WaitAsync(Patience));
-        await Until(() => store.BeatsTried == 1 && clock.Waiting == 1);
+        await Eventually.Until(() => store.BeatsTried == 1 && clock.Waiting == 1, "the first beat tried", store.Changed, clock.Changed);
         clock.Advance(TimeSpan.FromMinutes(1));
-        await Until(() => store.BeatsTried == 2);
+        await Eventually.Until(() => store.BeatsTried == 2, "the second beat tried", store.Changed, clock.Changed);
 
         var messages = log.Entries.Select(e => e.Message).ToList();
         Assert.Contains("Heartbeat: the last one before this start could not be read: RequestFailedException 503 ServerBusy.", messages);
@@ -141,19 +142,20 @@ public class HeartbeatTests
     [Fact]
     public async Task It_stops_with_the_app()
     {
-        var clock = new SteppingClock(Noon);
+        var clock = new ManualClock(Noon);
         var store = new InMemoryStartRecords();
         using var heartbeat = Beating(StartAt(clock), store, clock);
         await heartbeat.StartAsync(CancellationToken.None);
-        await Until(() => store.Beats.Count == 1 && clock.Waiting == 1);
+        await Until(() => store.Beats.Count == 1 && clock.Waiting == 1, store, clock);
 
-        var stopping = Stopwatch.StartNew();
+        // At once: the clock does not move, so a stop that waited out the interval would never end.
         await heartbeat.StopAsync(CancellationToken.None).WaitAsync(Patience);
-        Assert.True(stopping.Elapsed < TimeSpan.FromSeconds(5), $"Stopping took {stopping.Elapsed}.");
         Assert.Equal(0, clock.Waiting);
 
+        // No timer is left to fire, and a beat comes only from one.
+        int fired = clock.Fired;
         clock.Advance(TimeSpan.FromMinutes(5));
-        await Task.Delay(100);
+        Assert.Equal(fired, clock.Fired);
         Assert.Single(store.Beats);
     }
 
@@ -191,14 +193,16 @@ public class HeartbeatTests
     [Fact]
     public async Task The_cause_waits_for_the_last_heartbeat_to_be_read()
     {
-        var clock = new SteppingClock(Noon);
+        var clock = new ManualClock(Noon);
         var store = new InMemoryStartRecords();
         var start = StartAt(clock);
         using var writer = new StartRecordWriter(start, store,
             Options.Create(new StartRecordOptions { Coalesce = TimeSpan.Zero }), new ListLogger<StartRecordWriter>());
 
+        // The writer waits on the app's clock for the last heartbeat: once that wait is set, it has
+        // reached it, and nothing is written while the clock stands still.
         await writer.StartAsync(CancellationToken.None);
-        await Task.Delay(300);
+        await Eventually.Until(() => clock.WaitingFor(StartRecordWriter.LastAliveWait) == 1, "the writer waiting for the last heartbeat", clock.Changed);
         Assert.Empty(await store.RecentAsync(1));
 
         start.SetLastAliveBefore(Noon.AddMinutes(-7));
@@ -236,85 +240,7 @@ public class HeartbeatTests
         Assert.Equal(TimeSpan.FromMinutes(1), TimeSpan.Parse((string)settings["Heartbeat"]!["Interval"]!, System.Globalization.CultureInfo.InvariantCulture));
     }
 
-    private static async Task Until(Func<bool> done)
-    {
-        var until = DateTime.UtcNow + Patience;
-        while (!done())
-        {
-            if (DateTime.UtcNow > until) throw new TimeoutException("Never got there.");
-            await Task.Delay(10);
-        }
-    }
-}
-
-/// <summary>
-/// A clock whose time and timers move only when told to: <see cref="Advance"/> fires every timer then
-/// due, as <see cref="Task.Delay(TimeSpan, TimeProvider, CancellationToken)"/> sets them.
-/// </summary>
-internal sealed class SteppingClock(DateTimeOffset start) : TimeProvider
-{
-    private readonly object _gate = new();
-    private readonly List<SteppedTimer> _timers = [];
-    private DateTimeOffset _now = start;
-
-    public override DateTimeOffset GetUtcNow()
-    {
-        lock (_gate) return _now;
-    }
-
-    /// <summary>How many timers are set and not yet fired or disposed.</summary>
-    public int Waiting
-    {
-        get { lock (_gate) return _timers.Count(t => t.Due is not null); }
-    }
-
-    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
-    {
-        var timer = new SteppedTimer(this, callback, state);
-        timer.Change(dueTime, period);
-        return timer;
-    }
-
-    public void Advance(TimeSpan by)
-    {
-        List<SteppedTimer> due;
-        lock (_gate)
-        {
-            _now += by;
-            due = _timers.Where(t => t.Due <= _now).ToList();
-            foreach (var timer in due) timer.Due = timer.Period is { } period ? _now + period : null;
-        }
-        foreach (var timer in due) timer.Fire();
-    }
-
-    private sealed class SteppedTimer(SteppingClock clock, TimerCallback callback, object? state) : ITimer
-    {
-        public DateTimeOffset? Due { get; set; }
-
-        public TimeSpan? Period { get; private set; }
-
-        public void Fire() => callback(state);
-
-        public bool Change(TimeSpan dueTime, TimeSpan period)
-        {
-            lock (clock._gate)
-            {
-                Due = dueTime == Timeout.InfiniteTimeSpan ? null : clock._now + dueTime;
-                Period = period == Timeout.InfiniteTimeSpan || period == TimeSpan.Zero ? null : period;
-                if (!clock._timers.Contains(this)) clock._timers.Add(this);
-            }
-            return true;
-        }
-
-        public void Dispose()
-        {
-            lock (clock._gate) clock._timers.Remove(this);
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            Dispose();
-            return ValueTask.CompletedTask;
-        }
-    }
+    // Waits, on the store's and the clock's signals, never on time, until done holds.
+    private static Task Until(Func<bool> done, InMemoryStartRecords store, ManualClock clock) =>
+        Eventually.Until(done, "the heartbeat got there", store.Changed, clock.Changed);
 }

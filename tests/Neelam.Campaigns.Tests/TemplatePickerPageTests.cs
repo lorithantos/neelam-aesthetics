@@ -34,7 +34,7 @@ public class TemplatePickerPageTests(DemoApp app) : IClassFixture<DemoApp>
                 "Headline" => b with { Fixed = new HeadingBlock("Headline", "NEWS FROM NEELAM") },
                 _ => b,
             }).ToList())));
-        await using var page = await OpenCampaignPage.OpenAsync(app, campaign.Id, new SteppingClock(app.Clock.Now));
+        await using var page = await OpenCampaignPage.OpenAsync(app, campaign.Id, new ManualClock(app.Clock.Now));
 
         var html = await page.HtmlAsync();
         Assert.Equal("The template Membership, monthly has changed since this campaign was made.", RenderedPage.Named(html, "template-changed"));
@@ -73,7 +73,7 @@ public class TemplatePickerPageTests(DemoApp app) : IClassFixture<DemoApp>
         var template = Guid.NewGuid();
         await Later(Store.SaveTemplateAsync(template, DraftFixtures.Membership));
         var campaign = await Later(Store.SaveDraftAsync(Guid.NewGuid(), "WE’RE TURNING ONE!", DraftFixtures.Finished()));
-        await using var page = await OpenCampaignPage.OpenAsync(app, campaign.Id, new SteppingClock(app.Clock.Now));
+        await using var page = await OpenCampaignPage.OpenAsync(app, campaign.Id, new ManualClock(app.Clock.Now));
 
         var html = await page.HtmlAsync();
         Assert.Equal("", RenderedPage.Attribute(html, "template-picker", "value"));
@@ -110,7 +110,7 @@ public class TemplatePickerPageTests(DemoApp app) : IClassFixture<DemoApp>
         await Later(Store.SaveTemplateAsync(other, thankYou));
         var campaign = await Later(Store.SaveDraftAsync(Guid.NewGuid(), "WE’RE TURNING ONE!",
             TemplateUpdate.Of(DraftFixtures.Finished(), DraftFixtures.Membership, used, first.SavedAt).Draft));
-        await using var page = await OpenCampaignPage.OpenAsync(app, campaign.Id, new SteppingClock(app.Clock.Now));
+        await using var page = await OpenCampaignPage.OpenAsync(app, campaign.Id, new ManualClock(app.Clock.Now));
         Assert.Equal(0, RenderedPage.Count(await page.HtmlAsync(), "template-use"));
 
         await page.ChooseAsync("template-picker", other.ToString());

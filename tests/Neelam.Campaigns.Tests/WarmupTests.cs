@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
@@ -14,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Neelam.Campaigns.Claude;
 using Neelam.Campaigns.Storage;
 using Neelam.Web;
@@ -127,7 +127,7 @@ public class WarmupTests
 
         // The host starts, and answers, while the warm-up waits on the clients table.
         var started = await Task.Run(() => app.CreateClient(new() { AllowAutoRedirect = false })).WaitAsync(Patience);
-        var page = await started.GetAsync("/how-it-works").WaitAsync(Patience);
+        var page = await app.HeldAsync(() => started.GetAsync("/how-it-works"));
         Assert.Equal(HttpStatusCode.ServiceUnavailable, page.StatusCode);
         Assert.Equal("Getting ready…", RenderedPage.Named(await page.Content.ReadAsStringAsync(), "getting-ready"));
         var state = app.Services.GetRequiredService<WarmupState>();
@@ -145,11 +145,16 @@ public class WarmupTests
     [Fact]
     public async Task Warmup_answers_once_the_warm_up_is_done()
     {
-        await using var app = new WarmupApp { Gate = new() };
+        // A budget of its own, so its wait is told apart from the heartbeat's minute.
+        TimeSpan budget = TimeSpan.FromSeconds(45);
+        await using var app = new WarmupApp { Gate = new(), Budget = budget };
         var client = app.CreateClient(new() { AllowAutoRedirect = false });
+        await app.WarmingAsync();
 
+        // Waiting on the warm-up, up to its budget on the app's clock, which stands still.
+        int before = app.Clock.WaitingFor(budget);
         var waiting = client.GetAsync(WarmupEndpoint.Path);
-        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        await Eventually.Until(() => app.Clock.WaitingFor(budget) > before, "/warmup waiting", app.Clock.Changed);
         Assert.False(waiting.IsCompleted);
 
         app.Gate.SetResult();
@@ -177,11 +182,10 @@ public class WarmupTests
         var state = app.Services.GetRequiredService<WarmupState>();
         Assert.False(state.IsDone);
 
-        var stopping = Stopwatch.StartNew();
+        // Stopped by the app, not by its budget: the clock never moves, so only the app's stop ends it.
         await app.DisposeAsync().AsTask().WaitAsync(Patience);
 
         Assert.True(state.IsDone);
-        Assert.True(stopping.Elapsed < TimeSpan.FromSeconds(10), $"Stopping took {stopping.Elapsed}.");
         Assert.DoesNotContain(state.Steps, s => s.Name.StartsWith("GET ", StringComparison.Ordinal));
         Assert.Contains(app.Log.Entries, e => e.Message.StartsWith("Warm-up stopped with the app", StringComparison.Ordinal));
     }
@@ -287,6 +291,36 @@ public sealed class WarmupApp : InMemoryApp
     /// <summary>The token pre-fetch, as Program starts one in Azure; none (as in Development) when unset.</summary>
     internal TokenPrefetch? Prefetch { get; init; }
 
+    /// <summary>Every read of the clients table that reached it, held there or not.</summary>
+    internal Counter ClientReads { get; } = new();
+
+    /// <summary>
+    /// Starts the app and returns once the warm-up has reached the clients table, its first step with no
+    /// pre-fetch: with a <see cref="Gate"/> it is held there, its budget set on the app's clock.
+    /// </summary>
+    internal Task WarmingAsync()
+    {
+        _ = this.Services;
+        return Eventually.Until(() => this.ClientReads.Count >= 1, "the warm-up reading the clients table", this.ClientReads.Changed);
+    }
+
+    /// <summary>
+    /// The answer to a request the gate holds while warming: sent, waited for until the gate's wait is
+    /// set on the app's clock, which then moves past it, so nothing but the clock decides the answer.
+    /// </summary>
+    internal async Task<HttpResponseMessage> HeldAsync(Func<Task<HttpResponseMessage>> send) => (await this.HeldAsync(1, send))[0];
+
+    /// <summary><paramref name="count"/> requests sent together and held by the gate, then let go together by the clock.</summary>
+    internal async Task<HttpResponseMessage[]> HeldAsync(int count, Func<Task<HttpResponseMessage>> send)
+    {
+        TimeSpan wait = this.Services.GetRequiredService<IOptions<WarmupOptions>>().Value.GateWait;
+        int before = this.Clock.WaitingFor(wait);
+        List<Task<HttpResponseMessage>> sent = Enumerable.Range(0, count).Select(_ => send()).ToList();
+        await Eventually.Until(() => this.Clock.WaitingFor(wait) >= before + count, "the gate holding the request", this.Clock.Changed);
+        this.Clock.Advance(wait);
+        return await Task.WhenAll(sent).WaitAsync(Eventually.Patience);
+    }
+
     /// <summary>Her data, put straight into storage before the app starts: a template, a campaign, a photo, a known item, a look.</summary>
     internal static async Task SeedAsync(WarmupApp app)
     {
@@ -324,14 +358,14 @@ public sealed class WarmupApp : InMemoryApp
             services.RemoveAll<ClientStores>().AddSingleton(provider => new ClientStores(
                 container => new ReadOnlyBlobs(Containers.For(container), container, Writes, Broken), Clock,
                 TimeSpan.FromDays(1), approvals, provider.GetRequiredService<ActivityRecorder>()));
-            services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(new ReadOnlyClients(Clients, Writes, Gate, Broken));            services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(new ReadOnlyGrants(Grants, Writes));
+            services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(new ReadOnlyClients(Clients, Writes, Gate, Broken, ClientReads));            services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(new ReadOnlyGrants(Grants, Writes));
             services.RemoveAll<IKnownItemStore>().AddSingleton<IKnownItemStore>(new ReadOnlyKnownItems(KnownItems, Writes));
 
             // The proofread on, as the test site will have it, and refusing: the warm-up must never reach it.
             services.RemoveAll<ProofreadSwitch>().AddSingleton(new ProofreadSwitch(true));
             services.RemoveAll<IProofreader>().AddSingleton<IProofreader>(new RefusingProofreader(Writes));
             services.RemoveAll<SquarePhotoFetcher>().AddSingleton(
-                new SquarePhotoFetcher(new HttpClient(new RefusingPhotoHandler(Writes)), ImageLibrary.SquareHosts));
+                new SquarePhotoFetcher(new HttpClient(new RefusingPhotoHandler(Writes)), ImageLibrary.SquareHosts, Clock));
 
             services.AddSingleton<ILogger<Warmup>>(Log);
             if (Prefetch is { } prefetch) services.RemoveAll<TokenPrefetch>().AddSingleton(prefetch);
@@ -361,6 +395,22 @@ internal sealed class RefusedWrites
     {
         Calls.Enqueue(what);
         return new InvalidOperationException("The warm-up must not call out: " + what);
+    }
+}
+
+/// <summary>A count shared across threads, with a signal raised as it grows.</summary>
+internal sealed class Counter
+{
+    private int _count;
+
+    public int Count => Volatile.Read(ref this._count);
+
+    public Pulse Changed { get; } = new();
+
+    public void Add()
+    {
+        Interlocked.Increment(ref this._count);
+        this.Changed.Raise();
     }
 }
 
@@ -409,10 +459,11 @@ internal sealed class ReadOnlyBlobs(IBlobBackend inner, string container, Refuse
         throw writes.Write($"delete {container}/{name}");
 }
 
-internal sealed class ReadOnlyClients(IClientDirectory inner, RefusedWrites writes, TaskCompletionSource? gate, bool broken) : IClientDirectory
+internal sealed class ReadOnlyClients(IClientDirectory inner, RefusedWrites writes, TaskCompletionSource? gate, bool broken, Counter reads) : IClientDirectory
 {
     public async Task<IReadOnlyList<ClientRecord>> ListAsync(CancellationToken cancellationToken = default)
     {
+        reads.Add();
         if (gate is not null) await gate.Task.WaitAsync(cancellationToken);
         if (broken) throw StorageFailure.Busy();
         return await inner.ListAsync(cancellationToken);

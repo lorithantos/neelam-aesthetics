@@ -219,5 +219,5 @@ public class DailyProofreadAllowanceTests
 
     [Fact]
     public void A_limit_below_one_is_refused() =>
-        Assert.Throws<ArgumentOutOfRangeException>(() => new DailyProofreadAllowance(0, TimeProvider.System));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DailyProofreadAllowance(0, new ManualClock(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero))));
 }

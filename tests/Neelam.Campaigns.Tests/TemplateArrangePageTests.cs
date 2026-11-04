@@ -231,11 +231,13 @@ public class TemplateArrangePageTests(DemoApp app) : IClassFixture<DemoApp>
     /// </summary>
     private sealed class Browser : IJSRuntime
     {
-        private readonly List<(string Identifier, object?[] Args)> _calls = [];
+        private readonly System.Collections.Concurrent.ConcurrentQueue<JsCall> _calls = new();
+        private readonly Pulse _called = new();
 
         public ValueTask<TValue> InvokeAsync<TValue>(string identifier, object?[]? args)
         {
-            lock (_calls) _calls.Add((identifier, args ?? []));
+            this._calls.Enqueue(new JsCall(identifier, args ?? []));
+            this._called.Raise();
             return ValueTask.FromResult(default(TValue)!);
         }
 
@@ -249,21 +251,18 @@ public class TemplateArrangePageTests(DemoApp app) : IClassFixture<DemoApp>
         /// <summary>The arguments of the page's call to <paramref name="identifier"/> after the first <paramref name="after"/> of them.</summary>
         public async Task<object?[]> CallAsync(string identifier, int after = 0)
         {
-            var until = DateTime.UtcNow + OpenCampaignPage.Patience;
-            while (true)
-            {
-                lock (_calls)
-                {
-                    if (_calls.Where(c => c.Identifier == identifier).Skip(after).FirstOrDefault() is { Identifier: not null } call)
-                        return call.Args;
-                }
-                if (DateTime.UtcNow > until) throw new TimeoutException($"The page never called {identifier}.");
-                await Task.Delay(10);
-            }
+            JsCall? found = null;
+            await Eventually.Until(
+                () => (found = this._calls.Where(c => c.Identifier == identifier).Skip(after).FirstOrDefault()) is not null,
+                $"the page calling {identifier}", this._called);
+            return found!.Args;
         }
 
         /// <summary>The reference the page handed arrange.js to call back.</summary>
         public async Task<DotNetObjectReference<ArrangeBlocks>> ArrangeAsync() =>
             Assert.IsType<DotNetObjectReference<ArrangeBlocks>>((await CallAsync("neelamArrange.attach"))[1]);
+
+        /// <summary>One call the page made of the browser.</summary>
+        private sealed record JsCall(string Identifier, object?[] Args);
     }
 }

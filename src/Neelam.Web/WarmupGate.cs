@@ -104,7 +104,7 @@ public sealed class WarmupGate
         // Nearly warm is worth a short wait rather than a page and a refresh.
         using (var waiting = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted))
         {
-            await Task.WhenAny(_warmup.Completion, Task.Delay(_options.GateWait, waiting.Token));
+            await Task.WhenAny(_warmup.Completion, Task.Delay(_options.GateWait, _start.Clock, waiting.Token));
             await waiting.CancelAsync();
         }
         if (_warmup.FailureReason is null && IsOpen())

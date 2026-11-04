@@ -47,8 +47,9 @@ public class SquarePhotoFetcherTests
             new(HttpStatusCode.Found) { Headers = { Location = new Uri(to, UriKind.RelativeOrAbsolute) } };
     }
 
-    internal static SquarePhotoFetcher Fetcher(HttpMessageHandler handler, TimeSpan? timeout = null) =>
-        new(new HttpClient(handler), ImageLibrary.SquareHosts, timeout ?? SquarePhotoFetcher.Timeout);
+    // On the test's clock: its limit passes only when the test moves it.
+    internal static SquarePhotoFetcher Fetcher(HttpMessageHandler handler, ManualClock? clock = null) =>
+        new(new HttpClient(handler), ImageLibrary.SquareHosts, clock ?? new ManualClock(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero)));
 
     [Fact]
     public async Task A_square_photo_is_fetched_whole()
@@ -230,14 +231,25 @@ public class SquarePhotoFetcherTests
     [Fact]
     public async Task A_square_that_does_not_answer_in_time_is_refused()
     {
-        // A server that never answers: the fetch ends at its own limit.
+        // A server that never answers: the fetch ends at its own limit, its full ten seconds on the
+        // fetcher's clock, which the test moves once the request is out.
+        TaskCompletionSource asked = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var waiting = new FakeSquare(async (_, token) =>
         {
-            await Task.Delay(Timeout.Infinite, token);
+            asked.TrySetResult();
+            await Never.Until(token);
             return FakeSquare.Photo(Jpeg);
         });
+        ManualClock clock = new(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero));
 
-        var photo = await Fetcher(waiting, TimeSpan.FromMilliseconds(200)).FetchAsync(Square);
+        Task<FetchedPhoto> fetching = Fetcher(waiting, clock).FetchAsync(Square);
+        await asked.Task.WaitAsync(Eventually.Patience);
+        int fired = clock.Fired;
+        clock.Advance(SquarePhotoFetcher.Timeout - TimeSpan.FromTicks(1));
+        Assert.Equal(fired, clock.Fired);
+        Assert.False(fetching.IsCompleted);
+        clock.Advance(TimeSpan.FromTicks(1));
+        var photo = await fetching.WaitAsync(Eventually.Patience);
 
         Assert.Equal("Couldn't check this photo: Square did not answer in time.", photo.Refusal);
     }

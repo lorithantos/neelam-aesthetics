@@ -131,6 +131,9 @@ internal sealed class ListLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
         get { lock (_entries) return _entries.ToList(); }
     }
 
+    /// <summary>Raised after each entry, for a test waiting on something logged in the background.</summary>
+    public Pulse Logged { get; } = new();
+
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
     public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
@@ -140,6 +143,7 @@ internal sealed class ListLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
         Exception? exception, Func<TState, Exception?, string> formatter)
     {
         lock (_entries) _entries.Add((logLevel, formatter(state, exception), exception));
+        this.Logged.Raise();
     }
 }
 
@@ -169,7 +173,7 @@ internal sealed class TestRecords(TimeProvider clock)
 
     /// <summary>A recorder for tests that do not look at the trail: its events go to a log nobody reads.</summary>
     public static ActivityRecorder Unwatched =>
-        new(new InMemoryActivityLog(), TimeProvider.System, new ListLogger<ActivityRecorder>());
+        new(new InMemoryActivityLog(), new ManualClock(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero)), new ListLogger<ActivityRecorder>());
 }
 
 /// <summary>

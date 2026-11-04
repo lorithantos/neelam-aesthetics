@@ -451,7 +451,7 @@ public class PromotionTests
     public async Task Adding_from_a_promotion_goes_through_the_store_and_the_trail_and_says_so()
     {
         var store = new InMemoryKnownItems();
-        var records = new TestRecords(TimeProvider.System);
+        var records = new TestRecords(new ManualClock(new DateTimeOffset(2026, 11, 1, 12, 0, 0, TimeSpan.Zero)));
         var trail = records.Recorder.For(Salon, Actor.Demo);
         await store.AddAsync(Salon, Midface);
         var balancing = new KnownTreatment(KnownItem.NewId(), "Full-Face Facial Balancing", 5100m);

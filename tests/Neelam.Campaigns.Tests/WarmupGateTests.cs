@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -42,7 +41,7 @@ public class WarmupGateTests
         var client = Client(app);
         app.Clock.Now += TimeSpan.FromSeconds(7);
 
-        var held = await client.GetAsync("/campaigns");
+        var held = await app.HeldAsync(() => client.GetAsync("/campaigns"));
         var page = await held.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.ServiceUnavailable, held.StatusCode);
         Assert.Equal(TimeSpan.FromSeconds(WarmupGate.RetryAfterSeconds), held.Headers.RetryAfter!.Delta);
@@ -67,27 +66,37 @@ public class WarmupGateTests
     [Fact]
     public async Task A_request_waits_for_the_warm_up_up_to_the_gate_s_wait()
     {
-        await using var app = await Warming(gateWait: TimeSpan.FromSeconds(20));
+        TimeSpan gateWait = TimeSpan.FromSeconds(20);
+        await using var app = await Warming(gateWait: gateWait);
         var client = Client(app);
 
+        // Held at the gate's wait, which the clock has not passed.
         var waiting = client.GetAsync("/how-it-works");
-        await Task.Delay(300);
+        await Eventually.Until(() => app.Clock.WaitingFor(gateWait) == 1, "the gate holding the request", app.Clock.Changed);
         Assert.False(waiting.IsCompleted);
         app.Gate!.SetResult();
 
         Assert.Equal(HttpStatusCode.OK, (await waiting.WaitAsync(Patience)).StatusCode);
     }
 
+    // Held for the gate's whole wait on the app's clock, and not a tick less.
     [Fact]
     public async Task After_the_gate_s_wait_the_answer_is_503()
     {
-        await using var app = await Warming(gateWait: TimeSpan.FromMilliseconds(400));
-        var watch = Stopwatch.StartNew();
+        TimeSpan gateWait = TimeSpan.FromMilliseconds(400);
+        await using var app = await Warming(gateWait: gateWait);
 
-        var held = await Client(app).GetAsync("/how-it-works").WaitAsync(Patience);
+        var pending = Client(app).GetAsync("/how-it-works");
+        await Eventually.Until(() => app.Clock.WaitingFor(gateWait) == 1, "the gate holding the request", app.Clock.Changed);
+        int fired = app.Clock.Fired;
+        app.Clock.Advance(gateWait - TimeSpan.FromTicks(1));
+        Assert.Equal(fired, app.Clock.Fired);
+        Assert.False(pending.IsCompleted);
+
+        app.Clock.Advance(TimeSpan.FromTicks(1));
+        var held = await pending.WaitAsync(Patience);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, held.StatusCode);
-        Assert.True(watch.Elapsed >= TimeSpan.FromMilliseconds(350), $"answered after {watch.Elapsed}");
     }
 
     // ---- What goes through while warming ----
@@ -110,9 +119,19 @@ public class WarmupGateTests
     [InlineData("/warmup")]
     public async Task The_health_and_warm_up_endpoints_go_through(string path)
     {
-        await using var app = await Warming();
+        // A budget of its own, so the endpoint's wait is told apart from the heartbeat's minute.
+        TimeSpan budget = TimeSpan.FromSeconds(50);
+        await using var app = await Warming(budget: budget);
+        await app.WarmingAsync();
+        int reads = app.ClientReads.Count;
+        int budgets = app.Clock.WaitingFor(budget);
+
+        // Each reaches its own wait: /healthz the clients table, /warmup the warm-up up to its budget.
         var pending = Client(app).GetAsync(path);
-        await Task.Delay(Short * 3);
+        await Eventually.Until(() => app.ClientReads.Count > reads || app.Clock.WaitingFor(budget) > budgets,
+            $"{path} reaching its own wait", app.ClientReads.Changed, app.Clock.Changed);
+        // Past the gate's wait: had the gate held it, this would answer it with the page.
+        app.Clock.Advance(Short);
         Assert.False(pending.IsCompleted, "answered by the gate");
 
         app.Gate!.SetResult();
@@ -132,7 +151,7 @@ public class WarmupGateTests
 
         var forged = new HttpRequestMessage(HttpMethod.Get, "/how-it-works");
         forged.Headers.Add(WarmupMarker.Header, new WarmupMarker().Value);
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await Client(app).SendAsync(forged)).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await app.HeldAsync(() => Client(app).SendAsync(forged))).StatusCode);
     }
 
     [Theory]
@@ -165,9 +184,15 @@ public class WarmupGateTests
     [Fact]
     public async Task The_warm_up_giving_up_opens_the_gate()
     {
-        await using var app = await Warming(gateWait: TimeSpan.FromMilliseconds(100), budget: TimeSpan.FromMilliseconds(600));
+        TimeSpan budget = TimeSpan.FromMilliseconds(600);
+        await using var app = await Warming(gateWait: TimeSpan.FromMilliseconds(100), budget: budget);
         var warmup = app.Services.GetRequiredService<WarmupState>();
 
+        // Held on the clients table until its budget passes on the app's clock.
+        await app.WarmingAsync();
+        await Eventually.Until(() => app.Clock.WaitingFor(budget) == 1, "the warm-up's budget set on the app's clock", app.Clock.Changed);
+        Assert.False(warmup.IsDone);
+        app.Clock.Advance(budget);
         await warmup.Completion.WaitAsync(Patience);
         Assert.Equal(HttpStatusCode.OK, (await Client(app).GetAsync("/how-it-works")).StatusCode);
     }
@@ -178,7 +203,7 @@ public class WarmupGateTests
     {
         await using var app = await Warming();
         var client = Client(app);
-        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/how-it-works")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await app.HeldAsync(() => client.GetAsync("/how-it-works"))).StatusCode);
 
         app.Clock.Now += TimeSpan.FromMinutes(1);
 
@@ -236,7 +261,7 @@ public class WarmupGateTests
         await using var app = await Warming();
         var client = Client(app);
 
-        var held = await Task.WhenAll(Enumerable.Range(0, 30).Select(_ => client.GetAsync("/how-it-works")));
+        var held = await app.HeldAsync(30, () => client.GetAsync("/how-it-works"));
         foreach (var response in held)
         {
             Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
@@ -269,9 +294,9 @@ public class WarmupGateTests
         var start = app.Services.GetRequiredService<StartLog>();
         var at = app.Clock.Now;
 
-        await client.GetAsync("/how-it-works");
-        app.Clock.Now += TimeSpan.FromSeconds(3);
-        await client.GetAsync("/how-it-works");
+        await app.HeldAsync(() => client.GetAsync("/how-it-works"));
+        app.Clock.Now = at + TimeSpan.FromSeconds(3);
+        await app.HeldAsync(() => client.GetAsync("/how-it-works"));
 
         var record = start.Snapshot(0);
         Assert.Equal(2, record.Held!.Shown);
@@ -279,7 +304,7 @@ public class WarmupGateTests
         Assert.Equal(new FirstRequest(at, StartRecording.GettingReadyRoute, record.FirstRequest!.Ms, 503), record.FirstRequest);
         Assert.Empty(record.FirstVisits);
 
-        app.Clock.Now += TimeSpan.FromSeconds(6);
+        app.Clock.Now = at + TimeSpan.FromSeconds(9);
         app.Gate!.SetResult();
         await app.Services.GetRequiredService<WarmupState>().Completion.WaitAsync(Patience);
         app.Clock.Now += TimeSpan.FromSeconds(30);
@@ -326,15 +351,16 @@ public class WarmupGateTests
         var root = Path.Combine(InfrastructureTests.Root, "src", "Neelam.Web", "wwwroot");
         var files = new FilteredFiles(new PhysicalFileProvider(root), missing);
 
+        ManualClock clock = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
         var problem = Assert.Throws<InvalidOperationException>(() => new WarmupGate(
             _ => Task.CompletedTask, new WarmupState(), new WarmupMarker(), new PlatformRequests([]),
-            new StartLog(TimeProvider.System, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), new WarmupState()),
+            new StartLog(clock, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), new WarmupState()),
             Options.Create(new WarmupOptions()), new Root(files)));
         Assert.Contains(missing, problem.Message);
 
         // Both as shipped load.
         _ = new WarmupGate(_ => Task.CompletedTask, new WarmupState(), new WarmupMarker(), new PlatformRequests([]),
-            new StartLog(TimeProvider.System, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), new WarmupState()),
+            new StartLog(clock, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), new WarmupState()),
             Options.Create(new WarmupOptions()), new Root(new PhysicalFileProvider(root)));
     }
 

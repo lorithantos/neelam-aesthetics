@@ -86,7 +86,8 @@ builder.Services.AddSingleton(proofread.Switch);
 builder.Services.AddHttpClient(SquarePhotoFetcher.HttpClientName)
     .ConfigurePrimaryHttpMessageHandler(SquarePhotoFetcher.Handler);
 builder.Services.AddSingleton(services => new SquarePhotoFetcher(
-    services.GetRequiredService<IHttpClientFactory>().CreateClient(SquarePhotoFetcher.HttpClientName), ImageLibrary.SquareHosts));
+    services.GetRequiredService<IHttpClientFactory>().CreateClient(SquarePhotoFetcher.HttpClientName), ImageLibrary.SquareHosts,
+    services.GetRequiredService<TimeProvider>()));
 builder.Services.AddSingleton<IProofreader>(services => proofread.Switch.IsOn
     ? proofread.Create(services.GetRequiredService<SquarePhotoFetcher>(), services.GetRequiredService<ILogger<ClaudeProofreader>>())
     : new ProofreadNotSwitchedOn());
@@ -255,7 +256,7 @@ app.MapGet("/healthz", async (IClientDirectory clients, TimeProvider clock, ILog
 // always 200, so it can hold traffic back but never fail a start. Says only "warm" or "warming".
 app.MapGet(WarmupEndpoint.Path, async (WarmupState warmup, IOptions<WarmupOptions> options, TimeProvider clock, CancellationToken ct) =>
 {
-    await Task.WhenAny(warmup.Completion, Task.Delay(options.Value.Budget, ct));
+    await Task.WhenAny(warmup.Completion, Task.Delay(options.Value.Budget, clock, ct));
     return Results.Json(HealthReport.At(warmup.IsDone ? "warm" : "warming", clock));
 }).AllowAnonymous();
 

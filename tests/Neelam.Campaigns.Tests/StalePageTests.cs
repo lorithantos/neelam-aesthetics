@@ -21,13 +21,13 @@ internal static class StalePages
     public static TimeSpan Interval(InMemoryApp app) =>
         app.Services.GetRequiredService<IOptions<CampaignWatchOptions>>().Value.Interval;
 
-    public static SteppingClock Clock(InMemoryApp app) => new(app.Clock.Now);
+    public static ManualClock Clock(InMemoryApp app) => new(app.Clock.Now);
 
     public static readonly IReadOnlyDictionary<string, object?> NoParameters = new Dictionary<string, object?>();
 
-    // The page's timer is set once it is live; the regular check is waited for only after that.
-    public static Task Live(OpenCampaignPage page, SteppingClock clock) =>
-        page.WaitForAsync(_ => clock.Waiting == 1, "its timer set");
+    // The page's timer is set, on its own clock, once it is live; the regular check is waited for only after that.
+    public static Task Live(ManualClock clock) =>
+        Eventually.Until(() => clock.Waiting == 1, "the page's timer set", clock.Changed);
 
     // Each save a second after the last, as a person's would be: the app's clock stands still otherwise.
     public static ClientStores Later(InMemoryApp app)
@@ -48,7 +48,7 @@ public class TemplatePageWatchTests(DemoApp app) : IClassFixture<DemoApp>
         return id;
     }
 
-    private Task<OpenCampaignPage> Open(Guid id, SteppingClock clock) =>
+    private Task<OpenCampaignPage> Open(Guid id, ManualClock clock) =>
         OpenCampaignPage.OpenAsync<TemplatePage>(app, new Dictionary<string, object?> { [nameof(TemplatePage.Id)] = (Guid?)id }, clock);
 
     private const string SavedAgain = "The template was saved again since you opened it, in another tab or by someone else.";
@@ -78,7 +78,7 @@ public class TemplatePageWatchTests(DemoApp app) : IClassFixture<DemoApp>
         var id = await Saved();
         var clock = StalePages.Clock(app);
         await using var a = await Open(id, clock);
-        await StalePages.Live(a, clock);
+        await StalePages.Live(clock);
 
         await Store.SaveTemplateAsync(id, DraftFixtures.Membership);
         clock.Advance(StalePages.Interval(app) - TimeSpan.FromSeconds(1));
@@ -165,7 +165,7 @@ public class LookPageWatchTests(DemoApp app) : IClassFixture<DemoApp>
 {
     private static readonly ClientLook Green = new(accentColour: "#225e3e");
 
-    private Task<OpenCampaignPage> Open(SteppingClock clock) =>
+    private Task<OpenCampaignPage> Open(ManualClock clock) =>
         OpenCampaignPage.OpenAsync<LookPage>(app, StalePages.NoParameters, clock);
 
     [Fact]
@@ -188,7 +188,7 @@ public class LookPageWatchTests(DemoApp app) : IClassFixture<DemoApp>
     {
         var clock = StalePages.Clock(app);
         await using var a = await Open(clock);
-        await StalePages.Live(a, clock);
+        await StalePages.Live(clock);
 
         await StalePages.Later(app).Look(DemoApp.Client).SaveAsync(Green);
         clock.Advance(StalePages.Interval(app) - TimeSpan.FromSeconds(1));
@@ -226,7 +226,7 @@ public class BaselineSectionWatchTests(DemoApp app) : IClassFixture<DemoApp>
     private const string Changed =
         "The parts every template should have were changed since you opened this page, in another tab or by someone else.";
 
-    private Task<OpenCampaignPage> Open(SteppingClock clock) =>
+    private Task<OpenCampaignPage> Open(ManualClock clock) =>
         OpenCampaignPage.OpenAsync<BaselineSection>(app, StalePages.NoParameters, clock);
 
     private Task<DocumentVersion?> Newest() => app.Stores.Baseline(DemoApp.Client).NewestAsync();
@@ -254,7 +254,7 @@ public class BaselineSectionWatchTests(DemoApp app) : IClassFixture<DemoApp>
     {
         var clock = StalePages.Clock(app);
         await using var a = await Open(clock);
-        await StalePages.Live(a, clock);
+        await StalePages.Live(clock);
 
         await StalePages.Later(app).Baseline(DemoApp.Client).SaveAsync(new TemplateBaseline([BlockType.Greeting]));
         clock.Advance(StalePages.Interval(app) - TimeSpan.FromSeconds(1));
@@ -328,7 +328,7 @@ public class LaddersSectionWatchTests(DemoApp app) : IClassFixture<DemoApp>
 
     private static readonly TierLadders Glow = new([new TierLadder("Glow", ["Glow", "Radiance", "Luminous"], ordered: true)]);
 
-    private Task<OpenCampaignPage> Open(SteppingClock clock) =>
+    private Task<OpenCampaignPage> Open(ManualClock clock) =>
         OpenCampaignPage.OpenAsync<LaddersSection>(app, StalePages.NoParameters, clock);
 
     [Fact]
@@ -336,14 +336,14 @@ public class LaddersSectionWatchTests(DemoApp app) : IClassFixture<DemoApp>
     {
         var clock = StalePages.Clock(app);
         await using var a = await Open(clock);
-        await StalePages.Live(a, clock);
+        await StalePages.Live(clock);
 
         await StalePages.Later(app).SaveLaddersAsync(DemoApp.Client, Glow, Actor.Demo);
         Assert.Equal(Changed, RenderedPage.Named(await a.WaitForAsync("ladders-modified"), "ladders-modified-what"));
 
         var bClock = StalePages.Clock(app);
         await using var b = await Open(bClock);
-        await StalePages.Live(b, bClock);
+        await StalePages.Live(bClock);
         await StalePages.Later(app).Ladders(DemoApp.Client).SaveAsync(TierLadders.None);
         Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), "ladders-modified"));
         bClock.Advance(StalePages.Interval(app));

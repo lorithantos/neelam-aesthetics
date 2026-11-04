@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
 using Azure.Core;
@@ -121,9 +120,8 @@ public class TokenPrefetchTests
         var credential = new BlockingCredential();
         try
         {
-            var watch = Stopwatch.StartNew();
+            // The credential is released only at the end, so a Start that waited on it would never return.
             var prefetch = await Task.Run(() => TokenPrefetch.Start(credential)).WaitAsync(Patience);
-            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"Start took {watch.Elapsed}.");
 
             await credential.Called.Task.WaitAsync(Patience);
             Assert.False(prefetch.Outcome!.IsCompleted);
@@ -197,7 +195,7 @@ public class TokenPrefetchTests
         var state = app.Services.GetRequiredService<WarmupState>();
         await credential.Called.Task.WaitAsync(Patience);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        // Unanswered, the pre-fetch holds the warm-up at its first step: no step is done, and it has not finished.
         Assert.Empty(state.Steps);
         Assert.False(state.IsDone);
 
@@ -242,15 +240,17 @@ public class TokenPrefetchTests
             var prefetch = await Task.Run(() => TokenPrefetch.Start(credential)).WaitAsync(Patience);
             await using var app = new WarmupApp { Prefetch = prefetch, Budget = budget, GateWait = TimeSpan.FromMilliseconds(100) };
             await WarmupApp.SeedAsync(app);
-            var watch = Stopwatch.StartNew();
 
             var client = await Task.Run(() => app.CreateClient(new() { AllowAutoRedirect = false })).WaitAsync(Patience);
             Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/healthz").WaitAsync(Patience)).StatusCode);
             await credential.Called.Task.WaitAsync(Patience);
 
+            // The budget passes on the app's clock, and only then does the warm-up give up.
             var state = app.Services.GetRequiredService<WarmupState>();
+            await Eventually.Until(() => app.Clock.WaitingFor(budget) == 1, "the warm-up's budget set", app.Clock.Changed);
+            Assert.False(state.IsDone);
+            app.Clock.Advance(budget);
             await state.Completion.WaitAsync(Patience);
-            Assert.True(watch.Elapsed < budget + TimeSpan.FromSeconds(10), $"The warm-up finished after {watch.Elapsed}.");
             Assert.False(app.Services.GetRequiredService<TokenPrefetch>().Outcome!.IsCompleted);
             Assert.DoesNotContain(state.Steps, s => s.Name == "storage token");
             Assert.Contains(app.Log.Entries, e => e.Message.StartsWith("Warm-up gave up after", StringComparison.Ordinal));
@@ -266,12 +266,12 @@ public class TokenPrefetchTests
 
     private static async Task<(LogLevel Level, string Message, Exception? Error)> Logged(ListLogger<TokenPrefetch> log)
     {
-        var watch = Stopwatch.StartNew();
-        while (log.Entries.Count == 0 && watch.Elapsed < Patience) await Task.Delay(10);
+        await Eventually.Until(() => log.Entries.Count > 0, "the pre-fetch logged", log.Logged);
         return Assert.Single(log.Entries);
     }
 
-    private static AccessToken Token() => new(Secret, DateTimeOffset.UtcNow.AddHours(1));
+    // Its expiry is never read: the pre-fetch drops the token at once.
+    private static AccessToken Token() => new(Secret, new DateTimeOffset(2026, 10, 11, 13, 0, 0, TimeSpan.Zero));
 
     /// <summary>Notes what it was asked for, then refuses, so the client's request is never sent.</summary>
     private sealed class RefusingCredential : TokenCredential

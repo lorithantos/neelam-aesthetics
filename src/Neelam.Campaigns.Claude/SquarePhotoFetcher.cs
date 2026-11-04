@@ -40,20 +40,16 @@ public sealed class SquarePhotoFetcher
 
     private readonly HttpClient _http;
     private readonly HashSet<string> _hosts;
-    private readonly TimeSpan _timeout;
+    private readonly TimeProvider _clock;
 
     /// <param name="http">A client over <see cref="Handler"/> (or a test's handler).</param>
     /// <param name="hosts">The allowed hosts: <c>ImageLibrary.SquareHosts</c>.</param>
-    public SquarePhotoFetcher(HttpClient http, IReadOnlyCollection<string> hosts) : this(http, hosts, Timeout)
-    {
-    }
-
-    // A shorter limit, so a test of it need not wait ten seconds.
-    internal SquarePhotoFetcher(HttpClient http, IReadOnlyCollection<string> hosts, TimeSpan timeout)
+    /// <param name="clock">The app's clock, on which <see cref="Timeout"/> runs (a test's moves when told).</param>
+    public SquarePhotoFetcher(HttpClient http, IReadOnlyCollection<string> hosts, TimeProvider clock)
     {
         _http = http;
         _hosts = hosts.Select(h => h.Trim().ToLowerInvariant()).ToHashSet(StringComparer.Ordinal);
-        _timeout = timeout;
+        _clock = clock;
     }
 
     /// <summary>
@@ -99,8 +95,8 @@ public sealed class SquarePhotoFetcher
     /// <summary>The photo at <paramref name="address"/>, or why not; never throws but for her own cancellation.</summary>
     public async Task<FetchedPhoto> FetchAsync(string address, CancellationToken cancellationToken = default)
     {
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        limit.CancelAfter(_timeout);
+        using var giveUp = new CancellationTokenSource(Timeout, _clock);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, giveUp.Token);
         try
         {
             return await FetchWithinAsync(address, limit.Token);

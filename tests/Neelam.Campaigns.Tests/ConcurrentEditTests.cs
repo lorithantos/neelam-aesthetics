@@ -20,7 +20,7 @@ public class ConcurrentEditTests(DemoApp app) : IClassFixture<DemoApp>
 
     private TimeSpan Interval => app.Services.GetRequiredService<IOptions<CampaignWatchOptions>>().Value.Interval;
 
-    private SteppingClock Clock() => new(app.Clock.Now);
+    private ManualClock Clock() => new(app.Clock.Now);
 
     private async Task<SaveRef> Saved(Guid? id = null, CampaignDraft? draft = null)
     {
@@ -36,7 +36,7 @@ public class ConcurrentEditTests(DemoApp app) : IClassFixture<DemoApp>
         return await Store.WarningsSeenAtExportAsync(save, SeenAtExport.KeysOf(DraftFixtures.Finished()));
     }
 
-    private Task<OpenCampaignPage> Open(Guid id, SteppingClock clock) => OpenCampaignPage.OpenAsync(app, id, clock);
+    private Task<OpenCampaignPage> Open(Guid id, ManualClock clock) => OpenCampaignPage.OpenAsync(app, id, clock);
 
     private static void HasTheExport(string html)
     {
@@ -392,7 +392,7 @@ public class ConcurrentEditTests(DemoApp app) : IClassFixture<DemoApp>
         var clock = Clock();
         var signals = app.Services.GetRequiredService<CampaignSignals>();
         var a = await Open(save.Id, clock);
-        await a.WaitForAsync(_ => clock.Waiting == 1, "its timer set");
+        await StalePages.Live(clock);
         Assert.Equal(1, signals.Listening(DemoApp.Client, save.Id));
 
         await a.DisposeAsync();
@@ -417,7 +417,7 @@ public class ApproveRereadsChecksTests(DemoApp app) : IClassFixture<DemoApp>
         var save = await app.Stores.Campaigns(DemoApp.Client, Actor.Demo)
             .SaveDraftAsync(Guid.NewGuid(), "WE’RE TURNING ONE!", DraftFixtures.Finished());
         app.Clock.Now += TimeSpan.FromSeconds(1);
-        await using var a = await OpenCampaignPage.OpenAsync(app, save.Id, new SteppingClock(app.Clock.Now));
+        await using var a = await OpenCampaignPage.OpenAsync(app, save.Id, new ManualClock(app.Clock.Now));
         const string KnownPrice = "'Platinum Member' is $249/month in your known items; here it is $299/month.";
         Assert.DoesNotContain(KnownPrice, RenderedPage.Named(await a.HtmlAsync(), "checks-findings"));
 

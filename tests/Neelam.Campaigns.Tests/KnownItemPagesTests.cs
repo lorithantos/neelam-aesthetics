@@ -256,13 +256,16 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
     // The page's session for salon one, recording onto a trail the test can read.
     private static Task<KnownItemsSession> Open(IKnownItemStore store, TestRecords? records = null) =>
-        KnownItemsSession.OpenAsync(store, (records ?? new TestRecords(TimeProvider.System)).Recorder.For(SalonOne.Name, Priya));
+        KnownItemsSession.OpenAsync(store, (records ?? Records()).Recorder.For(SalonOne.Name, Priya));
+
+    // On a clock of the test's own, never the machine's.
+    private static TestRecords Records() => new(new ManualClock(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero)));
 
     // Each change is one event on the trail, by the item's id and who did it, never its text.
     [Fact]
     public async Task Adding_changing_and_removing_are_on_the_activity_trail_without_the_text()
     {
-        var (store, records) = (new InMemoryKnownItems(), new TestRecords(TimeProvider.System));
+        var (store, records) = (new InMemoryKnownItems(), Records());
         var page = await Open(store, records);
 
         page.NewTreatment.Name = "Wellness injection";
@@ -396,7 +399,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     [Fact]
     public async Task Saving_a_line_s_caps_in_place_changes_its_usual_amount_and_limits()
     {
-        var ((store, line), records) = (await FiveToTen(), new TestRecords(TimeProvider.System));
+        var ((store, line), records) = (await FiveToTen(), Records());
         var page = await Open(store, records);
 
         var caps = page.Caps(page.Items.Benefits[0]);
@@ -430,7 +433,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task An_invalid_range_is_refused_beside_the_boxes_and_what_she_typed_is_kept(
         string usual, string lowest, string highest, string problem)
     {
-        var ((store, line), records) = (await FiveToTen(), new TestRecords(TimeProvider.System));
+        var ((store, line), records) = (await FiveToTen(), Records());
         var page = await Open(store, records);
         var boxes = page.Caps(page.Items.Benefits[0]).Fields[0];
 

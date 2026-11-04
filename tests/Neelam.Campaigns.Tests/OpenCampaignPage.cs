@@ -94,18 +94,28 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
 
     /// <summary>
     /// The page once <paramref name="shows"/> holds of it: for what arrives from elsewhere, a signal or
-    /// a timer, on the page's own circuit. Fails after <see cref="Patience"/>, saying what it saw.
+    /// a timer, on the page's own circuit. Looked at again each time the page renders, which is the only
+    /// way what it shows can change, never on a clock. Fails after <see cref="Patience"/>, saying what it
+    /// waited for.
     /// </summary>
     public async Task<string> WaitForAsync(Func<string, bool> shows, string what)
     {
-        var until = DateTime.UtcNow + Patience;
         while (true)
         {
-            var html = await HtmlAsync();
-            if (shows(html)) return html;
-            if (DateTime.UtcNow > until)
+            Task rendered = this._renderer.Rendered.Next;
+            string html = await this.HtmlAsync();
+            if (shows(html))
+            {
+                return html;
+            }
+            try
+            {
+                await rendered.WaitAsync(Patience);
+            }
+            catch (TimeoutException)
+            {
                 throw new TimeoutException($"The page never showed {what}.");
-            await Task.Delay(10);
+            }
         }
     }
 
@@ -151,7 +161,14 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
 
         protected override void HandleException(Exception exception) => _failure ??= exception;
 
-        protected override Task UpdateDisplayAsync(in RenderBatch renderBatch) => Task.CompletedTask;
+        /// <summary>Raised after each render, for a test waiting on what the page shows.</summary>
+        public Pulse Rendered { get; } = new();
+
+        protected override Task UpdateDisplayAsync(in RenderBatch renderBatch)
+        {
+            this.Rendered.Raise();
+            return Task.CompletedTask;
+        }
 
         public string Html(int componentId)
         {

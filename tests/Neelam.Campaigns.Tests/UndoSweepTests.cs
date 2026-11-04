@@ -137,11 +137,13 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Null(With(UndoOptions.LongestSweepInterval).Problem());
         Assert.Null(With(TimeSpan.FromMilliseconds(1)).Problem());
 
-        // The bound is the timer's own: what is allowed it takes, what is not it refuses.
-        new PeriodicTimer(UndoOptions.LongestSweepInterval).Dispose();
-        new PeriodicTimer(TimeSpan.FromMilliseconds(1)).Dispose();
-        Assert.Throws<ArgumentOutOfRangeException>(() => new PeriodicTimer(TimeSpan.FromDays(50)));
-        Assert.Throws<ArgumentOutOfRangeException>(() => new PeriodicTimer(TimeSpan.FromTicks(1)));
+        // The bound is the timer's own, as the sweep makes it on the app's clock: what is allowed it
+        // takes, what is not it refuses.
+        ManualClock clock = new(new DateTimeOffset(2026, 10, 9, 12, 0, 0, TimeSpan.Zero));
+        new PeriodicTimer(UndoOptions.LongestSweepInterval, clock).Dispose();
+        new PeriodicTimer(TimeSpan.FromMilliseconds(1), clock).Dispose();
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PeriodicTimer(TimeSpan.FromDays(50), clock));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PeriodicTimer(TimeSpan.FromTicks(1), clock));
     }
 
     // Every client in the clients table is swept, and only what has been undone long enough goes.
@@ -181,14 +183,14 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         clock.Now += TimeSpan.FromDays(2);
         var sweep = SweepOver(stores, new InMemoryClientDirectory(SalonOne), clock);
 
-        // The service runs off the startup path, so the test waits for it, a few seconds at most;
-        // the next run would be an hour away.
+        // The service runs off the startup path, so the test waits for its delete; the clock does not
+        // move, so the next run, an hour away, never comes.
         await sweep.StartAsync(CancellationToken.None);
-        var keys = blobs.For(SalonOne.Name.Value).Blobs.Keys;
-        for (var wait = 0; wait < 100 && keys.Contains(undone.BlobName); wait++) await Task.Delay(50);
+        InMemoryBlobBackend container = blobs.For(SalonOne.Name.Value);
+        await Eventually.Until(() => container.Deletes >= 1, "the first sweep deleting", container.Deleted);
         await sweep.StopAsync(CancellationToken.None);
 
-        Assert.DoesNotContain(undone.BlobName, keys);
+        Assert.DoesNotContain(undone.BlobName, container.Blobs.Keys);
     }
 
     // A clients table that cannot be read is logged and tried again next run; it never stops the app.

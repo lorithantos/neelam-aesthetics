@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Text.RegularExpressions;
 using Azure;
@@ -40,9 +39,11 @@ namespace Neelam.Web;
 /// it gives up after <see cref="WarmupOptions.Budget"/>, and stops when the app does.
 /// </para>
 /// </remarks>
+/// <param name="clock">The app's clock: the budget runs on it and each step is timed on it.</param>
 public sealed class Warmup(
     IClientDirectory clients, ClientStores stores, ISelfRequests self, WarmupMarker marker, WarmupState state,
-    TokenPrefetch prefetch, IHostApplicationLifetime lifetime, IOptions<WarmupOptions> options, ILogger<Warmup> log) : BackgroundService
+    TokenPrefetch prefetch, IHostApplicationLifetime lifetime, IOptions<WarmupOptions> options, TimeProvider clock,
+    ILogger<Warmup> log) : BackgroundService
 {
     /// <summary>
     /// The pages warmed, in order: every page of the client's site. A page whose address names a saved
@@ -74,36 +75,39 @@ public sealed class Warmup(
         // Off the startup path: the host carries on starting, and answering, while this runs. .NET 10
         // already runs ExecuteAsync apart from the host's start; the yield keeps it so wherever it runs.
         await Task.Yield();
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        budget.CancelAfter(options.Value.Budget);
-        var total = Stopwatch.StartNew();
+        using var giveUp = new CancellationTokenSource(options.Value.Budget, clock);
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, giveUp.Token);
+        var began = clock.GetTimestamp();
         try
         {
             await StorageAsync(budget.Token);
             await StartedAsync(budget.Token);
             await PagesAsync(budget.Token);
             log.LogInformation("Warm-up done in {Ms} ms: {Ok} of {Steps} steps answered.",
-                total.ElapsedMilliseconds, state.Steps.Count(s => s.Ok), state.Steps.Count);
+                MsSince(began), state.Steps.Count(s => s.Ok), state.Steps.Count);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            log.LogInformation("Warm-up stopped with the app after {Ms} ms.", total.ElapsedMilliseconds);
+            log.LogInformation("Warm-up stopped with the app after {Ms} ms.", MsSince(began));
         }
         catch (OperationCanceledException) when (budget.IsCancellationRequested)
         {
             log.LogWarning("Warm-up gave up after {Ms} ms, its budget; the pages not reached warm on first use.",
-                total.ElapsedMilliseconds);
+                MsSince(began));
         }
         catch (Exception ex)
         {
             // Every step already catches its own failure; this is the guard on the guard.
-            log.LogError("Warm-up failed after {Ms} ms: {Error}.", total.ElapsedMilliseconds, Describe(ex));
+            log.LogError("Warm-up failed after {Ms} ms: {Error}.", MsSince(began), Describe(ex));
         }
         finally
         {
-            state.Finish(total.ElapsedMilliseconds);
+            state.Finish(MsSince(began));
         }
     }
+
+    /// <summary>Whole milliseconds on the app's clock since <paramref name="timestamp"/>.</summary>
+    private long MsSince(long timestamp) => (long)clock.GetElapsedTime(timestamp).TotalMilliseconds;
 
     // The first token for each storage service, and its connection: the clients table, then the
     // settings container, through the same clients and identity every request uses. In Azure the token
@@ -172,16 +176,16 @@ public sealed class Warmup(
     // the warm-up's end; a cancellation ends the warm-up.
     private async Task<string?> StepAsync(string name, Func<Task<string>> step, CancellationToken ct, Func<string, bool>? ok = null)
     {
-        var watch = Stopwatch.StartNew();
+        var began = clock.GetTimestamp();
         try
         {
             var outcome = await step();
-            Record(new WarmStep(name, outcome, watch.ElapsedMilliseconds, ok?.Invoke(outcome) ?? true));
+            Record(new WarmStep(name, outcome, MsSince(began), ok?.Invoke(outcome) ?? true));
             return outcome;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Record(new WarmStep(name, "failed: " + Describe(ex), watch.ElapsedMilliseconds, Ok: false));
+            Record(new WarmStep(name, "failed: " + Describe(ex), MsSince(began), Ok: false));
             return null;
         }
     }

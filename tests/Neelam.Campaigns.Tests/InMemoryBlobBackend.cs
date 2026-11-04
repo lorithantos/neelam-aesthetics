@@ -82,11 +82,19 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         return true;
     }
 
+    /// <summary>How many blobs have been deleted: for a test waiting on a delete made in the background.</summary>
+    public int Deletes => Volatile.Read(ref this._deletes);
+
+    /// <summary>Raised after each delete.</summary>
+    public Pulse Deleted { get; } = new();
+
+    private int _deletes;
+
     public async Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default)
     {
         if (BeforeDelete is { } before) await before(name);
         _etags.Remove(name);
-        return Blobs.Remove(name);
+        return this.Removed(Blobs.Remove(name));
     }
 
     public async Task<bool> DeleteIfUnchangedAsync(string name, string etag, CancellationToken cancellationToken = default)
@@ -94,7 +102,17 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         if (BeforeDelete is { } before) await before(name);
         if (!Blobs.ContainsKey(name) || ETagOf(name) != etag) return false;
         _etags.Remove(name);
-        return Blobs.Remove(name);
+        return this.Removed(Blobs.Remove(name));
+    }
+
+    private bool Removed(bool removed)
+    {
+        if (removed)
+        {
+            Interlocked.Increment(ref this._deletes);
+            this.Deleted.Raise();
+        }
+        return removed;
     }
 
     private void Renew(string name) => _etags[name] = $"\"{++_version}\"";
@@ -105,12 +123,4 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         if (!_etags.ContainsKey(name)) Renew(name);
         return _etags[name];
     }
-}
-
-/// <summary>A clock that only moves when told to.</summary>
-internal sealed class ManualClock(DateTimeOffset start) : TimeProvider
-{
-    public DateTimeOffset Now { get; set; } = start;
-
-    public override DateTimeOffset GetUtcNow() => Now;
 }

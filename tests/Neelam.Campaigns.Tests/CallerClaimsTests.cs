@@ -70,7 +70,7 @@ public class CallerClaimsTests
         var (caller, _) = CallerClaims.FromClaims(SignedIn(("oid", "user-3"), ("groups", Guid.NewGuid().ToString())), Clients);
 
         Assert.Empty(caller!.MemberOf);
-        Assert.False(AccessCheck.Decide(caller, Area.ClientData, Clients[0].Name, [], DateTimeOffset.UtcNow).Allowed);
+        Assert.False(AccessCheck.Decide(caller, Area.ClientData, Clients[0].Name, [], new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero)).Allowed);
     }
 
     [Fact]

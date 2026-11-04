@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Globalization;
 using System.Threading.Channels;
 using Azure;
@@ -213,7 +212,7 @@ public static class StartRecording
             }
             var start = services.GetRequiredService<StartLog>();
             var arrived = start.Clock.GetUtcNow();
-            var watch = Stopwatch.StartNew();
+            var began = start.Clock.GetTimestamp();
             var failed = false;
             try
             {
@@ -228,7 +227,7 @@ public static class StartRecording
             {
                 try
                 {
-                    Note(start, context, arrived, watch.ElapsedMilliseconds, failed);
+                    Note(start, context, arrived, (long)start.Clock.GetElapsedTime(began).TotalMilliseconds, failed);
                 }
                 catch (Exception ex)
                 {
@@ -286,7 +285,7 @@ public sealed class StartRecordWriter(
         {
             while (await start.Events.WaitToReadAsync(stoppingToken))
             {
-                if (options.Value.Coalesce > TimeSpan.Zero) await Task.Delay(options.Value.Coalesce, stoppingToken);
+                if (options.Value.Coalesce > TimeSpan.Zero) await Task.Delay(options.Value.Coalesce, start.Clock, stoppingToken);
                 while (start.Events.TryRead(out var happened)) Report(happened);
                 if (!causeKnown)
                 {
@@ -318,7 +317,7 @@ public sealed class StartRecordWriter(
         // The heartbeat reads the last one before this start before it first beats; give it a while.
         try
         {
-            await start.LastAliveBefore.WaitAsync(LastAliveWait, ct);
+            await start.LastAliveBefore.WaitAsync(LastAliveWait, start.Clock, ct);
         }
         catch (TimeoutException)
         {

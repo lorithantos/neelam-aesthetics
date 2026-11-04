@@ -126,6 +126,8 @@ public class StartRecordTests
     {
         // One thread per core, released together on a spin rather than a wait, round after round, so
         // their calls land within nanoseconds of each other: the window a check-then-set would leave.
+        // Each round is released once every thread has arrived at it, so they are all spinning at the
+        // release whatever the machine's speed: a count, never a pause for time to pass.
         var threads = Math.Clamp(Environment.ProcessorCount, 2, 16);
         const int rounds = 3000;
         var starts = Enumerable.Range(0, rounds)
@@ -133,12 +135,14 @@ public class StartRecordTests
             .ToArray();
         var firsts = new int[rounds];
         var visits = new int[rounds];
+        int[] arrived = new int[rounds];
         var go = -1;
         using var finished = new CountdownEvent(threads);
         var workers = Enumerable.Range(0, threads).Select(i => new Thread(() =>
         {
             for (var round = 0; round < rounds; round++)
             {
+                Interlocked.Increment(ref arrived[round]);
                 while (Volatile.Read(ref go) < round) Thread.SpinWait(1);
                 var start = starts[round];
                 if (start.TryRecordFirstRequest(new FirstRequest(DateTimeOffset.UnixEpoch, "/r" + i, i, 200))) Interlocked.Increment(ref firsts[round]);
@@ -149,8 +153,8 @@ public class StartRecordTests
         workers.ForEach(w => w.Start());
         for (var round = 0; round < rounds; round++)
         {
+            while (Volatile.Read(ref arrived[round]) < threads) Thread.SpinWait(1);
             Volatile.Write(ref go, round);
-            Thread.SpinWait(200);
         }
         Assert.True(finished.Wait(Patience));
 
@@ -321,26 +325,17 @@ public class StartRecordTests
         return events;
     }
 
-    internal static async Task<StartRecord> Eventually(IStartRecords store, Func<StartRecord, bool> done)
+    // The newest record once done holds of it, looked at again each time the store is written.
+    internal static async Task<StartRecord> Eventually(InMemoryStartRecords store, Func<StartRecord, bool> done)
     {
-        var until = DateTime.UtcNow + Patience;
-        while (true)
-        {
-            if ((await store.RecentAsync(1)).FirstOrDefault() is { } record && done(record)) return record;
-            if (DateTime.UtcNow > until) throw new TimeoutException("The start's record never got there.");
-            await Task.Delay(20);
-        }
+        StartRecord? found = null;
+        await Tests.Eventually.Until(
+            () => (found = store.Newest()) is { } record && done(record), "the start's record got there", store.Changed);
+        return found!;
     }
 
-    private static async Task EventuallyLogged(StartsApp app, string text)
-    {
-        var until = DateTime.UtcNow + Patience;
-        while (!app.Log.Entries.Any(e => e.Message.Contains(text, StringComparison.Ordinal)))
-        {
-            if (DateTime.UtcNow > until) throw new TimeoutException($"Never logged: {text}");
-            await Task.Delay(20);
-        }
-    }
+    private static Task EventuallyLogged(StartsApp app, string text) =>
+        Tests.Eventually.Until(() => app.Log.Entries.Any(e => e.Message.Contains(text, StringComparison.Ordinal)), $"logged: {text}", app.Log.Logged);
 }
 
 /// <summary>The demo with the record of starts' log captured, an optional build stamp, and an optional store in place of the in-memory one.</summary>
@@ -378,11 +373,22 @@ internal sealed class InMemoryStartRecords : IStartRecords
 {
     private readonly Dictionary<string, StartRecord> _starts = new(StringComparer.Ordinal);
 
+    /// <summary>Raised after each record kept and each beat, for a test waiting on the writer or the heartbeat.</summary>
+    public Pulse Changed { get; } = new();
+
     public Task SaveAsync(StartRecord record, CancellationToken ct = default)
     {
         lock (_starts)
             if (!_starts.TryGetValue(record.Id, out var kept) || kept.Version < record.Version) _starts[record.Id] = record;
+        this.Changed.Raise();
         return Task.CompletedTask;
+    }
+
+    /// <summary>The newest start's record, or null.</summary>
+    public StartRecord? Newest()
+    {
+        lock (_starts)
+            return _starts.Values.OrderByDescending(s => s.Id, StringComparer.Ordinal).FirstOrDefault();
     }
 
     public Task<IReadOnlyList<StartRecord>> RecentAsync(int count, CancellationToken ct = default)
@@ -418,6 +424,7 @@ internal sealed class InMemoryStartRecords : IStartRecords
     {
         lock (_calls) _calls.Add("beat");
         lock (_beats) _beats.Add((at, startId));
+        this.Changed.Raise();
         return Task.CompletedTask;
     }
 }
@@ -429,6 +436,9 @@ internal sealed class FailingStartRecords : IStartRecords
     /// <summary>How many beats were tried.</summary>
     public int BeatsTried => Volatile.Read(ref _beats);
 
+    /// <summary>Raised after each beat tried.</summary>
+    public Pulse Changed { get; } = new();
+
     public Task SaveAsync(StartRecord record, CancellationToken ct = default) => throw StorageFailure.Busy();
 
     public Task<IReadOnlyList<StartRecord>> RecentAsync(int count, CancellationToken ct = default) => throw StorageFailure.Busy();
@@ -438,6 +448,7 @@ internal sealed class FailingStartRecords : IStartRecords
     public Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default)
     {
         Interlocked.Increment(ref _beats);
+        this.Changed.Raise();
         throw StorageFailure.Busy();
     }
 }
@@ -449,27 +460,27 @@ internal sealed class HangingStartRecords : IStartRecords
     public async Task SaveAsync(StartRecord record, CancellationToken ct = default)
     {
         Reached.TrySetResult();
-        await Task.Delay(Timeout.Infinite, ct);
+        await Never.Until(ct);
     }
 
     public async Task<IReadOnlyList<StartRecord>> RecentAsync(int count, CancellationToken ct = default)
     {
         Reached.TrySetResult();
-        await Task.Delay(Timeout.Infinite, ct);
+        await Never.Until(ct);
         return [];
     }
 
     public async Task<DateTimeOffset?> LastAliveAsync(CancellationToken ct = default)
     {
         Reached.TrySetResult();
-        await Task.Delay(Timeout.Infinite, ct);
+        await Never.Until(ct);
         return null;
     }
 
     public async Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default)
     {
         Reached.TrySetResult();
-        await Task.Delay(Timeout.Infinite, ct);
+        await Never.Until(ct);
     }
 }
 
