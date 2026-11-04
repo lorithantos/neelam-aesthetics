@@ -1,0 +1,54 @@
+@* One of her known items, picked by typing (owner, 2026-10-09): the box suggests them from a
+   KnownItemLists datalist, and once what is in it names one of hers (exactly, else ignoring case),
+   that one is picked and the box is empty again. Its key counts picks, so after a pick the box is made
+   afresh and shows empty even when the browser filled it from the list without a keystroke Blazor saw.
+   What she has typed so far is the page's to keep (Text), so it stays with what the box is for, such as
+   a tier. One copy since 2026-11-03; the offer, the promotion and the Known items page each had theirs. *@
+@typeparam TItem where TItem : class
+<div class="field">
+    <label for="@Id">@Label</label>
+    <input @key="_picks" id="@Id" list="@List" placeholder="@Placeholder" value="@Text" @oninput="e => TypedAsync(e.Value as string)" />
+    @if (Help is not null)
+    {
+        <span class="field-help">@Help</span>
+    }
+</div>
+
+@code {
+    /// <summary>The box's id, unique on the page; its label points at it.</summary>
+    [Parameter, EditorRequired] public string Id { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    /// <summary>The datalist of her items it suggests from (<see cref="KnownItemLists"/>).</summary>
+    [Parameter, EditorRequired] public string List { get; set; } = "";
+
+    [Parameter, EditorRequired] public string Placeholder { get; set; } = "";
+
+    /// <summary>Said under the box; none, nothing is.</summary>
+    [Parameter] public string? Help { get; set; }
+
+    /// <summary>What she has typed so far, kept by the page.</summary>
+    [Parameter] public string Text { get; set; } = "";
+
+    /// <summary>Told what she typed, when it names none of her items.</summary>
+    [Parameter] public EventCallback<string> TextChanged { get; set; }
+
+    /// <summary>The item of hers the text names, or null.</summary>
+    [Parameter, EditorRequired] public Func<string, TItem?> Find { get; set; } = null!;
+
+    /// <summary>Told the item she picked; the page adds it, and empties what it keeps as <see cref="Text"/>.</summary>
+    [Parameter] public EventCallback<TItem> Picked { get; set; }
+
+    private int _picks;
+
+    private Task TypedAsync(string? text)
+    {
+        if (Find(text ?? "") is { } item)
+        {
+            _picks++;
+            return Picked.InvokeAsync(item);
+        }
+        return TextChanged.InvokeAsync(text ?? "");
+    }
+}

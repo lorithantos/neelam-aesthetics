@@ -190,7 +190,6 @@ else if (_session is not null)
     private KnownItemsSession? _session;
     // Per tier form, the text in its "Pick a benefit" box.
     private readonly Dictionary<KnownTierForm, string> _picks = [];
-    private int _pickRound;
 
     protected override async Task OnInitializedAsync()
     {
@@ -307,24 +306,15 @@ else if (_session is not null)
         <p><button class="button" @onclick="() => form.AddLine()">Type a benefit</button></p>
         @if (_session!.Items.Benefits.Count > 0)
         {
-            <div class="field">
-                <label for="tier-pick-@id">Pick a benefit</label>
-                <input @key="@($"tier-pick-{id}-{_pickRound}")" id="tier-pick-@id" list="@KnownItemLists.Benefits"
-                       placeholder="Start typing to search your benefit lines"
-                       value="@_picks.GetValueOrDefault(form, "")" @oninput="e => Pick(form, e.Value as string)" />
-            </div>
+            <KnownItemPicker TItem="KnownBenefit" Id="@($"tier-pick-{id}")" Label="Pick a benefit" List="@KnownItemLists.Benefits"
+                             Placeholder="Start typing to search your benefit lines" Find="_session!.Items.BenefitNamed"
+                             Text="@_picks.GetValueOrDefault(form, "")" TextChanged="text => _picks[form] = text" Picked="known => Pick(form, known)" />
         }
     </div>;
 
-    private void Pick(KnownTierForm form, string? text)
+    private void Pick(KnownTierForm form, KnownBenefit known)
     {
-        if (_session!.Items.BenefitNamed(text ?? "") is { } known)
-        {
-            form.AddKnown(known);
-            _picks.Remove(form);
-            _pickRound++;
-            return;
-        }
-        _picks[form] = text ?? "";
+        form.AddKnown(known);
+        _picks.Remove(form);
     }
 }

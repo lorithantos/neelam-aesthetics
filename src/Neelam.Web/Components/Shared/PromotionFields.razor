@@ -109,12 +109,10 @@
 </p>
 @if (Known.Benefits.Count > 0)
 {
-    <div class="field">
-        <label for="promotion-pick-benefit-@Index">Pick a benefit</label>
-        <input @key="@($"promotion-pick-{_picks}")" id="promotion-pick-benefit-@Index" list="@KnownItemLists.Benefits"
-               placeholder="Start typing to search your known benefits" value="@_benefitPick" @oninput="e => PickBenefit(e.Value as string)" />
-        <span class="field-help">Choosing one adds it as a new line at its usual amount, which you can still change.</span>
-    </div>
+    <KnownItemPicker TItem="KnownBenefit" Id="@($"promotion-pick-benefit-{Index}")" Label="Pick a benefit" List="@KnownItemLists.Benefits"
+                     Placeholder="Start typing to search your known benefits" Find="Known.BenefitNamed"
+                     Text="@_benefitPick" TextChanged="text => _benefitPick = text" Picked="PickBenefit"
+                     Help="Choosing one adds it as a new line at its usual amount, which you can still change." />
 }
 
 @code {
@@ -126,8 +124,6 @@
 
     private string _benefitPick = "";
     private object? _confirmingRemove;
-    // Counts picks; the picker's key carries it, so after a pick the box is made afresh and shows empty.
-    private int _picks;
 
     private void ChildChanged()
     {
@@ -139,15 +135,9 @@
         _confirmingRemove = null;
     }
 
-    private void PickBenefit(string? text)
+    private void PickBenefit(KnownBenefit known)
     {
-        if (Known.BenefitNamed(text ?? "") is { } known)
-        {
-            Promotion.AddKnownBenefit(known.Benefit);
-            _benefitPick = "";
-            _picks++;
-            return;
-        }
-        _benefitPick = text ?? "";
+        Promotion.AddKnownBenefit(known.Benefit);
+        _benefitPick = "";
     }
 }

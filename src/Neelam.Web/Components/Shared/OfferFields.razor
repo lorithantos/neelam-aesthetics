@@ -140,24 +140,20 @@ else if (Offer.Tiers.Count > 1)
         <p><button class="button" @onclick="() => tier.AddBenefit()">Add a benefit</button></p>
         @if (Known.Benefits.Count > 0)
         {
-            <div class="field">
-                <label for="pick-benefit-@id">Pick a benefit</label>
-                <input @key="@($"pick-{id}-{_picks}")" id="pick-benefit-@id" list="@KnownItemLists.Benefits" placeholder="Start typing to search your known benefits"
-                       value="@PickText(tier)" @oninput="e => PickBenefit(tier, e.Value as string)" />
-                <span class="field-help">Choosing one adds it to this tier as a new line at its usual amount, which you can still change.</span>
-            </div>
+            <KnownItemPicker TItem="KnownBenefit" Id="@($"pick-benefit-{id}")" Label="Pick a benefit" List="@KnownItemLists.Benefits"
+                             Placeholder="Start typing to search your known benefits" Find="Known.BenefitNamed"
+                             Text="@PickText(tier)" TextChanged="text => _benefitPicks[tier] = text" Picked="known => PickBenefit(tier, known)"
+                             Help="Choosing one adds it to this tier as a new line at its usual amount, which you can still change." />
         }
     </section>
 }
 <p><button class="button" @onclick="() => Offer.AddTier()">Add a tier</button></p>
 @if (Known.Tiers.Count > 0)
 {
-    <div class="field">
-        <label for="known-tier-@Index">Add a known tier</label>
-        <input @key="@($"known-tier-{_picks}")" id="known-tier-@Index" list="@KnownItemLists.Tiers" placeholder="Start typing to search your known tiers"
-               value="@_tierPick" @oninput="e => PickTier(e.Value as string)" />
-        <span class="field-help">Choosing one adds the whole tier, its name, price and benefits, which you can still change.</span>
-    </div>
+    <KnownItemPicker TItem="KnownTier" Id="@($"known-tier-{Index}")" Label="Add a known tier" List="@KnownItemLists.Tiers"
+                     Placeholder="Start typing to search your known tiers" Find="Known.TierNamed"
+                     Text="@_tierPick" TextChanged="text => _tierPick = text" Picked="PickTier"
+                     Help="Choosing one adds the whole tier, its name, price and benefits, which you can still change." />
 }
 
 @code {
@@ -193,42 +189,28 @@ else if (Offer.Tiers.Count > 1)
         _confirmingRemove = null;
         if (_note is { Target: var target } && ReferenceEquals(target, benefit)) _note = null;
     }
-    // Counts picks; a picker's key carries it, so after a pick the box is made afresh and shows empty
-    // even when the browser filled it from the list without a keystroke Blazor saw.
-    private int _picks;
 
     // A benefit's fields told of a change: handling it here re-renders the offer and tells the page.
     private void ChildChanged()
     {
     }
 
+    // What she has typed in a tier's "Pick a benefit" box, kept with the tier.
     private string PickText(TierEditor tier) => _benefitPicks.GetValueOrDefault(tier, "");
 
-    // What she typed or chose; once it names a known benefit, that benefit is added and the box clears.
-    private void PickBenefit(TierEditor tier, string? text)
+    // A known benefit picked into a tier: added, and that tier's box clears.
+    private void PickBenefit(TierEditor tier, KnownBenefit known)
     {
-        if (Known.BenefitNamed(text ?? "") is { } known)
-        {
-            tier.AddKnownBenefit(known.Benefit);
-            _benefitPicks.Remove(tier);
-            _note = null;
-            _picks++;
-            return;
-        }
-        _benefitPicks[tier] = text ?? "";
+        tier.AddKnownBenefit(known.Benefit);
+        _benefitPicks.Remove(tier);
+        _note = null;
     }
 
-    private void PickTier(string? text)
+    private void PickTier(KnownTier known)
     {
-        if (Known.TierNamed(text ?? "") is { } known)
-        {
-            Offer.AddKnownTier(known);
-            _tierPick = "";
-            _note = null;
-            _picks++;
-            return;
-        }
-        _tierPick = text ?? "";
+        Offer.AddKnownTier(known);
+        _tierPick = "";
+        _note = null;
     }
 
     private async Task SaveTierAsync(TierEditor tier)
