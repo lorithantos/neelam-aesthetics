@@ -161,8 +161,8 @@ builder.Services.AddOptions<StartRecordOptions>()
     .ValidateOnStart();
 builder.Services.AddSingleton<StartLog>();
 // App Service's own requests are no visitor's (its start-up ping, Always On): data, PlatformRequests in
-// appsettings.json, with WEBSITE_WARMUP_PATH's path when set. Checked as the app starts, since the
-// warm-up gate takes it when the pipeline is built: a problem in the list stops the app there.
+// appsettings.json, with WEBSITE_WARMUP_PATH's path when set. Checked as the app is built (below), before
+// the warm-up gate takes it: a problem in the list stops the app there.
 builder.Services.AddSingleton(services => PlatformRequests.From(services.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton<IStartRecords>(services => services.GetRequiredService<ClientStores>()
     .Starts(services.GetRequiredService<IOptions<StartRecordOptions>>().Value.Keep));
@@ -192,6 +192,14 @@ builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 var app = builder.Build();
+
+// Every setting registered with ValidateOnStart above, and App Service's own requests, are checked now,
+// as the app is built, not inside app.Run. A refusal here leaves the app's services as they were built.
+// One inside app.Run disposes them on its way out, on this thread, while a host starting the app in-
+// process (the tests' WebApplicationFactory) may still be reading them on its own: it then saw
+// ObjectDisposedException in place of the refusal, or the refusal, by which thread got there first.
+app.Services.GetRequiredService<IStartupValidator>().Validate();
+app.Services.GetRequiredService<PlatformRequests>();
 
 // The start is taken now, as the app is built, rather than at its first use.
 app.Services.GetRequiredService<StartLog>();
