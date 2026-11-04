@@ -1,7 +1,8 @@
 @* One typed benefit's fields: its kind, then the fields that kind needs, and the sentence it
    reads as. Shared by a campaign's tiers and the Known items page. An item's name suggests her
-   known treatments as she types (the KnownItemLists datalist); typing any other name is still allowed. *@
-@implements IHandleEvent
+   known treatments as she types (the KnownItemLists datalist); typing any other name is still allowed.
+   Every change tells what is around it (FieldsComponent): the tier, and the page's checks. *@
+@inherits FieldsComponent
 <div class="field">
     <label for="benefit-kind-@Id">@Label</label>
     <select id="benefit-kind-@Id" @bind="Benefit.Kind">
@@ -102,18 +103,6 @@ else if (Benefit.Sentence is { } sentence)
     [Parameter, EditorRequired] public string Id { get; set; } = "";
 
     [Parameter] public string Label { get; set; } = "Benefit";
-
-    /// <summary>Told after every change here, so what is around it follows what is typed.</summary>
-    [Parameter] public EventCallback Changed { get; set; }
-
-    // Blazor re-renders only the component that handled an event: without this the tier, and the
-    // page's checks, would not follow a benefit as it is typed.
-    async Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg)
-    {
-        await callback.InvokeAsync(arg);
-        StateHasChanged();
-        await Changed.InvokeAsync();
-    }
 
     // The item and how often: shared by "something free" and "percent off an item". The item's
     // name offers her known treatments as she types.

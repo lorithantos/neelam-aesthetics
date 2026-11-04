@@ -4,8 +4,9 @@
    she types, and its regular price is filled in from hers when the box is empty (P1); she can change
    it, and the checks point out a price other than hers. The saving is worked out, never typed. A
    treatment new to her list is added to her known items when the campaign is saved (P6), as the
-   page says then. Modelled on OfferFields; removing a line is a plain button that asks first. *@
-@implements IHandleEvent
+   page says then. Modelled on OfferFields; removing a line is a plain button that asks first. Every
+   change tells the page (FieldsComponent). *@
+@inherits FieldsComponent
 <div class="field">
     <label for="promotion-name-@Index">Promotion name</label>
     <input id="promotion-name-@Index" @bind="Promotion.Name.Text" @bind:event="oninput" />
@@ -123,21 +124,10 @@
     /// <summary>Her known items, to pick from. None: nothing is offered.</summary>
     [Parameter] public KnownItems Known { get; set; } = KnownItems.None;
 
-    /// <summary>Told after every change here, so the page around it can follow what is typed.</summary>
-    [Parameter] public EventCallback Changed { get; set; }
-
     private string _benefitPick = "";
     private object? _confirmingRemove;
     // Counts picks; the picker's key carries it, so after a pick the box is made afresh and shows empty.
     private int _picks;
-
-    // As OfferFields: Blazor re-renders only the component that handled an event, so the page is told.
-    async Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg)
-    {
-        await callback.InvokeAsync(arg);
-        StateHasChanged();
-        await Changed.InvokeAsync();
-    }
 
     private void ChildChanged()
     {

@@ -1,6 +1,7 @@
 @* A photo from the client's image library, by name, and its description (the alt text the export
-   hands Square; the photo-described rule flags a photo without one). *@
-@implements IHandleEvent
+   hands Square; the photo-described rule flags a photo without one). Every change tells the page
+   (FieldsComponent), whose checks and preview follow it. *@
+@inherits FieldsComponent
 <div class="field">
     <label for="photo-@Index">Photo@(Optional ? " (optional)" : "")</label>
     <input id="photo-@Index" data-testid="photo-@Index" list="library-photos-@Index" @bind="Block.PhotoName" @bind:event="oninput" />
@@ -31,16 +32,4 @@
     [Parameter, EditorRequired] public int Index { get; set; }
     [Parameter, EditorRequired] public IReadOnlyList<LibraryImage> Photos { get; set; } = [];
     [Parameter] public bool Optional { get; set; }
-
-    /// <summary>Told after every change here, so the page around it can follow what is typed.</summary>
-    [Parameter] public EventCallback Changed { get; set; }
-
-    // Blazor re-renders only the component that handled an event; the page's checks and preview
-    // need to hear of it too.
-    async Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg)
-    {
-        await callback.InvokeAsync(arg);
-        StateHasChanged();
-        await Changed.InvokeAsync();
-    }
 }
