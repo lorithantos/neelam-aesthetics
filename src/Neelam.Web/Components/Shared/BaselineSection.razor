@@ -3,13 +3,12 @@
    may change it while this is open (2026-10-11, phase 2): PageWatch tells the section, and each save
    here is made only while her newest version is still the one shown, read again at the click; when it
    is not, she chooses Keep mine or Load the latest, as on the campaign page. "Use the standard
-   baseline" saves a version saying so and deletes nothing. *@
-@inherits WatchedComponent<DocumentVersion>
-@inject ClientWorkspace Workspace
-@inject ClientStores Stores
+   baseline" saves a version saying so and deletes nothing. The flow is OwnOrStandardSection's, shared
+   with the ladders. *@
+@inherits OwnOrStandardSection
 @inject BlockCatalog Blocks
 
-@if (_client is not null && _inForce is not null)
+@if (Client is not null && _inForce is not null)
 {
     var parts = _inForce.Baseline.Parts;
     <section class="card" aria-labelledby="baseline-heading">
@@ -20,9 +19,9 @@
 
         @* The owner's "modified" (2026-10-11), as on the campaign page: what she chose here stays until
            she loads the latest; after a save refused, Keep mine saves hers over the other version. *@
-        <ModifiedNotice Words="ChangeWords.Baseline" Change="StorageChange" Refused="@_refused?.Message" KeepMine="KeepMineWhen.AfterRefusal"
+        <ModifiedNotice Words="ChangeWords.Baseline" Change="StorageChange" Refused="@Refused?.Message" KeepMine="KeepMineWhen.AfterRefusal"
                         OnKeepMine="KeepMineAsync" OnLoadLatest="LoadLatestAsync" Prefix="baseline-" TestId="baseline-modified" Inline="true"
-                        Help="@(_refused is not null
+                        Help="@(Refused is not null
                             ? "Keep mine saves yours as the newest; the other version stays stored. Load the latest shows the other version and replaces what you chose here."
                             : "Load the latest replaces what you chose here and have not saved.")" />
 
@@ -80,41 +79,23 @@
                 }
             </p>
         </details>
-        @if (_message is not null)
+        @if (Message is not null)
         {
-            <p role="status" data-testid="baseline-message">@_message</p>
+            <p role="status" data-testid="baseline-message">@Message</p>
         }
     </section>
 }
 
 @code {
-    private ClientName? _client;
     private BaselineInForce? _inForce;
     // Her changes, parts and order, not saved until "Save as your own".
     private TemplateBaseline _chosen = TemplateBaseline.None;
-    private string? _message;
 
-    // Her baseline as this section shows it, which the section's look at storage watches.
-    private HeldDocument? _held;
-
-    // A save refused because her baseline changed since it was shown: what was said, and the same save
-    // again over the other version, for Keep mine.
-    private (string Message, Func<Task<string>> KeepMine)? _refused;
-
-    protected override async Task OnInitializedAsync()
+    protected override async Task<HeldDocument> ReadAsync(ClientName client)
     {
-        (_client, _) = await Workspace.ClientDataAsync();
-        if (_client is null) return;
-        await LoadAsync();
-        Watch(_held);
-    }
-
-    private async Task LoadAsync()
-    {
-        _inForce = await Stores.BaselineInForceAsync(_client!);
+        _inForce = await Stores.BaselineInForceAsync(client);
         _chosen = _inForce.Baseline;
-        _held = Stores.HoldBaseline(_client!, _inForce.Version);
-        _refused = null;
+        return Stores.HoldBaseline(client, _inForce.Version);
     }
 
     // A part she ticks goes last; she moves it from there.
@@ -123,67 +104,25 @@
 
     private void Order(int index, int by) => _chosen = _chosen.Move(index, by);
 
-    // One save: refused when her baseline changed since it was shown, and then offered again as Keep
-    // mine. Done, the section reads her baseline again, and watches what it holds now; what storage says
-    // meanwhile is not news.
-    private Task SavingAsync(Func<bool, Task<string>> save) => ActingAsync(async () =>
-    {
-        try
-        {
-            _message = await save(false);
-            await LoadAsync();
-        }
-        catch (CampaignChangedException ex)
-        {
-            _message = null;
-            _refused = (ex.Message, () => save(true));
-        }
-        finally
-        {
-            Watch(_held);
-        }
-    });
-
     private Task SaveOwnAsync()
     {
         var chosen = _chosen;
         return SavingAsync(async keepMine =>
         {
-            await Stores.SaveBaselineAsync(_held!, chosen, await Workspace.ActorAsync(), keepMine);
+            await Stores.SaveBaselineAsync(Held!, chosen, await Workspace.ActorAsync(), keepMine);
             return "Saved as your own baseline.";
         });
     }
 
     private Task SaveEmptyAsync() => SavingAsync(async keepMine =>
     {
-        await Stores.SaveBaselineAsync(_held!, TemplateBaseline.None, await Workspace.ActorAsync(), keepMine);
+        await Stores.SaveBaselineAsync(Held!, TemplateBaseline.None, await Workspace.ActorAsync(), keepMine);
         return "Saved empty: templates get no baseline warnings.";
     });
 
     private Task UseStandardAsync() => SavingAsync(async keepMine =>
     {
-        await Stores.UseStandardBaselineAsync(_held!, await Workspace.ActorAsync(), keepMine);
+        await Stores.UseStandardBaselineAsync(Held!, await Workspace.ActorAsync(), keepMine);
         return "The standard baseline applies again.";
-    });
-
-    // "Keep mine": the refused save, made over the other version, which stays stored.
-    private async Task KeepMineAsync()
-    {
-        if (_refused is not { } refused) return;
-        await SavingAsync(_ => refused.KeepMine());
-    }
-
-    // "Load the latest": her baseline as storage has it now, replacing what she chose here. Only ever on her click.
-    private Task LoadLatestAsync() => ActingAsync(async () =>
-    {
-        try
-        {
-            await LoadAsync();
-            _message = "The latest version is open.";
-        }
-        finally
-        {
-            Watch(_held);
-        }
     });
 }

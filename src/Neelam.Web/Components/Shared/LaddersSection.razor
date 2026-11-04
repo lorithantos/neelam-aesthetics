@@ -2,12 +2,11 @@
    They are the client's data like its templates, so the access check decides whose. Her changes are
    a working copy until she saves them as her own. Another tab or person may change them while this is
    open (2026-10-11, phase 2): as for the baseline, PageWatch tells the section, each save is made only
-   while her newest version is still the one shown, and "Use the standard ladders" deletes nothing. *@
-@inherits WatchedComponent<DocumentVersion>
-@inject ClientWorkspace Workspace
-@inject ClientStores Stores
+   while her newest version is still the one shown, and "Use the standard ladders" deletes nothing. The
+   flow is OwnOrStandardSection's, shared with the baseline. *@
+@inherits OwnOrStandardSection
 
-@if (_client is not null && _inForce is not null && _working is not null)
+@if (Client is not null && _inForce is not null && _working is not null)
 {
     <h2 id="ladders-heading">Tier name ladders</h2>
     <section class="card" aria-labelledby="ladders-heading">
@@ -17,9 +16,9 @@
 
         @* As for the baseline: what she changed here stays until she loads the latest; after a save
            refused, Keep mine saves hers over the other version. *@
-        <ModifiedNotice Words="ChangeWords.Ladders" Change="StorageChange" Refused="@_refused?.Message" KeepMine="KeepMineWhen.AfterRefusal"
+        <ModifiedNotice Words="ChangeWords.Ladders" Change="StorageChange" Refused="@Refused?.Message" KeepMine="KeepMineWhen.AfterRefusal"
                         OnKeepMine="KeepMineAsync" OnLoadLatest="LoadLatestAsync" Prefix="ladders-" TestId="ladders-modified" Inline="true"
-                        Help="@(_refused is not null
+                        Help="@(Refused is not null
                             ? "Keep mine saves yours as the newest; the other version stays stored. Load the latest shows the other version and replaces what you changed here."
                             : "Load the latest replaces what you changed here and have not saved.")" />
         @if (_working.Ladders.Count == 0)
@@ -82,98 +81,38 @@
                 <button class="button" data-testid="ladders-use-standard" @onclick="UseStandardAsync">Use the standard ladders</button>
             }
         </p>
-        @if (_message is not null)
+        @if (Message is not null)
         {
-            <p role="status" data-testid="ladders-message">@_message</p>
+            <p role="status" data-testid="ladders-message">@Message</p>
         }
     </section>
 }
 
 @code {
-    private ClientName? _client;
     private LaddersInForce? _inForce;
     // Her changes, not saved until "Save as your own".
     private TierLadders? _working;
     private string _newName = "";
     private string _newWords = "";
     private bool _newOrdered;
-    private string? _message;
 
-    // Her ladders as this section shows them, which the section's look at storage watches.
-    private HeldDocument? _held;
-
-    // A save refused because her ladders changed since they were shown: what was said, and the same save
-    // again over the other version, for Keep mine.
-    private (string Message, Func<Task<string>> KeepMine)? _refused;
-
-    protected override async Task OnInitializedAsync()
+    protected override async Task<HeldDocument> ReadAsync(ClientName client)
     {
-        (_client, _) = await Workspace.ClientDataAsync();
-        if (_client is null) return;
-        await LoadAsync();
-        Watch(_held);
-    }
-
-    private async Task LoadAsync()
-    {
-        _inForce = await Stores.LaddersInForceAsync(_client!);
+        _inForce = await Stores.LaddersInForceAsync(client);
         _working = _inForce.Ladders;
-        _held = Stores.HoldLadders(_client!, _inForce.Version);
-        _refused = null;
+        return Stores.HoldLadders(client, _inForce.Version);
     }
-
-    // One save: refused when her ladders changed since they were shown, and then offered again as Keep
-    // mine. Done, the section reads her ladders again, and watches what it holds now; what storage says
-    // meanwhile is not news.
-    private Task SavingAsync(Func<bool, Task<string>> save) => ActingAsync(async () =>
-    {
-        try
-        {
-            _message = await save(false);
-            await LoadAsync();
-        }
-        catch (CampaignChangedException ex)
-        {
-            _message = null;
-            _refused = (ex.Message, () => save(true));
-        }
-        finally
-        {
-            Watch(_held);
-        }
-    });
-
-    // "Keep mine": the refused save, made over the other version, which stays stored.
-    private async Task KeepMineAsync()
-    {
-        if (_refused is not { } refused) return;
-        await SavingAsync(_ => refused.KeepMine());
-    }
-
-    // "Load the latest": her ladders as storage has them now, replacing what she changed here. Only ever on her click.
-    private Task LoadLatestAsync() => ActingAsync(async () =>
-    {
-        try
-        {
-            await LoadAsync();
-            _message = "The latest version is open.";
-        }
-        finally
-        {
-            Watch(_held);
-        }
-    });
 
     private void Change(int index, TierLadder ladder)
     {
         _working = _working!.Replace(index, ladder);
-        _message = "Not saved yet: save them as your own to use them.";
+        Message = "Not saved yet: save them as your own to use them.";
     }
 
     private void Remove(int index)
     {
         _working = _working!.Without(index);
-        _message = "Not saved yet: save them as your own to use them.";
+        Message = "Not saved yet: save them as your own to use them.";
     }
 
     private void Add()
@@ -181,17 +120,17 @@
         var (ladder, problem) = TierLadder.Parse(_newName, _newWords, _newOrdered);
         if (ladder is null)
         {
-            _message = problem;
+            Message = problem;
             return;
         }
         if (_working!.Ladders.Any(l => string.Equals(l.Name, ladder.Name, StringComparison.OrdinalIgnoreCase)))
         {
-            _message = $"There is already a ladder named '{ladder.Name}'.";
+            Message = $"There is already a ladder named '{ladder.Name}'.";
             return;
         }
         _working = _working.With(ladder);
         (_newName, _newWords, _newOrdered) = ("", "", false);
-        _message = "Not saved yet: save them as your own to use them.";
+        Message = "Not saved yet: save them as your own to use them.";
     }
 
     private Task SaveOwnAsync()
@@ -199,14 +138,14 @@
         var working = _working!;
         return SavingAsync(async keepMine =>
         {
-            await Stores.SaveLaddersAsync(_held!, working, await Workspace.ActorAsync(), keepMine);
+            await Stores.SaveLaddersAsync(Held!, working, await Workspace.ActorAsync(), keepMine);
             return "Saved as your own ladders.";
         });
     }
 
     private Task UseStandardAsync() => SavingAsync(async keepMine =>
     {
-        await Stores.UseStandardLaddersAsync(_held!, await Workspace.ActorAsync(), keepMine);
+        await Stores.UseStandardLaddersAsync(Held!, await Workspace.ActorAsync(), keepMine);
         return "The standard ladders apply again.";
     });
 }
