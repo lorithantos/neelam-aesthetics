@@ -49,8 +49,8 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
         Watcher.Watch(watched);
     }
 
-    // The watch's news, on this page's circuit, and the page drawn again with it.
-    private Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
+    /// <summary>News from a timer or a signal, on this page's circuit, and the page drawn again with it.</summary>
+    protected Task OnCircuitAsync(Func<Task> work) => InvokeAsync(async () =>
     {
         await work();
         StateHasChanged();
@@ -86,6 +86,7 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
     protected async Task ActingAsync(Func<Task> action, string notDone, Action<string> say)
     {
         Watcher?.Begin();
+        await BeforeActingAsync();
         try
         {
             await action();
@@ -97,8 +98,22 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
         }
         finally
         {
+            AfterActing();
             if (Watcher is not null) await Watcher.EndAsync();
         }
+    }
+
+    /// <summary>Before each of the page's own actions (<see cref="ActingAsync(Func{Task}, string, Action{string})"/>): the campaign page pauses its working copy.</summary>
+    protected virtual Task BeforeActingAsync() => Task.CompletedTask;
+
+    /// <summary>After each of them, done or not: the campaign page keeps its working copy again.</summary>
+    protected virtual void AfterActing()
+    {
+    }
+
+    /// <summary>With the circuit, after the watch: what else the page holds that must stop with it.</summary>
+    protected virtual void Disposing()
+    {
     }
 
     /// <summary>
@@ -126,6 +141,7 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
     public void Dispose()
     {
         Watcher?.Dispose();
+        Disposing();
         GC.SuppressFinalize(this);
     }
 }

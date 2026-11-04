@@ -99,6 +99,12 @@ public sealed class CampaignStore(
     /// <summary>The in-process signal the editing sessions raise after each change; null where nothing listens.</summary>
     public CampaignSignals? Signals => signals;
 
+    /// <summary>
+    /// The campaigns' working copies (<see cref="WorkingCopies"/>): recovery copies of unsaved edits, in this
+    /// client's container under their own prefix, never among the saves.
+    /// </summary>
+    public WorkingCopies WorkingCopies { get; } = new(blobs, clock);
+
     public Task<SaveRef> SaveDraftAsync(Guid id, string title, CampaignDraft draft, CancellationToken ct = default) =>
         SaveAsync(DocumentKind.Draft, id, title, CampaignJson.SerializeDraft(draft), ct);
 
@@ -533,8 +539,18 @@ public sealed class CampaignStore(
     /// next run. The proofreads are listed before the saves, and a proofread is only ever written
     /// after its save, so one whose save is missing from the later listing really has none.
     /// </para>
+    /// <para>
+    /// Working copies (<see cref="WorkingCopies"/>) go too, unrecorded and uncounted: one nobody has written
+    /// for <see cref="WorkingCopyOptions.KeepUnchanged"/> (seven days unless given), and one whose campaign
+    /// has no saves left after this run.
+    /// </para>
     /// </remarks>
-    public async Task<int> SweepAsync(CancellationToken ct = default)
+    public Task<int> SweepAsync(CancellationToken ct = default) => SweepAsync(new WorkingCopyOptions().KeepUnchanged, ct);
+
+    /// <inheritdoc cref="SweepAsync(CancellationToken)"/>
+    /// <param name="workingCopiesKept">How long a working copy nobody writes is kept (<see cref="WorkingCopyOptions.KeepUnchanged"/>).</param>
+    /// <param name="ct">Cancels the run; the next one finishes it.</param>
+    public async Task<int> SweepAsync(TimeSpan workingCopiesKept, CancellationToken ct = default)
     {
         var proofreads = new List<string>();
         // Her photo readings (proofread/images/) belong to her photos, not to any one save.
@@ -543,8 +559,12 @@ public sealed class CampaignStore(
             if (!blob.Name.StartsWith(PhotoReadingStore.Prefix, StringComparison.Ordinal)) proofreads.Add(blob.Name);
         }
 
+        // Listed before the saves, as the proofreads are: a working copy is written only after its campaign's first save.
+        var workingCopies = await WorkingCopies.ListAsync(ct);
+
         var deleted = 0;
         var remaining = new HashSet<string>(StringComparer.Ordinal);
+        var withSaves = new HashSet<Guid>();
         foreach (var kind in Enum.GetValues<DocumentKind>())
         {
             foreach (var (save, etag) in await ListEntriesAsync(kind, $"{Prefix(kind)}/", ct))
@@ -557,11 +577,13 @@ public sealed class CampaignStore(
                 else if (kind == DocumentKind.Draft)
                 {
                     remaining.Add(ProofreadName(save));
+                    withSaves.Add(save.Id);
                 }
             }
         }
         foreach (var orphan in proofreads.Where(p => !remaining.Contains(p)))
             await blobs.DeleteAsync(orphan, ct);
+        await WorkingCopies.SweepAsync(workingCopies, withSaves, workingCopiesKept, ct);
         return deleted;
     }
 

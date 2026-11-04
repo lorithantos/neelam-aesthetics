@@ -10,7 +10,9 @@ namespace Neelam.Web;
 /// container: once at startup, then every <see cref="UndoOptions.SweepInterval"/>. It keeps no state
 /// of its own. Each run lists the blobs and reads their marks (<see cref="CampaignStore.SweepAsync"/>,
 /// <see cref="ClientStores.SweepLookAsync"/>), so a run cut short by a crash or a restart is simply
-/// finished by the next one. Undo itself never deletes, and neither does leaving a page.
+/// finished by the next one. Undo itself never deletes, and neither does leaving a page. The campaigns'
+/// working copies go in the same run: one unwritten for <see cref="WorkingCopyOptions.KeepUnchanged"/>, or
+/// whose campaign has no saves left.
 /// </summary>
 /// <param name="prototype">
 /// In Prototype mode, the one fixed caller: its client (<c>Prototype:Client</c>) is worked in whether
@@ -18,7 +20,7 @@ namespace Neelam.Web;
 /// </param>
 public sealed class UndoSweep(
     ClientStores stores, IClientDirectory clients, IEnumerable<PrototypeCallerSource> prototype,
-    IOptions<UndoOptions> options, TimeProvider clock, ILogger<UndoSweep> log) : BackgroundService
+    IOptions<UndoOptions> options, IOptions<WorkingCopyOptions> workingCopies, TimeProvider clock, ILogger<UndoSweep> log) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -64,7 +66,7 @@ public sealed class UndoSweep(
         {
             try
             {
-                deleted += await stores.Campaigns(client, Actor.UndoSweep).SweepAsync(ct);
+                deleted += await stores.Campaigns(client, Actor.UndoSweep).SweepAsync(workingCopies.Value.KeepUnchanged, ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {

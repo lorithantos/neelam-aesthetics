@@ -154,6 +154,20 @@ public sealed class DraftSession : IWatched<SaveRef>
                 ? "This campaign was approved, so it is kept as a record and can't be deleted."
                 : null;
 
+    /// <summary>
+    /// Whether <paramref name="draftJson"/> (<see cref="CampaignJson.SerializeDraft"/>) is the draft as last saved
+    /// or opened from <see cref="Latest"/>; false before the first save. A working copy equal to it is nothing
+    /// to bring back, and nothing to write.
+    /// </summary>
+    public bool IsNewestSave(string draftJson) => _saved is not null && draftJson == _saved;
+
+    /// <summary>
+    /// Puts a working copy's draft into the form (owner, 2026-11-03): changes she had not saved, brought back
+    /// on opening the campaign. Nothing is saved, so the form holds unsaved changes, and it is approved and
+    /// proofread only once she saves it, as for anything she types.
+    /// </summary>
+    public void BringBack(CampaignDraft draft) => Editor = CampaignEditor.Open(draft);
+
     /// <summary>True when the form holds anything not in <see cref="Latest"/>, or nothing is saved yet.</summary>
     public bool HasUnsavedChanges =>
         _saved is null || Editor.Errors().Count > 0 || CampaignJson.SerializeDraft(Editor.Draft) != _saved;

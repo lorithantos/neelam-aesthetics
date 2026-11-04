@@ -63,6 +63,29 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         return Task.FromResult(true);
     }
 
+    /// <summary>Raised after each replacing write: for a test waiting on a working copy written in the background.</summary>
+    public Pulse Replaced { get; } = new();
+
+    /// <summary>How many replacing writes went through.</summary>
+    public int Replaces => Volatile.Read(ref _replaces);
+
+    private int _replaces;
+
+    public Task<string?> ReplaceAsync(
+        string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata, BlobExpected expected,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfFailing(name);
+        var there = Blobs.ContainsKey(name);
+        if ((expected.Absent && there) || (expected.ETag is { } etag && (!there || ETagOf(name) != etag)))
+            return Task.FromResult<string?>(null);
+        Blobs[name] = (new BlobContent(content, contentType), new Dictionary<string, string>(metadata));
+        Renew(name);
+        Interlocked.Increment(ref _replaces);
+        Replaced.Raise();
+        return Task.FromResult<string?>(ETagOf(name));
+    }
+
     /// <summary>The name of every blob read, in order, so a test can tell what a page read and what it never touched.</summary>
     public ConcurrentQueue<string> Reads { get; } = new();
 

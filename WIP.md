@@ -623,6 +623,29 @@ misses.
   goes through). Tests: `CampaignStorageFailureTests`, `TemplateStorageFailureTests` (in a circuit). Not
   handled: a failure after the storage write went through (an undo marked, then the re-read failing) says
   "Not undone" although it was.
+- **Working copy of unsaved campaign edits (owner's design, 2026-11-03; built the same day, not deployed).** A
+  recovery copy, not a save: `working/{id}.json` in the client's container (`WorkingCopies`, through
+  `CampaignStore.WorkingCopies`), outside `drafts/`, so history, newest, the campaigns list, Recently deleted and
+  the sweep's drafts never see it; overwritten in place (`IBlobBackend.ReplaceAsync`, the one overwrite, If-Match
+  or If-None-Match); content is the form's draft JSON, metadata `writtenat` and `basedon` (stamps). Never
+  proofread, approved or exported; no activity rows for writes or removals. **Writes** (`WorkingCopyKeeper`, one
+  per campaign page, disposed with it, on the injected clock): `WorkingCopy:Debounce` (5 s) after the form stops
+  changing, at least every `WorkingCopy:Cap` (60 s); never when it equals what it last wrote or the newest save.
+  The page looks after each render (every change, typed on the page or told by `FieldsComponent`, ends in one),
+  comparing the form's content. **On open**, a copy that differs from the newest save goes into the form,
+  unsaved, with the notice "Brought back changes you hadn't saved, from {time}" and "Discard" (removes it and
+  opens the newest save; storage failing says "Not discarded: ..."). **Removed by** Save, Keep mine, Delete,
+  Undo, Restore, Restore of a deleted campaign, Load the latest and Discard (each puts a stored version in the
+  form or saves; a removal that fails is logged and left to the sweep). **Two tabs:** each page writes with the
+  ETag of its own last write; on a precondition failure it says "This campaign is being edited in another tab"
+  and writes unconditionally (last writer wins; phase 3 not built). **A failed write** is logged and shown
+  nothing, and tried again after the cap. **Never-saved campaigns** have no id or address until the first save,
+  so they get no working copy until then. **Sweep:** removes copies unwritten for `WorkingCopy:KeepUnchanged`
+  (7 days) and those whose campaign has no saves left, `DeleteIfUnchangedAsync` with the listed ETag; listed
+  before the saves. All three settings in `appsettings.json`, pinned (`WorkingCopyOptionsTests`). Wording is
+  placeholder (`WorkingCopyWords`), the owner's to approve. Templates have no working copy yet (thread item).
+  Tests: `WorkingCopyStoreTests`, `WorkingCopyPageTests` (in a circuit, `ManualClock`), `UndoSweepTests`.
+  **Not verified against Azure:** the conditional upload's status codes (412/409/404) in `AzureBlobBackend.ReplaceAsync`.
 - **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
   `KnownItemRemoved`) by the item's id, never its text.
 - **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and

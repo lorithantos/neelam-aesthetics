@@ -45,6 +45,32 @@ public sealed class AzureBlobBackend : IBlobBackend
         CancellationToken cancellationToken = default) =>
         _container.TryCreateAsync(name, content, contentType, metadata, cancellationToken);
 
+    // The working copy's write, and the only overwrite (IBlobBackend.ReplaceAsync): If-Match on the version
+    // the page last wrote, or If-None-Match: * for one it has not. A blob changed since fails the condition
+    // (412), and so does one written meanwhile where none was (409) or removed meanwhile (404).
+    public async Task<string?> ReplaceAsync(
+        string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata, BlobExpected expected,
+        CancellationToken cancellationToken = default)
+    {
+        var conditions = expected.Absent ? new BlobRequestConditions { IfNoneMatch = ETag.All }
+            : expected.ETag is { } etag ? new BlobRequestConditions { IfMatch = new ETag(etag) }
+            : null;
+        try
+        {
+            var written = await _container.GetBlobClient(name).UploadAsync(content, new BlobUploadOptions
+            {
+                HttpHeaders = new BlobHttpHeaders { ContentType = contentType },
+                Metadata = new Dictionary<string, string>(metadata),
+                Conditions = conditions,
+            }, cancellationToken);
+            return written.Value.ETag.ToString();
+        }
+        catch (RequestFailedException ex) when (conditions is not null && ex.Status is 404 or 409 or 412)
+        {
+            return null;
+        }
+    }
+
     public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
         _container.ReadContentAsync(name, cancellationToken);
 

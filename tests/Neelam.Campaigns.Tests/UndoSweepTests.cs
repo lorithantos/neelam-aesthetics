@@ -314,6 +314,26 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.DoesNotContain(expired.BlobName, containers.For(SalonTwo.Name.Value).Blobs.Keys);
     }
 
+    // The sweep keeps a working copy nobody writes for WorkingCopy:KeepUnchanged, as configured, not for a period of its own.
+    [Fact]
+    public async Task The_sweep_removes_working_copies_as_long_after_their_last_write_as_it_is_configured_to()
+    {
+        var (containers, clock, stores) = Isolated();
+        var store = stores.Campaigns(SalonOne.Name, Actor.Demo);
+        var save = await store.SaveDraftAsync(Guid.NewGuid(), "Saved", DraftFixtures.Finished());
+        await store.WorkingCopies.WriteAsync(save.Id, WorkingCopyStoreTests.Edited("Unsaved"), save.SavedAt, BlobExpected.Nothing);
+        clock.Now += TimeSpan.FromDays(2);
+        UndoSweep Keeping(TimeSpan keep) => new(stores, new InMemoryClientDirectory(SalonOne), [],
+            Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }),
+            Options.Create(new WorkingCopyOptions { KeepUnchanged = keep }), clock, NullLogger<UndoSweep>.Instance);
+
+        await Keeping(TimeSpan.FromDays(3)).SweepOnceAsync();
+        Assert.NotNull(await store.WorkingCopies.ReadAsync(save.Id));
+        await Keeping(TimeSpan.FromDays(2)).SweepOnceAsync();
+        Assert.Null(await store.WorkingCopies.ReadAsync(save.Id));
+        Assert.Contains(save.BlobName, containers.For(SalonOne.Name.Value).Blobs.Keys);
+    }
+
     private static readonly DateTimeOffset Noon = new(2026, 10, 9, 12, 0, 0, TimeSpan.Zero);
 
     private static (InMemoryContainers Containers, ManualClock Clock, ClientStores Stores) Isolated()
@@ -325,8 +345,8 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
     private static UndoSweep SweepOver(
         ClientStores stores, IClientDirectory clients, TimeProvider clock, params PrototypeCallerSource[] prototype) =>
-        new(stores, clients, prototype, Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }), clock,
-            NullLogger<UndoSweep>.Instance);
+        new(stores, clients, prototype, Options.Create(new UndoOptions { GracePeriod = TimeSpan.FromDays(1) }),
+            Options.Create(new WorkingCopyOptions()), clock, NullLogger<UndoSweep>.Instance);
 
     private sealed class UnreachableContainer : IBlobBackend
     {
@@ -348,6 +368,10 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         public Task<Janet.Azure.Storage.BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default) =>
             throw Unreachable();
+
+        public Task<string?> ReplaceAsync(
+            string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata, BlobExpected expected,
+            CancellationToken cancellationToken = default) => throw Unreachable();
 
         public Task<bool> SetMetadataAsync(
             string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default) =>

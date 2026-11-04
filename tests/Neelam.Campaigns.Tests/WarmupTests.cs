@@ -446,6 +446,9 @@ internal sealed class ReadOnlyBlobs(IBlobBackend inner, string container, Refuse
     public Task<bool> TryCreateAsync(string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default) =>
         throw writes.Write($"create {container}/{name}");
 
+    public Task<string?> ReplaceAsync(string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata, BlobExpected expected, CancellationToken cancellationToken = default) =>
+        throw writes.Write($"replace {container}/{name}");
+
     public Task<bool> SetMetadataAsync(string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default) =>
         throw writes.Write($"set metadata {container}/{name}");
 

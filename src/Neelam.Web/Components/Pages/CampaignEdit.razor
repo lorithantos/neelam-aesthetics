@@ -36,6 +36,7 @@
 @inject ProofreadSwitch Proofreading
 @inject IProofreader Proofreader
 @inject DailyProofreadAllowance Allowance
+@inject Microsoft.Extensions.Options.IOptions<WorkingCopyOptions> WorkingCopySettings
 
 <PageTitle>@Title</PageTitle>
 
@@ -177,6 +178,21 @@ else if (_session is not null)
                     KeepMineHelp="@((edited
                         ? "Keep mine saves what's on this page as the newest version."
                         : "Use this version again saves this version as the newest.") + " The other version stays in the campaign's history.")" />
+
+    @* The working copy (owner, 2026-11-03): changes she had not saved, brought back on opening, with Discard
+       to go back to the newest save; and that another tab wrote the working copy since this page did. Neither
+       is a save: the form holds unsaved changes, as if she had typed them. Placeholder wording (WorkingCopyWords). *@
+    @if (_broughtBack is { } back)
+    {
+        <section class="card" role="status" data-testid="working-copy-notice">
+            <p data-testid="working-copy-what">@WorkingCopyWords.BroughtBack(Times.DateAndTime(back.WrittenAt))</p>
+            <button type="button" class="button" data-testid="working-copy-discard" @onclick="DiscardAsync">@WorkingCopyWords.Discard</button>
+        </section>
+    }
+    @if (_keeper?.OtherTab == true)
+    {
+        <p class="field-help" role="status" data-testid="working-copy-other-tab">@WorkingCopyWords.OtherTab</p>
+    }
 
     <div class="workspace">
         <div class="workspace-main">
@@ -964,16 +980,21 @@ else
             return;
         }
         var store = _store = Stores.Campaigns(client, actor, approvalsRequired);
+        _keeper = new WorkingCopyKeeper(store.WorkingCopies, Clock, WorkingCopySettings.Value, OnCircuitAsync, Logs.CreateLogger<WorkingCopyKeeper>());
         if (Id is { } id)
         {
             _session = await DraftSession.OpenAsync(store, id);
             if (_session is null) _undone = await DraftSession.RestorableAsync(store, id);
             if (_session is null && _undone is null) _missing = "Campaign not found";
+            if (_session is not null) await BringBackAsync(_session, id);
         }
         else if (TemplateId is { } templateId)
         {
+            // Not saved yet: no id and no address to come back to, so nothing to keep a working copy for
+            // until its first save.
             _session = await DraftSession.StartAsync(store, templateId);
             if (_session is null) _missing = "Template not found";
+            _keeper.Track(_session, null);
         }
         await LoadTemplatesAsync();
         // What the campaign was just opened with is storage's as of now; listening and the timer start
@@ -1005,6 +1026,50 @@ else
 
     private Actor? _actor;
 
+    // The working copy of what she has not saved (owner, 2026-11-03): written as she types, brought back here
+    // on opening, removed by a save and whenever the form is replaced from storage. Null until the page opens.
+    private WorkingCopyKeeper? _keeper;
+
+    // The working copy brought back into the form on opening, while the page says so; null otherwise.
+    private WorkingCopy? _broughtBack;
+
+    // On opening a saved campaign: a working copy that differs from its newest save goes into the form, unsaved,
+    // and the page says so with Discard. One that cannot be read is logged and left for the next write to replace.
+    private async Task BringBackAsync(DraftSession session, Guid id)
+    {
+        WorkingCopy? copy = null;
+        var known = true;
+        try
+        {
+            copy = await _store!.WorkingCopies.ReadAsync(id);
+        }
+        catch (Exception ex) when (StorageFailed.Is(ex) || ex is InvalidDataException)
+        {
+            Log.LogWarning(ex, "Could not read the working copy of campaign {Campaign}; the campaign opens as saved.", id);
+            known = false;
+        }
+        if (copy is not null && !session.IsNewestSave(copy.Json))
+        {
+            session.BringBack(copy.Draft);
+            _broughtBack = copy;
+        }
+        _keeper!.Track(session, copy, known);
+    }
+
+    // The working copy goes: she saved, or the form is being replaced from storage. Never fails the action.
+    private async Task ForgetWorkingCopyAsync(Guid id)
+    {
+        _broughtBack = null;
+        await _keeper!.RemoveAsync(id);
+    }
+
+    // Her own actions: no working copy is written while one runs, and the form is kept again after it.
+    protected override Task BeforeActingAsync() => _keeper?.PauseAsync() ?? Task.CompletedTask;
+
+    protected override void AfterActing() => _keeper?.Resume(_session);
+
+    protected override void Disposing() => _keeper?.Dispose();
+
     // The watch's read last seen when the export was not offered (no approval in force): it is offered
     // again only from a later read, so it never comes back from what the page alone holds. The watch
     // (WatchedComponent.Watcher) also reads before the export is offered again; null until the page has opened.
@@ -1018,6 +1083,8 @@ else
     // the campaign is open; the page renders "One moment" before): whether the export may be offered.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        // Every change she makes ends in a render: the working copy is set to be written if the form changed.
+        _keeper?.Looked();
         if (Watcher is not { } watch) return;
         if (_session?.CurrentApproval is null)
         {
@@ -1035,7 +1102,14 @@ else
 
     // "Load the latest": the campaign as storage has it now, and the checks' lists with it, replacing
     // what is on the page, unsaved edits included. Only ever on her click.
-    private Task LoadLatestAsync() => ActingAsync(async () =>
+    private Task LoadLatestAsync() => ActingAsync(() => ReloadAsync(discard: false), "Not loaded", Say);
+
+    // "Discard" beside changes brought back: the working copy removed, and the newest save open in their place.
+    private Task DiscardAsync() => ActingAsync(() => ReloadAsync(discard: true), "Not discarded", Say);
+
+    // The form replaced from storage, its working copy with it: on Discard the removal is what she asked for,
+    // so storage failing there says it did not happen; on Load the latest it is only tidying, and logged.
+    private async Task ReloadAsync(bool discard)
     {
         _confirmingUndo = _confirmingDelete = false;
         var id = _session!.Id!.Value;
@@ -1051,6 +1125,9 @@ else
         {
             _unreadable = ex.Message;
         }
+        if (discard) await _keeper!.DiscardAsync(id);
+        else await _keeper!.RemoveAsync(id);
+        _broughtBack = null;
         _proofreadMessage = _fixMessage = null;
         _approver = "";
         _session = latest;
@@ -1059,7 +1136,7 @@ else
         _templates = templates;
         if (latest is not null)
         {
-            _message = "The latest version is open.";
+            _message = discard ? null : "The latest version is open.";
             await ShowTitleAsync(Title);
             return;
         }
@@ -1067,7 +1144,7 @@ else
         _message = null;
         _undone = undone;
         if (_undone is null) _missing = "Campaign not found";
-    }, "Not loaded", Say);
+    }
 
     // "Keep mine" / "Use this version again": what the page holds, saved as the newest version over
     // someone else's change. The other version stays stored; no approval comes with hers.
@@ -1076,6 +1153,8 @@ else
         try
         {
             var kept = await _session!.KeepMineAsync();
+            // A real save: what the working copy kept is saved now.
+            await ForgetWorkingCopyAsync(kept.Saved.Id);
             _message = DraftSession.KeptMessage(kept, Times);
             _confirmingUndo = _confirmingDelete = false;
             _proofreadMessage = null;
@@ -1094,6 +1173,8 @@ else
         var isNew = _session!.Latest is null;
         var before = _session.Latest;
         var saved = await _session.SaveAsync();
+        // A real save: what the working copy kept is saved now.
+        await ForgetWorkingCopyAsync(saved.Id);
         // A campaign saved for the first time is watched from now.
         if (isNew) Watch(_session);
         _message = DraftSession.SavedMessage(before, saved, Times);
@@ -1142,16 +1223,19 @@ else
     private Task UndoAsync() => ActingAsync(async () =>
     {
         _confirmingUndo = _confirmingDelete = false;
+        var id = _session!.Id!.Value;
         bool left;
         try
         {
-            left = await _session!.UndoLastSaveAsync();
+            left = await _session.UndoLastSaveAsync();
         }
         catch (CampaignChangedException ex)
         {
             _message = ex.Message;
             return;
         }
+        // Undo opens the version before and loses any changes not saved, as it asks first: so does their working copy.
+        await ForgetWorkingCopyAsync(id);
         ForgetTemplateChoice();
         if (left)
         {
@@ -1172,15 +1256,17 @@ else
     private Task DeleteAsync() => ActingAsync(async () =>
     {
         _confirmingDelete = _confirmingUndo = false;
+        var id = _session!.Id!.Value;
         try
         {
-            await _session!.DeleteAsync();
+            await _session.DeleteAsync();
         }
         catch (InvalidOperationException ex)
         {
             _message = ex.Message;
             return;
         }
+        await ForgetWorkingCopyAsync(id);
         ForgetTemplateChoice();
         _undone = _session.Restorable;
         _session = null;
@@ -1193,6 +1279,8 @@ else
     {
         _confirmingUndo = _confirmingDelete = false;
         var restored = await _session!.RestoreAsync();
+        // Restored, the undone save is open in place of the form and any changes not saved: their working copy goes.
+        if (restored) await ForgetWorkingCopyAsync(_session.Id!.Value);
         ForgetTemplateChoice();
         _message = restored
             ? "The undone save is back and open."
@@ -1201,7 +1289,10 @@ else
 
     private Task RestoreUndoneAsync() => ActingAsync(async () =>
     {
-        _session = await DraftSession.RestoreAsync(_store!, _undone!);
+        var undone = _undone!;
+        _session = await DraftSession.RestoreAsync(_store!, undone);
+        // Opened as restored: a working copy left from before the delete is not brought back.
+        if (_session is not null) await ForgetWorkingCopyAsync(undone.Id);
         Watch(_session);
         _undone = null;
         ForgetTemplateChoice();

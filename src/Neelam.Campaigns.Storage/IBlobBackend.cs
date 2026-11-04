@@ -10,11 +10,23 @@ public sealed record BlobEntry(string Name, IReadOnlyDictionary<string, string> 
 /// The blob operations the stores need, in bytes: text is a thin layer on top
 /// (<see cref="BlobText"/>), so there is one storage path. <see cref="AzureBlobBackend"/> is the
 /// real backend, delegating to Janet.Azure.Storage; tests use an in-memory one. It exists so the
-/// stores can be tested without Azure. There is deliberately no overwrite and no update of content:
-/// only a blob's metadata can change, which is how Undo marks a save without deleting it.
+/// stores can be tested without Azure. A save is never overwritten and its content never updated:
+/// only a blob's metadata can change, which is how Undo marks a save without deleting it. The one
+/// overwrite, <see cref="ReplaceAsync"/>, is the working copy's (<see cref="WorkingCopies"/>), which
+/// lives outside every save's prefix and is a recovery copy, never a save.
 /// </summary>
 public interface IBlobBackend
 {
+    /// <summary>
+    /// Writes the blob whole, content and metadata, in place of any blob of that name, only when what is
+    /// there is what <paramref name="expected"/> says. For the working copy alone (owner, 2026-11-03):
+    /// overwritten in place, never under a save's prefix.
+    /// </summary>
+    /// <returns>The blob's new ETag; null when it was not as expected (another tab wrote or removed it), and nothing was written.</returns>
+    Task<string?> ReplaceAsync(
+        string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata, BlobExpected expected,
+        CancellationToken cancellationToken = default);
+
     IAsyncEnumerable<BlobEntry> ListAsync(string prefix, CancellationToken cancellationToken = default);
 
     /// <summary>Creates the blob only if no blob has that name. False if one already does.</summary>
@@ -46,6 +58,22 @@ public interface IBlobBackend
     /// if it is gone, or has changed since (its metadata included), in which case it is left as it is.
     /// </summary>
     Task<bool> DeleteIfUnchangedAsync(string name, string etag, CancellationToken cancellationToken = default);
+}
+
+/// <summary>What a replacing write (<see cref="IBlobBackend.ReplaceAsync"/>) must find there first.</summary>
+/// <param name="ETag">The version that must still be there (If-Match); null for none in particular.</param>
+/// <param name="Absent">True when no blob may be there yet (If-None-Match: *).</param>
+public sealed record BlobExpected(string? ETag, bool Absent)
+{
+    /// <summary>Whatever is there, or nothing: the write is unconditional.</summary>
+    public static readonly BlobExpected Anything = new(null, false);
+
+    /// <summary>No blob of that name yet.</summary>
+    public static readonly BlobExpected Nothing = new(null, true);
+
+    /// <summary>Still the version with this ETag.</summary>
+    public static BlobExpected Version(string etag) =>
+        string.IsNullOrEmpty(etag) ? throw new ArgumentException("A version needs its ETag.", nameof(etag)) : new(etag, false);
 }
 
 /// <summary>

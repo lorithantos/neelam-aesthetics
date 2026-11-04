@@ -123,6 +123,15 @@ builder.Services.AddOptions<CampaignWatchOptions>()
     .Validate(watch => watch.Problem() is null,
         "CampaignWatch:Interval must lie between 00:00:10 and 00:02:00, such as 00:01:00.")
     .ValidateOnStart();
+// The campaign page's working copy of unsaved edits (owner, 2026-11-03): written WorkingCopy:Debounce after
+// she stops changing the form, at least every WorkingCopy:Cap while she goes on, and swept once nobody has
+// written it for WorkingCopy:KeepUnchanged.
+builder.Services.AddOptions<WorkingCopyOptions>()
+    .Bind(builder.Configuration.GetSection(WorkingCopyOptions.Section))
+    .Validate(copies => copies.Problem() is null,
+        "WorkingCopy:Debounce must be positive, WorkingCopy:Cap no shorter than it and at most a day, and " +
+        "WorkingCopy:KeepUnchanged positive, such as 00:00:05, 00:01:00 and 7.00:00:00.")
+    .ValidateOnStart();
 builder.Services.AddSingleton(services => new ClientStores(
     storageClients, services.GetRequiredService<TimeProvider>(),
     services.GetRequiredService<IOptions<UndoOptions>>().Value.GracePeriod,
