@@ -664,8 +664,9 @@ misses.
   (it used to stay and come back on opening). **/home on this plan:** `infra/site.bicep` is `kind: 'app,linux'`
   with `DOTNETCORE|10.0` (a built-in image, not a custom container) and does not set
   `WEBSITES_ENABLE_APP_SERVICE_STORAGE`; the Learn pages found describe that setting for custom containers only, so
-  that /home persists for this site is App Service's documented default for built-in Linux images, not something
-  infra pins. Tests: `WorkingCopyDiskTests` (one on the real disk, in a temp folder), `WorkingCopyPageTests`, `UndoSweepTests`.
+  that /home persists for this site is App Service's documented default for built-in Linux images. **Pinned since
+  (owner-approved infra change, 2026-11-03):** `site.bicep` sets `WEBSITES_ENABLE_APP_SERVICE_STORAGE = 'true'` for
+  every site, checked by `InfrastructureTests.Every_site_keeps_home_as_persistent_shared_storage`; not deployed. Tests: `WorkingCopyDiskTests` (one on the real disk, in a temp folder), `WorkingCopyPageTests`, `UndoSweepTests`.
 - **Never-saved campaigns protected (owner, 2026-11-03; built the same day, not deployed).** On
   `/campaigns/new/{templateId}` nothing is kept until she first changes the form; that change gives the campaign
   its id (`DraftSession.TakeId`), replaces the address with `/campaigns/{id}` (history.replaceState, no new entry)

@@ -106,6 +106,14 @@ resource site 'Microsoft.Web/sites@2023-12-01' = {
           name: 'WEBSITE_WARMUP_PATH'
           value: '/warmup'
         }
+        // /home persists across restarts and is shared by the site's instances: the working copies' disk
+        // fallback lives under it (WorkingCopy:DiskPath, /home/data/working; owner, 2026-11-03). App
+        // Service's default for a built-in Linux image, pinned here rather than left to the default
+        // (InfrastructureTests).
+        {
+          name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE'
+          value: 'true'
+        }
       ], empty(prototypeClient) ? [] : [
         {
           name: 'Prototype__Client'

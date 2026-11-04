@@ -28,6 +28,17 @@ public class InfrastructureTests
     [InlineData("site.bicep", "3913510d-42f4-4e42-8a64-420c390055eb")]   // Monitoring Metrics Publisher for the site
     public void Template_sets(string file, string setting) => Assert.Contains(setting, Infra(file));
 
+    // The working copies' disk fallback lives under /home (WorkingCopy:DiskPath), which must persist across
+    // restarts and be shared by the site's instances (owner, 2026-11-03): App Service's default for a built-in
+    // Linux image, pinned here rather than left to the default. Once, in site.bicep, so both sites have it.
+    [Fact]
+    public void Every_site_keeps_home_as_persistent_shared_storage()
+    {
+        var settings = Regex.Matches(Site, @"name: 'WEBSITES_ENABLE_APP_SERVICE_STORAGE'\s*value: '([^']*)'");
+
+        Assert.Equal("true", Assert.Single(settings).Groups[1].Value);
+    }
+
     // Every site and every storage account is an instance of the one definition, so the staging site
     // and its account carry exactly the settings pinned on site.bicep and storage.bicep: main.bicep
     // declares neither a site nor an account of its own, and grants no role itself.
