@@ -19,8 +19,8 @@ public sealed class AmountLimitsForm
         {
             if (line.LimitOn(amount.Field.Name) is not { } limit) continue;
             var fields = form.For(amount.Field);
-            fields.Lowest = limit.Min is { } lo ? Number(lo) : "";
-            fields.Highest = limit.Max is { } hi ? Number(hi) : "";
+            fields.Lowest = limit.Min is { } lo ? PlainNumber.Text(lo) : "";
+            fields.Highest = limit.Max is { } hi ? PlainNumber.Text(hi) : "";
         }
         return form;
     }
@@ -71,8 +71,6 @@ public sealed class AmountLimitsForm
             ? FormText.Money(text!, $"the {field.Label}", errors)
             : FormText.Whole(text!, $"the {field.Label}", errors);
     }
-
-    private static string Number(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>
@@ -91,9 +89,9 @@ public sealed class AmountCapsForm
     public static AmountCapsForm Of(KnownBenefit line) =>
         new(line.Benefit.Amounts.Select(a => new AmountCapFields(a.Field)
         {
-            Usual = Number(a.Value),
-            Lowest = line.LimitOn(a.Field.Name)?.Min is { } lo ? Number(lo) : "",
-            Highest = line.LimitOn(a.Field.Name)?.Max is { } hi ? Number(hi) : "",
+            Usual = PlainNumber.Text(a.Value),
+            Lowest = line.LimitOn(a.Field.Name)?.Min is { } lo ? PlainNumber.Text(lo) : "",
+            Highest = line.LimitOn(a.Field.Name)?.Max is { } hi ? PlainNumber.Text(hi) : "",
         }).ToList());
 
     /// <summary>One set of boxes per amount of the line, in the order the line has them.</summary>
@@ -139,8 +137,6 @@ public sealed class AmountCapsForm
         field.Unit == AmountUnit.Dollars
             ? FormText.Money(text ?? "", what, errors)
             : FormText.Whole(text ?? "", what, errors);
-
-    private static string Number(decimal value) => value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
 }
 
 /// <summary>The usual, lowest and highest boxes for one amount of a known benefit line.</summary>

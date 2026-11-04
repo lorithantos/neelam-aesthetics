@@ -525,6 +525,32 @@ public class CampaignEditorTests
         }
     }
 
+    // A number as a box holds it and as the email writes a percent or a count (2026-11-03, one
+    // formatter for the nine places that wrote "0.##"): no separators, at most two decimals, rounded
+    // half away from zero, the same whatever the server's culture.
+    [Theory]
+    [InlineData("en-US")]
+    [InlineData("de-DE")]
+    public void A_plain_number_has_no_separators_and_at_most_two_decimals(string serverCulture)
+    {
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo(serverCulture);
+        try
+        {
+            Assert.Equal("5100", PlainNumber.Text(5100m));
+            Assert.Equal("149.5", PlainNumber.Text(149.50m));
+            Assert.Equal("0.25", PlainNumber.Text(0.25m));
+            Assert.Equal("1.24", PlainNumber.Text(1.235m));
+            Assert.Equal("30", PlainNumber.Text(30));
+            Assert.Equal("0", PlainNumber.Text(0m));
+            Assert.Equal("-5", PlainNumber.Text(-5m));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = culture;
+        }
+    }
+
     // A tier's price is written as a benefit's amount is: "$1,599/month", never "$1599/month",
     // in the finished email and in the one so far alike.
     [Fact]

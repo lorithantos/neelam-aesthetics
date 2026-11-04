@@ -71,8 +71,8 @@ public abstract record Benefit
     internal static string Shown(AmountUnit unit, decimal value) => unit switch
     {
         AmountUnit.Dollars => Money(value),
-        AmountUnit.Percent => value.ToString("0.##", CultureInfo.InvariantCulture) + "%",
-        _ => value.ToString("0.##", CultureInfo.InvariantCulture),
+        AmountUnit.Percent => PlainNumber.Text(value) + "%",
+        _ => PlainNumber.Text(value),
     };
 
     // A whole-number field takes only a whole number: a limit or a usual amount never rounds.

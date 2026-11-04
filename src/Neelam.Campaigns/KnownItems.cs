@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Neelam.Campaigns;
 
 /// <summary>The three kinds of known item (owner, 2026-10-09).</summary>
@@ -44,7 +42,7 @@ public sealed record KnownTreatment(string Id, string Name, decimal? RegularPric
     public override string Text => Name;
 
     /// <summary>The regular price as the form shows it, such as 5100 or 149.50; blank when there is none.</summary>
-    public string RegularPriceText => RegularPrice?.ToString("0.##", CultureInfo.InvariantCulture) ?? "";
+    public string RegularPriceText => RegularPrice is { } price ? PlainNumber.Text(price) : "";
 
     /// <summary>As her list shows it: "Full-Face Facial Balancing, regularly $5,100", or the name alone.</summary>
     public string Shown => RegularPrice is { } price ? $"{Name}, regularly {Dollars.Text(price)}" : Name;
@@ -209,7 +207,7 @@ public sealed record KnownTier(string Id, string Name, decimal Price, IReadOnlyL
     public override string Text => Name;
 
     /// <summary>The price as the form shows it, such as 299 or 149.50.</summary>
-    public string PriceText => Price.ToString("0.##", CultureInfo.InvariantCulture);
+    public string PriceText => PlainNumber.Text(Price);
 
     /// <summary>The price as the campaign shows it, such as $299/month or $149.50/month.</summary>
     public string PriceShown => EditorExport.PriceText(Price, isRecurring: true);

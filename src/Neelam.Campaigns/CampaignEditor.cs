@@ -701,7 +701,7 @@ public sealed class PricedTreatmentEditor : PromotionLineEditor
         var name = FormText.Clean(text ?? "");
         if (known.Treatments.FirstOrDefault(t => string.Equals(t.Name.Trim(), name, StringComparison.OrdinalIgnoreCase)) is
             { RegularPrice: { } regular })
-            RegularPrice.Text = regular.ToString("0.##", CultureInfo.InvariantCulture);
+            RegularPrice.Text = PlainNumber.Text(regular);
     }
 
     /// <summary>The saving the email will state, once both prices are in; null until then.</summary>
@@ -831,22 +831,22 @@ public sealed class BenefitEditor
         switch (benefit)
         {
             case BirthdayCredit b:
-                (_kind, _amount) = ("birthday-credit", Number(b.Amount));
+                (_kind, _amount) = ("birthday-credit", PlainNumber.Text(b.Amount));
                 break;
             case PercentOff p:
-                (_kind, _percent, _appliesTo) = ("percent-off", Number(p.Percent), p.AppliesTo);
+                (_kind, _percent, _appliesTo) = ("percent-off", PlainNumber.Text(p.Percent), p.AppliesTo);
                 break;
             case FreeItem f:
-                (_kind, _quantity, _item, _per, _wording) = ("free-item", Number(f.Quantity), f.ItemName, f.Per, f.Wording);
+                (_kind, _quantity, _item, _per, _wording) = ("free-item", PlainNumber.Text(f.Quantity), f.ItemName, f.Per, f.Wording);
                 break;
             case DiscountedItem d:
-                (_kind, _percent, _item, _per, _condition) = ("discounted-item", Number(d.Percent), d.ItemName, d.Per, d.Condition ?? "");
+                (_kind, _percent, _item, _per, _condition) = ("discounted-item", PlainNumber.Text(d.Percent), d.ItemName, d.Per, d.Condition ?? "");
                 break;
             case DollarsOff o:
-                (_kind, _amount, _appliesTo, _minimum) = ("dollars-off", Number(o.Amount), o.AppliesTo, o.Minimum is { } least ? Number(least) : "");
+                (_kind, _amount, _appliesTo, _minimum) = ("dollars-off", PlainNumber.Text(o.Amount), o.AppliesTo, o.Minimum is { } least ? PlainNumber.Text(least) : "");
                 break;
             case Credit c:
-                (_kind, _amount, _toward) = ("credit", Number(c.Amount), c.Toward);
+                (_kind, _amount, _toward) = ("credit", PlainNumber.Text(c.Amount), c.Toward);
                 break;
         }
     }
@@ -1013,8 +1013,6 @@ public sealed class BenefitEditor
         var toward = FormText.Need(_toward, "what it is toward, such as \"your next appointment\"", problems);
         return problems.Count == 0 ? new Credit(amount!.Value, toward) : null;
     }
-
-    private static string Number(decimal value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 }
 
 /// <summary>One piece of text and the slot it fills. Blank empties the slot.</summary>
@@ -1087,7 +1085,7 @@ public sealed class PriceField
     {
         _slot = slot;
         _what = what;
-        _text = slot.HasValue ? slot.Value.ToString("0.##", CultureInfo.InvariantCulture) : "";
+        _text = slot.HasValue ? PlainNumber.Text(slot.Value) : "";
     }
 
     public string Text
