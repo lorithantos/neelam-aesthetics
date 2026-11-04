@@ -611,6 +611,18 @@ misses.
   cannot be read again after it. No `ErrorBoundary` was added: one around the editor would catch only
   child components' failures, not the page's own handlers. Opening the Known items page while the table
   is unreachable still fails, as before; nothing typed is lost there.
+- **The editors' own actions too (2026-11-03, not deployed):** on the campaign and template pages, Save, Keep mine,
+  Undo, Delete, Restore, Load the latest, Approve, Withdraw, Export anyway and Use this template catch storage
+  failing (`StorageFailed.Is`: `RequestFailedException`, `HttpRequestException`, `AuthenticationFailedException`,
+  nothing else), through `WatchedComponent.ActingAsync(action, notDone, say)`; the form is left as she typed it
+  (Load the latest reads everything before replacing anything) and the page says `StorageFailed.NotDone`:
+  "Not saved: your saved work couldn't be reached just now. Everything on this page is as you left it, so try
+  again in a moment." (with "Not undone", "Not deleted", "Not restored", "Not loaded", "Not approved", "Not
+  withdrawn", "Not exported", "Template not used"). **Proposed wording, the owner's to approve.** A first save
+  that failed no longer leaves the page thinking the campaign or template is saved (it is new until a save
+  goes through). Tests: `CampaignStorageFailureTests`, `TemplateStorageFailureTests` (in a circuit). Not
+  handled: a failure after the storage write went through (an undo marked, then the re-read failing) says
+  "Not undone" although it was.
 - **Activity:** added, changed and removed are `KnownItem` events (`KnownItemAdded`, `KnownItemChanged`,
   `KnownItemRemoved`) by the item's id, never its text.
 - **Not done:** nothing is seeded, on the live or the test site. Untested in a browser: the pickers and

@@ -77,6 +77,31 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
     }
 
     /// <summary>
+    /// One of the page's own actions that reads or writes storage, as <see cref="ActingAsync(Func{Task})"/>,
+    /// where storage failing (<see cref="StorageFailed.Is"/>) never ends her session (2026-11-03): it is
+    /// logged, and <paramref name="say"/> is given <see cref="StorageFailed.NotDone"/> with
+    /// <paramref name="notDone"/>, such as "Not saved". The action changes what the page shows only once
+    /// storage has answered, so the form is left exactly as she typed it. Anything else still escapes.
+    /// </summary>
+    protected async Task ActingAsync(Func<Task> action, string notDone, Action<string> say)
+    {
+        Watcher?.Begin();
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (StorageFailed.Is(ex))
+        {
+            Logs.CreateLogger(GetType()).LogError(ex, "{Action}: storage failed under the page's own action; the page is left as it was.", notDone);
+            say(StorageFailed.NotDone(notDone));
+        }
+        finally
+        {
+            if (Watcher is not null) await Watcher.EndAsync();
+        }
+    }
+
+    /// <summary>
     /// One of the page's own actions after which the page loads again (the Look page: the look is drawn in
     /// each page's head): <paramref name="action"/> gives the address to load, and storage is not read
     /// again, since the page is about to be replaced; or null when nothing was changed, and then it is read

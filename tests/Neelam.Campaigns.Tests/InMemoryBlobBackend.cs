@@ -31,9 +31,21 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
     /// <summary>A stored blob's content as text.</summary>
     public string Text(string name) => Blobs[name].Blob.Content.ToString();
 
+    /// <summary>
+    /// Storage failing: given the blob name, or the prefix listed, each operation asks this first and throws
+    /// what it returns; null lets it through. Null, the default, fails nothing.
+    /// </summary>
+    public Func<string, Exception?>? Failure { get; set; }
+
+    private void ThrowIfFailing(string name)
+    {
+        if (Failure?.Invoke(name) is { } failure) throw failure;
+    }
+
     public async IAsyncEnumerable<BlobEntry> ListAsync(
         string prefix, [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        ThrowIfFailing(prefix);
         foreach (var (name, blob) in Blobs.Where(b => b.Key.StartsWith(prefix, StringComparison.Ordinal)).ToList())
         {
             await Task.Yield();
@@ -45,6 +57,7 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
         string name, BinaryData content, string contentType, IReadOnlyDictionary<string, string> metadata,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfFailing(name);
         if (!Blobs.TryAdd(name, (new BlobContent(content, contentType), metadata))) return Task.FromResult(false);
         Renew(name);
         return Task.FromResult(true);
@@ -55,6 +68,7 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
 
     public Task<BlobContent> ReadAsync(string name, CancellationToken cancellationToken = default)
     {
+        ThrowIfFailing(name);
         Reads.Enqueue(name);
         return Task.FromResult(Blobs[name].Blob);
     }
@@ -65,6 +79,7 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
     public async Task<bool> SetMetadataAsync(
         string name, IReadOnlyDictionary<string, string> metadata, CancellationToken cancellationToken = default)
     {
+        ThrowIfFailing(name);
         if (BeforeSetMetadata is { } before) await before(name);
         if (!Blobs.TryGetValue(name, out var blob)) return false;
         Blobs[name] = (blob.Blob, new Dictionary<string, string>(metadata));
@@ -75,6 +90,7 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
     public async Task<bool> SetMetadataIfUnchangedAsync(
         string name, IReadOnlyDictionary<string, string> metadata, string etag, CancellationToken cancellationToken = default)
     {
+        ThrowIfFailing(name);
         if (BeforeSetMetadata is { } before) await before(name);
         if (!Blobs.TryGetValue(name, out var blob) || ETagOf(name) != etag) return false;
         Blobs[name] = (blob.Blob, new Dictionary<string, string>(metadata));
@@ -92,6 +108,7 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
 
     public async Task<bool> DeleteAsync(string name, CancellationToken cancellationToken = default)
     {
+        ThrowIfFailing(name);
         if (BeforeDelete is { } before) await before(name);
         _etags.Remove(name);
         return this.Removed(Blobs.Remove(name));
@@ -99,6 +116,7 @@ internal sealed class InMemoryBlobBackend : IBlobBackend
 
     public async Task<bool> DeleteIfUnchangedAsync(string name, string etag, CancellationToken cancellationToken = default)
     {
+        ThrowIfFailing(name);
         if (BeforeDelete is { } before) await before(name);
         if (!Blobs.ContainsKey(name) || ETagOf(name) != etag) return false;
         _etags.Remove(name);

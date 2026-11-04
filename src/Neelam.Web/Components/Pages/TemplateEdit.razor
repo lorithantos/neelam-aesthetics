@@ -35,6 +35,10 @@ else if (_undone is not null)
         @Times.DateAndTime(_store!.RestorableUntil(_undone)!.Value); after that it is deleted for good.</p>
     <button class="button primary" @onclick="RestoreUndoneAsync">Restore</button>
     <a class="button" href="templates">Back to templates</a>
+    @if (_message is not null)
+    {
+        <p role="status" data-testid="page-message">@_message</p>
+    }
 }
 else if (_session is not null)
 {
@@ -296,7 +300,7 @@ else if (_session is not null)
                 <UndoRestore CanUndo="_session.Latest is not null" @bind-Confirming="_confirmingUndo" Question="@_session.UndoQuestion"
                              UndoDeletes="_session.UndoDeletesTheTemplate" DeleteLabel="Delete template"
                              DeleteWarning="deleting takes the template off your list." OnUndo="UndoAsync"
-                             RestorableUntil="_session.RestorableUntil" Times="Times" OnRestore="RestoreAsync" />
+                             RestorableUntil="_session.RestorableUntil" Times="Times" OnRestore="RestoreAsync" RestoreId="restore-button" />
             </section>
 
             @if (advice.Count > 0)
@@ -401,7 +405,10 @@ else if (_session is not null)
     {
         _confirmingUndo = false;
         var id = _session!.Id!.Value;
-        _session = await TemplateSession.OpenAsync(_store!, id, Blocks);
+        // Read first: storage failing leaves what she typed on the page.
+        var latest = await TemplateSession.OpenAsync(_store!, id, Blocks);
+        var undone = latest is null ? await TemplateSession.RestorableAsync(_store!, id) : null;
+        _session = latest;
         Watch(_session);
         if (_session is not null)
         {
@@ -410,13 +417,15 @@ else if (_session is not null)
         }
         // Every save undone meanwhile: the page offers Restore, as on opening a deleted template.
         _message = null;
-        _undone = await TemplateSession.RestorableAsync(_store!, id);
+        _undone = undone;
         _missing = _undone is null;
-    });
+    }, "Not loaded", Say);
 
     private Task SaveAsync() => ActingAsync(async () =>
     {
-        var isNew = _session!.Id is null;
+        // New until a save has gone through: a first save that storage failed has given the template an id
+        // already, and the next save is still its first.
+        var isNew = _session!.Latest is null;
         var saved = await _session.SaveAsync();
         // A template saved for the first time is watched from now.
         if (isNew) Watch(_session);
@@ -424,7 +433,10 @@ else if (_session is not null)
         _confirmingUndo = false;
         // The address now names the template, so a reload opens what was saved.
         if (isNew) Navigation.NavigateTo($"templates/{saved.Id}", replace: true);
-    });
+    }, "Not saved", Say);
+
+    // Where the page says what came of an action, in the Save card.
+    private void Say(string message) => _message = message;
 
     // Undo marks the save for deletion; nothing is deleted here, or by leaving the page. Only the version
     // on the page, while storage still has it as the newest: otherwise nothing is undone, and the page
@@ -453,7 +465,7 @@ else if (_session is not null)
         Watch(null);
         _message = null;
         _missing = _undone is null;
-    });
+    }, _session?.UndoDeletesTheTemplate == true ? "Not deleted" : "Not undone", Say);
 
     private Task RestoreAsync() => ActingAsync(async () =>
     {
@@ -461,7 +473,7 @@ else if (_session is not null)
         _message = await _session!.RestoreAsync()
             ? "The undone save is back and open."
             : "That save can no longer be restored.";
-    });
+    }, "Not restored", Say);
 
     private Task RestoreUndoneAsync() => ActingAsync(async () =>
     {
@@ -470,5 +482,5 @@ else if (_session is not null)
         _undone = null;
         _missing = _session is null;
         if (_session is not null) _message = "The undone save is back and open.";
-    });
+    }, "Not restored", Say);
 }
