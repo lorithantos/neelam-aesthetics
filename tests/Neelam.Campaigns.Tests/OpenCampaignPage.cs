@@ -86,6 +86,18 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
         _renderer.ThrowIfFailed();
     });
 
+    /// <summary>
+    /// Ticks or clears the one checkbox named <paramref name="testId"/>, as a browser tells the page: Blazor's
+    /// script sends a checkbox's change as true or false, not as text.
+    /// </summary>
+    public Task TickAsync(string testId, bool ticked) => this._renderer.Dispatcher.InvokeAsync(async () =>
+    {
+        ulong handler = this._renderer.Handler(this._root, testId, "onchange")
+            ?? throw new InvalidOperationException($"Nothing named {testId} can be ticked.");
+        await this._renderer.DispatchEventAsync(handler, null, new ChangeEventArgs { Value = ticked });
+        this._renderer.ThrowIfFailed();
+    });
+
     public Task<string> HtmlAsync() => _renderer.Dispatcher.InvokeAsync(() =>
     {
         _renderer.ThrowIfFailed();

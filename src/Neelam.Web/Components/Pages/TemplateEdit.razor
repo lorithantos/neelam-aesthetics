@@ -119,8 +119,9 @@ else if (_session is not null)
                     @* One choice, not two checkboxes (owner, 2026-11-03: "These are check boxes and that's not
                        how check boxes work either. But the real problem is that there is no "default
                        text""): the same every time, something to start with that each campaign can change,
-                       or nothing. Whether every campaign must have it is a separate question, and a fixed
-                       block always has it. A spacer has nothing to choose. *@
+                       or nothing. Whether every campaign must have it is a separate question, asked of a
+                       fixed block too (owner, 2026-11-03: "Any fixed block can be removed": fixed is what it
+                       says, not that it must be there). A spacer has nothing to choose. *@
                     @if (block.CanStartFilled)
                     {
                         <fieldset class="choice" data-testid="content-choice-@index">
@@ -132,9 +133,11 @@ else if (_session is not null)
                             <label class="check"><input type="radio" name="content-@index" data-testid="content-default-@index" checked="@(block.Content == BlockContent.Default)" @onchange="() => block.Content = BlockContent.Default" /> This to start with; each campaign can change it</label>
                             <label class="check"><input type="radio" name="content-@index" data-testid="content-empty-@index" checked="@(block.Content == BlockContent.Empty)" @onchange="() => block.Content = BlockContent.Empty" /> Nothing; each campaign fills it in</label>
                         </fieldset>
-                        @if (!block.IsFixed)
+                        <label class="check"><input type="checkbox" data-testid="required-@index" @bind="block.Required" /> Every campaign must have it</label>
+                        @if (block.IsFixed && !block.Required)
                         {
-                            <label class="check"><input type="checkbox" data-testid="required-@index" @bind="block.Required" /> Every campaign must have it</label>
+                            @* The campaign page cannot leave a block out yet (decision 8a), so say what happens now. *@
+                            <p class="field-help" data-testid="fixed-optional-note-@index">Campaigns can't leave a block out yet, so for now this one still goes out in every campaign.</p>
                         }
                     }
 

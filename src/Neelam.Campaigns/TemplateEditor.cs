@@ -211,7 +211,12 @@ public sealed partial class EditableBlock : IPhotoChoice
 
     public string Label { get; set; }
 
-    /// <summary>Whether a campaign must have it. Fixed blocks are always filled.</summary>
+    /// <summary>
+    /// Whether a campaign must have it, a choice of its own whatever the content (owner, 2026-11-03: "Any
+    /// fixed block can be removed"): a fixed block's text is the same in every campaign, which says
+    /// nothing about whether the block must be there. A campaign cannot leave a block out yet, so a fixed
+    /// block that is not required still goes out in every campaign until it can (decision 8a).
+    /// </summary>
     public bool Required { get; set; } = true;
 
     /// <summary>

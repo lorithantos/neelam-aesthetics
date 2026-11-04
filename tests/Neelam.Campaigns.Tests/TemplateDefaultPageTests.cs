@@ -50,8 +50,9 @@ public class TemplateDefaultPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal(
             [true, false, false],
             new[] { "fixed", "default", "empty" }.Select(c => Chosen(html, $"content-{c}-{Greeting}")));
-        // A fixed block is always there; the others say whether every campaign must have it.
-        Assert.Equal(0, RenderedPage.Count(html, $"required-{Greeting}"));
+        // Every block with content says whether every campaign must have it, a fixed one included (owner,
+        // 2026-11-03: "Any fixed block can be removed"); this was 0 while a fixed block hid it.
+        Assert.Equal(1, RenderedPage.Count(html, $"required-{Greeting}"));
         Assert.True(Chosen(html, $"content-empty-{Headline}"));
         Assert.Equal(1, RenderedPage.Count(html, $"required-{Headline}"));
         // An offer is never fixed; a spacer has nothing to choose.
@@ -64,6 +65,39 @@ public class TemplateDefaultPageTests(DemoApp app) : IClassFixture<DemoApp>
         html = await page.HtmlAsync();
         Assert.True(Chosen(html, $"content-default-{Headline}"));
         Assert.Equal(1, RenderedPage.Count(html, $"required-{Headline}"));
+    }
+
+    // Fixed means the same text in every campaign, not that the block must be there (owner, 2026-11-03:
+    // "Any fixed block can be removed"): the fixed greeting offers "Every campaign must have it", ticked as
+    // saved; unticked, the page says what happens while campaigns cannot leave a block out, and the
+    // template saves it fixed and not required. A campaign started from it still gets the greeting.
+    [Fact]
+    public async Task A_fixed_block_can_be_marked_not_required_and_is_saved_so()
+    {
+        (Guid id, OpenCampaignPage page) = await this.OpenMembershipAsync();
+        await using OpenCampaignPage _ = page;
+        string html = await page.HtmlAsync();
+        Assert.True(Chosen(html, $"content-fixed-{Greeting}"));
+        Assert.True(Chosen(html, $"required-{Greeting}"));
+        Assert.Equal(0, RenderedPage.Count(html, $"fixed-optional-note-{Greeting}"));
+
+        await page.TickAsync($"required-{Greeting}", false);
+
+        html = await page.HtmlAsync();
+        Assert.False(Chosen(html, $"required-{Greeting}"));
+        Assert.Equal(
+            "Campaigns can't leave a block out yet, so for now this one still goes out in every campaign.",
+            RenderedPage.Named(html, $"fixed-optional-note-{Greeting}"));
+        CampaignStore store = Store(app);
+        await page.ClickAsync("save-button");
+
+        CampaignTemplate saved = await store.LoadTemplateAsync((await store.NewestAsync(DocumentKind.Template, id))!);
+        TemplateBlock greeting = saved.Blocks[Greeting];
+        Assert.NotNull(greeting.Fixed);
+        Assert.False(greeting.Required);
+        Slot<string> started = (await DraftSession.StartAsync(store, id))!.Editor.Draft.Text(greeting.Label);
+        Assert.Equal(Origin.Template, started.Origin);
+        Assert.Equal(DraftFixtures.Membership.Blocks[Greeting].Fixed, saved.Blocks[Greeting].Fixed);
     }
 
     [Fact]
