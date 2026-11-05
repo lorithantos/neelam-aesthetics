@@ -12,9 +12,12 @@
 @attribute [Authorize(Policy = Features.Look)]
 @rendermode InteractiveServer
 @inherits WatchedComponent<DocumentVersion>
+@implements IHandleEvent
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
+@inject EditingTabs OpenTabs
+@inject TabCircuit Circuit
 
 <PageTitle>Look</PageTitle>
 
@@ -40,6 +43,12 @@ else if (_fields is not null)
        chose here stay until she loads the latest, which loads the page again. *@
     <ModifiedNotice Words="ChangeWords.Look" Change="StorageChange" OnLoadLatest="LoadLatest"
                     Unsaved="Loading the latest replaces any colours you changed here and have not saved." />
+    @* Another tab on her look has done something since this one opened (2026-11-05), said as soon as it
+       does, as on the campaign page; a card as the notice above is, said politely. *@
+    @if (_tab?.OthersEditing == true)
+    {
+        <section class="card" role="status" data-testid="other-tab-notice"><p>@ChangeWords.OtherTab</p></section>
+    }
 
     <div class="workspace">
         <section class="workspace-main card" aria-labelledby="colours-heading">
@@ -88,7 +97,7 @@ else if (_fields is not null)
                 </ul>
             }
             <p>
-                <button class="button primary" disabled="@(problems.Count > 0)" @onclick="SaveAsync">Save</button>
+                <button class="button primary" data-testid="look-save" disabled="@(problems.Count > 0)" @onclick="SaveAsync">Save</button>
                 @if (_history!.Versions.FirstOrDefault() is { Look: not { IsStandard: true } })
                 {
                     <button class="button" data-testid="look-use-standard" @onclick="UseStandardAsync">Use the standard look</button>
@@ -215,6 +224,8 @@ else if (_fields is not null)
             _denied = reason;
             return;
         }
+        // Made here, opened only once the page is live (OnAfterRender), never while rendered ahead of time.
+        _tab = new EditingTabNotice(OpenTabs, Circuit, OnCircuitAsync, Logs.CreateLogger<EditingTabNotice>());
         _times = await Workspace.TimesAsync(_client);
         _history = await Stores.LookHistoryAsync(_client);
         // The newest look this page shows (her newest, readable or not), which Undo acts on and the
@@ -258,6 +269,28 @@ else if (_fields is not null)
 
     // Her look as this page shows it, which the page's look at storage watches.
     private HeldDocument? _held;
+
+    // This tab among the tabs open on her client's look (2026-11-05), so another tab's editing is said at once.
+    // Null until the page knows its client.
+    private EditingTabNotice? _tab;
+
+    // Live on its circuit, the watch started (WatchedComponent.OnAfterRender), never while rendered ahead of
+    // time: the tab is open on the look of the client the page shows, whose one look it is.
+    protected override void OnAfterRender(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+        if (_client is { } client && _fields is not null) _tab?.Open(client, TabSubject.Look);
+    }
+
+    // Everything she does here is editing (owner, 2026-11-05: "It feels weird not to count loading - that's a
+    // serious update, no? Just as undo is (since that's effectively a reload as is Restore)"): each colour she
+    // changes and each action, Save, Undo, Restore and Load the latest among them, tells the other tabs on
+    // her look once it has run, before the page loads again. Only she makes events: opening, the watch and
+    // another tab's news draw the page without one.
+    Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) =>
+        HandleHerEventAsync(callback, arg, () => _tab?.Typed());
+
+    protected override void Disposing() => _tab?.Dispose();
 
     // One of the page's own changes: what storage says meanwhile is not news. A change that is made loads
     // the page again (the look is drawn in each page's head); one refused leaves it, read again.

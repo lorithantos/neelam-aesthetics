@@ -111,6 +111,34 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
     /// <summary>After each of them, done or not: the campaign page keeps its working copy again.</summary>
     protected virtual Task AfterActingAsync() => Task.CompletedTask;
 
+    /// <summary>
+    /// One of her events on the page, a change in a field or a click, for a page that implements
+    /// <see cref="IHandleEvent"/> and hands each one here: drawn as <see cref="ComponentBase"/> draws an event,
+    /// at once while it runs and again once it is done, with <paramref name="then"/> once it has run, done or
+    /// not. Fields inside the page tell it of theirs (<see cref="FieldsComponent"/>). Only she makes events;
+    /// what the page does by itself (opening, the watch, another tab's news) comes by other ways and never
+    /// reaches <paramref name="then"/>.
+    /// </summary>
+    protected async Task HandleHerEventAsync(EventCallbackWorkItem callback, object? arg, Action then)
+    {
+        var handled = callback.InvokeAsync(arg);
+        if (!handled.IsCompleted) StateHasChanged();
+        try
+        {
+            await handled;
+        }
+        catch when (handled.IsCanceled)
+        {
+            // As ComponentBase: a handler cancelled is not drawn again.
+            return;
+        }
+        finally
+        {
+            then();
+        }
+        StateHasChanged();
+    }
+
     /// <summary>With the circuit, after the watch: what else the page holds that must stop with it.</summary>
     protected virtual void Disposing()
     {

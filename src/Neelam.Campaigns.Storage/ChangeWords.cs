@@ -55,6 +55,13 @@ public sealed class ChangeWords
 
     public static readonly ChangeWords Ladders = new(changed: "your tier name ladders were");
 
+    /// <summary>
+    /// When another tab on the template or the look has done something since this page opened (EditingTabs):
+    /// the template and Look pages' notice. They keep no working copy, so what is kept is the last save; the
+    /// campaign page's own is <see cref="WorkingCopyWords.OtherTab"/>. A draft for Priya (2026-11-05).
+    /// </summary>
+    public const string OtherTab = "Someone is also editing this in another tab. Whichever tab saves last is what's kept.";
+
     /// <summary>The words for one of her own documents, by what a page watches it under (<see cref="WatchSubject"/>).</summary>
     /// <exception cref="ArgumentOutOfRangeException">Not one of her documents.</exception>
     public static ChangeWords For(string subject) => subject switch

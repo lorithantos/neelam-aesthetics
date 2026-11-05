@@ -9,12 +9,15 @@
 @attribute [Authorize(Policy = Features.Templates)]
 @rendermode InteractiveServer
 @inherits WatchedComponent<SaveRef>
+@implements IHandleEvent
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
 @inject BlockCatalog Blocks
 @inject IAuthorizationService Authorization
 @inject ILogger<TemplateEdit> Log
+@inject EditingTabs OpenTabs
+@inject TabCircuit Circuit
 
 <PageTitle>@Title</PageTitle>
 
@@ -73,6 +76,12 @@ else if (_session is not null)
        stays until she loads the latest, and the notice says what loading does to it. *@
     <ModifiedNotice Words="ChangeWords.Template" Change="StorageChange" OnLoadLatest="LoadLatestAsync"
                     Unsaved="@(_session.HasUnsavedChanges ? ModifiedNotice.ChangesNotSaved : null)" />
+    @* Another tab on this template has done something since this one opened (2026-11-05), said as soon as
+       it does, as on the campaign page; a card as the notice above is, said politely. *@
+    @if (_tab?.OthersEditing == true)
+    {
+        <section class="card" role="status" data-testid="other-tab-notice"><p>@ChangeWords.OtherTab</p></section>
+    }
 
     <div class="workspace">
         <div class="workspace-main">
@@ -361,6 +370,39 @@ else if (_session is not null)
     // Starting a campaign is the Campaigns feature, granted apart from this page's Templates.
     private bool _canStartCampaigns;
 
+    private ClientName? _client;
+
+    // This tab among the template's open tabs (2026-11-05), so another tab's editing is said at once. Null
+    // until the page knows its client.
+    private EditingTabNotice? _tab;
+
+    // Live on its circuit, never while rendered ahead of time: the tab is open on the template the page
+    // shows once it is saved, so a new one's opens with its first save; another tab could not open it before.
+    private void OpenTab()
+    {
+        if (_client is { } client && _session is { Latest: not null, Id: { } id }) _tab?.Open(client, TabSubject.Template(id));
+    }
+
+    // Live on its circuit, the watch started (WatchedComponent.OnAfterRender).
+    protected override void OnAfterRender(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+        OpenTab();
+    }
+
+    // Everything she does here is editing (owner, 2026-11-05: "It feels weird not to count loading - that's a
+    // serious update, no? Just as undo is (since that's effectively a reload as is Restore)"): each change in
+    // a field and each action, Save, Undo, Restore and Load the latest among them, tells the other tabs on the
+    // template once it has run. A first save opens the tab first, so it counts on the new id. Only she makes
+    // events: opening, the watch and another tab's news draw the page without one.
+    Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) => HandleHerEventAsync(callback, arg, () =>
+    {
+        OpenTab();
+        _tab?.Typed();
+    });
+
+    protected override void Disposing() => _tab?.Dispose();
+
     protected override async Task OnInitializedAsync()
     {
         var (client, reason) = await Workspace.ClientDataAsync();
@@ -369,6 +411,9 @@ else if (_session is not null)
             _denied = reason;
             return;
         }
+        _client = client;
+        // Made here, opened only once the page is live (OnAfterRender), never while rendered ahead of time.
+        _tab = new EditingTabNotice(OpenTabs, Circuit, OnCircuitAsync, Logs.CreateLogger<EditingTabNotice>());
         if (AuthenticationState is not null)
             _canStartCampaigns = (await Authorization.AuthorizeAsync((await AuthenticationState).User, Features.Campaigns)).Succeeded;
 
