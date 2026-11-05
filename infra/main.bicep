@@ -83,12 +83,15 @@ var proofreadKeyUri = 'https://${vaultName}${environment().suffixes.keyvaultDns}
 // activity trail (one row per action, deletions included). Membership is Entra's, not a table's. Never
 // an index of saves and never their content, so a deleted save's contents still cannot be recovered.
 // knownItems holds each client's known items (treatments, benefit lines, tiers), one partition per client.
+// editingTabs holds one row per open editor tab (ids and times only), so a tab can see the others on any
+// instance; a sweep removes the rows of tabs whose instance went away.
 var tableNames = [
   'clients'
   'supportGrants'
   'approvals'
   'activity'
   'knownItems'
+  'editingTabs'
 ]
 
 // Monitoring. Both accept Entra-signed telemetry only, so the connection string the site is given

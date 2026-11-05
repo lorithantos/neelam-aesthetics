@@ -58,6 +58,7 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
     internal InMemoryActivityLog Activity { get; } = new();
     internal InMemoryKnownItems KnownItems { get; } = new();
     internal InMemoryStartRecords StartRecords { get; } = new();
+    internal InMemoryTabRows TabRows => field ??= new(Clock);
     internal InMemoryWorkingCopyDisk Disk { get; } = new();
     internal ManualClock Clock { get; } = new(new DateTimeOffset(2026, 10, 3, 12, 0, 0, TimeSpan.Zero));
 
@@ -89,6 +90,7 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
             services.RemoveAll<IClientDirectory>().AddSingleton<IClientDirectory>(Clients);
             services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(Grants);
             services.RemoveAll<IKnownItemStore>().AddSingleton<IKnownItemStore>(KnownItems);
+            services.RemoveAll<ITabRows>().AddSingleton<ITabRows>(TabRows);
             // Apart from Containers: the record of starts is written in the background while a test's
             // pages read the settings container, which the in-memory container does not lock for.
             services.RemoveAll<IStartRecords>().AddSingleton<IStartRecords>(StartRecords);

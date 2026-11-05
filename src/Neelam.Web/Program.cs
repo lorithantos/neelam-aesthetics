@@ -200,6 +200,8 @@ builder.Services.AddOptions<HeartbeatOptions>()
 builder.Services.AddHostedService<Heartbeat>();
 builder.Services.AddSingleton<IKnownItemStore>(services =>
     new KnownItemTable(storageClients, services.GetRequiredService<ILogger<KnownItemTable>>()));
+// The tabs being edited, shared between instances (the editing-tabs beat reads and writes it).
+builder.Services.AddSingleton<ITabRows>(_ => new EditingTabTable(storageClients));
 
 // THE ROLLOUT SWITCH. Every page and endpoint already names its policy; Prototype lets everyone
 // through (and refuses to start in Production), Enforced requires the Entra app role. Moving to

@@ -235,6 +235,55 @@ internal sealed class InMemoryKnownItems : IKnownItemStore
     }
 }
 
+/// <summary>
+/// The editing tabs table: real <c>TableEntity</c> rows written through the real table's own mapping, each
+/// given a <c>Timestamp</c> from the test clock on every write, as the service does.
+/// </summary>
+internal sealed class InMemoryTabRows(TimeProvider clock) : ITabRows
+{
+    private readonly Dictionary<(string Partition, string Row), Azure.Data.Tables.TableEntity> _rows = [];
+
+    /// <summary>Every row in the table, whichever client's.</summary>
+    public IReadOnlyList<Azure.Data.Tables.TableEntity> Rows
+    {
+        get { lock (_rows) return _rows.Values.ToList(); }
+    }
+
+    public Task WriteAsync(ClientName client, TabSubject subject, Guid tabId, DateTimeOffset? lastTyped,
+        CancellationToken cancellationToken = default)
+    {
+        var row = EditingTabTable.FromTab(client, subject, tabId, lastTyped);
+        row.Timestamp = clock.GetUtcNow();
+        lock (_rows) _rows[(row.PartitionKey, row.RowKey)] = row;
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<TabRow>> ListAsync(ClientName client, TabSubject subject,
+        CancellationToken cancellationToken = default)
+    {
+        var partition = EditingTabTable.PartitionKey(client, subject);
+        lock (_rows)
+            return Task.FromResult<IReadOnlyList<TabRow>>(_rows.Values
+                .Where(r => r.PartitionKey == partition).Select(r => EditingTabTable.ToTab(client, subject, r)).ToList());
+    }
+
+    public Task DeleteAsync(ClientName client, TabSubject subject, Guid tabId, CancellationToken cancellationToken = default)
+    {
+        lock (_rows) _rows.Remove((EditingTabTable.PartitionKey(client, subject), EditingTabTable.RowKeyOf(tabId)));
+        return Task.CompletedTask;
+    }
+
+    public Task<int> SweepAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
+    {
+        lock (_rows)
+        {
+            var old = _rows.Where(r => r.Value.Timestamp < olderThan).Select(r => r.Key).ToList();
+            foreach (var key in old) _rows.Remove(key);
+            return Task.FromResult(old.Count);
+        }
+    }
+}
+
 /// <summary>A storage account's containers, each an <see cref="InMemoryBlobBackend"/> made on first use.</summary>
 internal sealed class InMemoryContainers
 {
