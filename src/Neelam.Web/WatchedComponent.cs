@@ -113,29 +113,44 @@ public abstract class WatchedComponent<T> : ComponentBase, IDisposable where T :
 
     /// <summary>
     /// One of her events on the page, a change in a field or a click, for a page that implements
-    /// <see cref="IHandleEvent"/> and hands each one here: drawn as <see cref="ComponentBase"/> draws an event,
-    /// at once while it runs and again once it is done, with <paramref name="then"/> once it has run, done or
-    /// not. Fields inside the page tell it of theirs (<see cref="FieldsComponent"/>). Only she makes events;
-    /// what the page does by itself (opening, the watch, another tab's news) comes by other ways and never
-    /// reaches <paramref name="then"/>.
+    /// <see cref="IHandleEvent"/> and hands each one here, with <paramref name="then"/> once it has run, done or
+    /// not. Drawn exactly as <see cref="ComponentBase"/> draws an event: once as soon as the handler returns, so
+    /// a handler done at once is drawn once, and one still running is drawn again when it is done, unless it
+    /// was cancelled or failed. A failure still escapes as the handler's own; one from
+    /// <paramref name="then"/> after it is logged by its type, never in its place. Fields inside the page tell
+    /// it of theirs (<see cref="FieldsComponent"/>). Only she makes events; what the page does by itself
+    /// (opening, the watch, another tab's news) comes by other ways and never reaches <paramref name="then"/>.
     /// </summary>
-    protected async Task HandleHerEventAsync(EventCallbackWorkItem callback, object? arg, Action then)
+    protected Task HandleHerEventAsync(EventCallbackWorkItem callback, object? arg, Action then)
     {
         var handled = callback.InvokeAsync(arg);
-        if (!handled.IsCompleted) StateHasChanged();
+        var running = handled.Status is not (TaskStatus.RanToCompletion or TaskStatus.Canceled);
+        if (!running) then();
+        StateHasChanged();
+        return running ? AfterHerEventAsync(handled, then) : Task.CompletedTask;
+    }
+
+    private async Task AfterHerEventAsync(Task handled, Action then)
+    {
         try
         {
             await handled;
         }
-        catch when (handled.IsCanceled)
+        catch
         {
-            // As ComponentBase: a handler cancelled is not drawn again.
-            return;
+            try
+            {
+                then();
+            }
+            catch (Exception ex)
+            {
+                Logs.CreateLogger(GetType()).LogWarning("Could not tell the other tabs of an event that failed: {Error}.", ex.GetType().Name);
+            }
+            // As ComponentBase: a handler cancelled is not drawn again, and one that failed escapes as it was.
+            if (handled.IsCanceled) return;
+            throw;
         }
-        finally
-        {
-            then();
-        }
+        then();
         StateHasChanged();
     }
 

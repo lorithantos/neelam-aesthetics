@@ -43,15 +43,25 @@ internal static class OtherTabs
 
 /// <summary>
 /// No browser to move: what a page asks to load is recorded and the page stays as it is, as the Look page's
-/// change and a new template's first save would otherwise leave nothing to look at.
+/// change and a new template's first save would otherwise leave nothing to look at. A move within the page
+/// (no load) changes its address, as the router's would; loading the page again is left to the test, which
+/// closes the page and opens a new one at the address asked for.
 /// </summary>
 internal sealed class StayingNavigation : NavigationManager
 {
-    public StayingNavigation() => Initialize("http://localhost/", "http://localhost/");
+    /// <param name="address">Where the page is, relative to the site, as for <see cref="OpenCampaignPage.OpenAtAsync{TComponent}"/>.</param>
+    public StayingNavigation(string address = "") => Initialize("http://localhost/", "http://localhost/" + address);
 
-    public List<string> Asked { get; } = [];
+    public List<(string Uri, NavigationOptions Options)> Asked { get; } = [];
 
-    protected override void NavigateToCore(string uri, NavigationOptions options) => Asked.Add(uri);
+    /// <summary>The last address asked for, relative to the site.</summary>
+    public string LastAsked => ToBaseRelativePath(ToAbsoluteUri(Asked[^1].Uri).ToString());
+
+    protected override void NavigateToCore(string uri, NavigationOptions options)
+    {
+        Asked.Add((uri, options));
+        if (!options.ForceLoad) Uri = ToAbsoluteUri(uri).ToString();
+    }
 }
 
 public class TemplateEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
@@ -234,7 +244,7 @@ public class TemplateEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
 
         await a.ClickAsync("save-button");
 
-        var id = Guid.Parse(Assert.Single(navigation.Asked).Split('/')[^1]);
+        var id = Guid.Parse(Assert.Single(navigation.Asked).Uri.Split('/')[^1]);
         Assert.Equal(TabSubject.Template(id),
             Assert.Single(OtherTabs.Of(app).Snapshot(), tab => tab.Client == DemoApp.Client && tab.Subject.Kind == "template").Subject);
         await using var b = await Open(id);
@@ -272,21 +282,54 @@ public class LookEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
 
     private static readonly ClientName Elsewhere = new("test-salon-two");
 
-    private Task<OpenCampaignPage> Open(params object[] replacing) =>
-        OpenCampaignPage.OpenAsync<LookPage>(app, StalePages.NoParameters, [.. replacing, StalePages.Clock(app), new StayingNavigation()]);
+    // The Look page at its address, or at another (relative to the site); what is given goes in place of the
+    // app's own, a navigation among it standing at the same address.
+    private Task<OpenCampaignPage> OpenAt(string address, params object[] replacing) =>
+        OpenCampaignPage.OpenAtAsync<LookPage>(app, address, StalePages.NoParameters,
+            [.. replacing, StalePages.Clock(app), new StayingNavigation(address)]);
+
+    private Task<OpenCampaignPage> Open(params object[] replacing) => OpenAt("look", replacing);
 
     private bool AnyTyped(ClientName? client = null) => OtherTabs.AnyTyped(app, client ?? DemoApp.Client, TabSubject.Look);
 
-    private async Task TellsTheOtherTab(Func<OpenCampaignPage, Task> action)
+    // Two tabs on her look, the app's clock moved on, and what she does in the first tells the second, as a
+    // browser has it: each action loads the page again (the look is drawn in each page's head), so the page
+    // that acted closes with its circuit, its tab with it, and the second tab's notice goes; the page opened
+    // again at the address it asked for says so once more, and the address it ends at is the one shown.
+    private async Task TellsTheOtherTab(Func<OpenCampaignPage, Task> action, string endsAt)
     {
-        await using var a = await Open();
-        await using var b = await Open();
-        StalePages.Later(app);
-        Assert.False(AnyTyped());
+        var navigation = new StayingNavigation("look");
+        var a = await Open(navigation);
+        var closed = false;
+        try
+        {
+            await using var b = await Open();
+            StalePages.Later(app);
+            Assert.False(AnyTyped());
 
-        await action(a);
+            await action(a);
 
-        OtherTabs.IsTheNotice(await OtherTabs.Told(b));
+            var (_, loaded) = Assert.Single(navigation.Asked);
+            Assert.True(loaded.ForceLoad);
+            closed = true;
+            await a.DisposeAsync();
+            await OtherTabs.Untold(b);
+
+            var reloading = new StayingNavigation(navigation.LastAsked);
+            await using var again = await OpenAt(navigation.LastAsked, reloading);
+
+            OtherTabs.IsTheNotice(await OtherTabs.Told(b));
+            Assert.Equal(0, RenderedPage.Count(await again.HtmlAsync(), OtherTabs.Notice));
+            // Taken off the address within the page, without loading it again, so a reload of hers tells no one.
+            var (_, moved) = Assert.Single(reloading.Asked);
+            Assert.False(moved.ForceLoad);
+            Assert.True(moved.ReplaceHistoryEntry);
+            Assert.Equal("http://localhost/" + endsAt, reloading.Uri);
+        }
+        finally
+        {
+            if (!closed) await a.DisposeAsync();
+        }
     }
 
     private Task SavedLook() => StalePages.Later(app).SaveLookAsync(DemoApp.Client, Green, Actor.Demo);
@@ -311,14 +354,14 @@ public class LookEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
     [Fact]
     public async Task A_save_tells_the_other_tab()
     {
-        await TellsTheOtherTab(a => a.ClickAsync("look-save"));
+        await TellsTheOtherTab(a => a.ClickAsync("look-save"), endsAt: "look?saved=own");
     }
 
     [Fact]
     public async Task Use_the_standard_look_tells_the_other_tab()
     {
         await SavedLook();
-        await TellsTheOtherTab(a => a.ClickAsync("look-use-standard"));
+        await TellsTheOtherTab(a => a.ClickAsync("look-use-standard"), endsAt: "look?saved=standard");
     }
 
     [Fact]
@@ -329,7 +372,7 @@ public class LookEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
         {
             await a.ClickAsync("look-undo");
             await a.ClickAsync("look-undo-confirm");
-        });
+        }, endsAt: "look?saved=undone");
     }
 
     // Undone in a tab since closed, so only the restore can tell the other.
@@ -342,31 +385,29 @@ public class LookEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
             await undoing.ClickAsync("look-undo");
             await undoing.ClickAsync("look-undo-confirm");
         }
-        await TellsTheOtherTab(a => a.ClickAsync("look-restore"));
+        await TellsTheOtherTab(a => a.ClickAsync("look-restore"), endsAt: "look?saved=restored");
     }
 
     [Fact]
     public async Task Load_the_latest_tells_the_other_tab()
     {
-        await using var a = await Open();
-        await using var b = await Open();
-        StalePages.Later(app);
-        // Saved elsewhere: both tabs are offered the latest, and neither has done anything.
-        await SavedLook();
-        await a.WaitForAsync("load-latest");
-        await b.WaitForAsync("load-latest");
-        Assert.False(AnyTyped());
-        Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), OtherTabs.Notice));
+        await TellsTheOtherTab(async a =>
+        {
+            // Saved elsewhere: both tabs are offered the latest, and neither has done anything.
+            await SavedLook();
+            await a.WaitForAsync("load-latest");
+            Assert.False(AnyTyped());
 
-        await a.ClickAsync("load-latest");
-
-        OtherTabs.IsTheNotice(await OtherTabs.Told(b));
+            await a.ClickAsync("load-latest");
+        }, endsAt: "look");
     }
 
+    // At its plain address, the page has nothing to say for an action of hers, and asks nothing of the address.
     [Fact]
     public async Task Opening_the_look_and_drawing_it_again_tell_no_one()
     {
-        await using var a = await Open();
+        var navigation = new StayingNavigation("look");
+        await using var a = await Open(navigation);
         await using var b = await Open();
         StalePages.Later(app);
 
@@ -377,6 +418,37 @@ public class LookEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal(2, OtherTabs.Of(app).Snapshot().Count(tab => tab.Client == DemoApp.Client && tab.Subject == TabSubject.Look));
         Assert.False(AnyTyped());
         Assert.Equal(0, RenderedPage.Count(await a.HtmlAsync(), OtherTabs.Notice));
+        Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), OtherTabs.Notice));
+        Assert.Empty(navigation.Asked);
+    }
+
+    // Only her own action's mark tells: anything else typed there opens the page as ever, and tells no one.
+    [Fact]
+    public async Task Opening_the_look_with_something_else_where_the_mark_goes_tells_no_one()
+    {
+        await using var b = await Open();
+        StalePages.Later(app);
+        var navigation = new StayingNavigation("look?acted=yes");
+        await using var a = await OpenAt("look?acted=yes", navigation);
+
+        Assert.Equal(1, RenderedPage.Count(await a.HtmlAsync(), "look-sample"));
+        Assert.False(AnyTyped());
+        Assert.Empty(navigation.Asked);
+    }
+
+    // After one of her actions elsewhere was said and shown (look?saved=own), a reload or a link to that
+    // address carries no mark of hers, so it tells no one.
+    [Fact]
+    public async Task Opening_the_look_at_a_saved_address_tells_no_one()
+    {
+        await using var b = await Open();
+        StalePages.Later(app);
+        var navigation = new StayingNavigation("look?saved=own");
+        await using var a = await OpenAt("look?saved=own", navigation);
+
+        Assert.Equal("Saved. Every page now has your look.", RenderedPage.Named(await a.HtmlAsync(), "look-saved"));
+        Assert.False(AnyTyped());
+        Assert.Empty(navigation.Asked);
         Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), OtherTabs.Notice));
     }
 

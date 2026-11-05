@@ -171,6 +171,19 @@ else if (_fields is not null)
     [SupplyParameterFromQuery]
     public string? Saved { get; set; }
 
+    /// <summary>
+    /// This page was loaded again by her own action in the page before it (?acted=1): a mark that carries
+    /// nothing, set only by her click, so the page that opens tells the other tabs once (2026-11-05). Text, not
+    /// a bool, so an address typed with anything else there still opens the page; only "1" is the mark.
+    /// </summary>
+    [SupplyParameterFromQuery(Name = ActedMark)]
+    public string? Acted { get; set; }
+
+    private const string ActedMark = "acted";
+
+    // Whether this page has told the other tabs of the action that loaded it.
+    private bool _actedTold;
+
     private string? _denied;
     private ClientName? _client;
     private LookHistory? _history;
@@ -279,14 +292,26 @@ else if (_fields is not null)
     protected override void OnAfterRender(bool firstRender)
     {
         base.OnAfterRender(firstRender);
-        if (_client is { } client && _fields is not null) _tab?.Open(client, TabSubject.Look);
+        if (_client is not { } client || _fields is null) return;
+        _tab?.Open(client, TabSubject.Look);
+        // Loaded again by her own action, which closed the page before this one and its tab with it: told
+        // once more from here, the one render that tells, since only her click sets the mark. The mark comes
+        // off the address without loading the page again, so a reload of hers or a link to it tells no one.
+        if (Acted != "1" || _actedTold) return;
+        _actedTold = true;
+        _tab?.Typed();
+        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter(ActedMark, (string?)null), replace: true);
     }
+
+    // Each action loads the page again (the look is drawn in each page's head), marked as hers.
+    private static string Marked(string address) => $"{address}{(address.Contains('?') ? '&' : '?')}{ActedMark}=1";
 
     // Everything she does here is editing (owner, 2026-11-05: "It feels weird not to count loading - that's a
     // serious update, no? Just as undo is (since that's effectively a reload as is Restore)"): each colour she
     // changes and each action, Save, Undo, Restore and Load the latest among them, tells the other tabs on
-    // her look once it has run, before the page loads again. Only she makes events: opening, the watch and
-    // another tab's news draw the page without one.
+    // her look once it has run. An action then loads the page again, closing this tab; the page it loads,
+    // marked as hers, tells them again once it is open (OnAfterRender). Only she makes events: opening, the
+    // watch and another tab's news draw the page without one.
     Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) =>
         HandleHerEventAsync(callback, arg, () => _tab?.Typed());
 
@@ -295,10 +320,10 @@ else if (_fields is not null)
     // One of the page's own changes: what storage says meanwhile is not news. A change that is made loads
     // the page again (the look is drawn in each page's head); one refused leaves it, read again.
     private Task ActingAsync(Func<Task<string?>> action) =>
-        ActingAsync(action, address => Navigation.NavigateTo(address, forceLoad: true));
+        ActingAsync(action, address => Navigation.NavigateTo(Marked(address), forceLoad: true));
 
     // "Load the latest": the page as it would open now. Only ever on her click.
-    private void LoadLatest() => Navigation.NavigateTo("look", forceLoad: true);
+    private void LoadLatest() => Navigation.NavigateTo(Marked("look"), forceLoad: true);
 
     private Task SaveAsync() => ActingAsync(async () =>
     {
