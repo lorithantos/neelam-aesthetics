@@ -202,6 +202,9 @@ builder.Services.AddSingleton<IKnownItemStore>(services =>
     new KnownItemTable(storageClients, services.GetRequiredService<ILogger<KnownItemTable>>()));
 // The tabs being edited, shared between instances (the editing-tabs beat reads and writes it).
 builder.Services.AddSingleton<ITabRows>(_ => new EditingTabTable(storageClients));
+// The editing-tabs beat (owner, 2026-11-05: "One minute intervals only while someone is active"): every
+// EditingTabs:Interval while a tab is open here, this instance's rows written and the others' read.
+builder.Services.AddHostedService<EditingTabsBeat>();
 
 // THE ROLLOUT SWITCH. Every page and endpoint already names its policy; Prototype lets everyone
 // through (and refuses to start in Production), Enforced requires the Entra app role. Moving to

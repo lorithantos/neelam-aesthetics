@@ -63,7 +63,7 @@ public sealed class Heartbeat(
         }
     }
 
-    private static string Describe(Exception ex) => ex is RequestFailedException storage
+    internal static string Describe(Exception ex) => ex is RequestFailedException storage
         ? $"{ex.GetType().Name} {storage.Status} {storage.ErrorCode}"
         : ex.GetType().Name;
 }

@@ -419,6 +419,74 @@ public class EditingTabsTests
         Assert.True(reached);
     }
 
+    // A tab closes by joining the closed before it leaves the open. A beat that took it as closed (and
+    // deleted its row) must not see it open in that moment, or it would write the row back.
+    [Fact]
+    public void A_tab_the_beat_took_as_closed_is_not_seen_open_while_it_closes()
+    {
+        var clock = new SteppingClock(_clock);
+        var tabs = new EditingTabs(clock, Options.Create(_settings), _log);
+        var open = tabs.Register(Client, Campaign, Guid.NewGuid(), () => { });
+        var closing = tabs.Register(Client, Campaign, Guid.NewGuid(), () => { });
+
+        // A beat in the moment the tab is among the closed and not yet out of the open.
+        IReadOnlyList<ClosedTab> taken = [];
+        IReadOnlyList<LocalTab> seen = [];
+        clock.OnNextRead = () =>
+        {
+            taken = tabs.DrainClosed();
+            seen = tabs.Snapshot();
+        };
+        closing.Dispose();
+
+        Assert.Equal([new ClosedTab(Client, Campaign, closing.TabId)], taken.ToArray());
+        Assert.Equal([open.TabId], seen.Select(tab => tab.TabId).ToArray());
+    }
+
+    // Once the beat has taken a closed tab, a row of it read back (its delete failed, or a write of the
+    // beat before landed after) is still this instance's own for GoneAfter, by which time the row is stale.
+    [Fact]
+    public void A_closed_tab_s_row_is_this_instance_s_own_for_GoneAfter_after_the_beat_takes_it()
+    {
+        var (a, aTold) = Open();
+        var (closed, _) = Open();
+        closed.Dispose();
+        Pass(TimeSpan.FromMinutes(2));
+        Assert.Single(_tabs.DrainClosed());
+
+        // Past GoneAfter since it closed, short of it since the beat took it.
+        Pass(TimeSpan.FromMinutes(2));
+        _tabs.ApplyRemote(Client, Campaign, [new RemoteTab(closed.TabId, _clock.Now, _clock.Now)]);
+        Assert.False(a.OthersEditing);
+        Pass(_settings.GoneAfter - TimeSpan.FromMinutes(2) - Moment);
+        _tabs.ApplyRemote(Client, Campaign, [new RemoteTab(closed.TabId, _clock.Now, _clock.Now)]);
+        Assert.False(a.OthersEditing);
+        Assert.Equal(0, aTold.Count);
+
+        // Then forgotten: only a row written since, which nothing here writes, could count.
+        Pass(Moment);
+        _tabs.ApplyRemote(Client, Campaign, [new RemoteTab(closed.TabId, _clock.Now, _clock.Now)]);
+        Assert.True(a.OthersEditing);
+    }
+
+    // A tab that opens while another types, after the typing's own working-out looked at the tabs, is
+    // worked out as it opens rather than at the next beat.
+    [Fact]
+    public void A_tab_opened_while_another_types_is_worked_out_as_it_opens()
+    {
+        var clock = new SteppingClock(_clock);
+        var tabs = new EditingTabs(clock, Options.Create(_settings), _log);
+        var typist = tabs.Register(Client, Campaign, Guid.NewGuid(), () => { });
+        Pass(Moment);
+
+        // The other tab types after this one's opening time was read, before it is in.
+        clock.OnNextRead = typist.Typed;
+        var opening = tabs.Register(Client, Campaign, Guid.NewGuid(), () => { });
+
+        Assert.True(typist.LastTyped > opening.OpenedAt);
+        Assert.True(opening.OthersEditing);
+    }
+
     [Fact]
     public void The_settings_default_to_the_plan_and_refuse_a_row_gone_before_the_next_beat()
     {
@@ -442,5 +510,26 @@ public class EditingTabsTests
         public int Count => Volatile.Read(ref _count);
 
         public void Tell() => Interlocked.Increment(ref _count);
+    }
+
+    /// <summary>
+    /// The test clock, but the next reading first moves it on a second and runs <see cref="OnNextRead"/>,
+    /// then answers the time from before: something happening between a reading and what follows it.
+    /// </summary>
+    private sealed class SteppingClock(ManualClock clock) : TimeProvider
+    {
+        public Action? OnNextRead { get; set; }
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            var now = clock.Now;
+            if (OnNextRead is { } then)
+            {
+                OnNextRead = null;
+                clock.Now = now + Moment;
+                then();
+            }
+            return now;
+        }
     }
 }

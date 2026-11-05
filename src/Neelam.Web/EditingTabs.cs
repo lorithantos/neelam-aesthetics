@@ -33,13 +33,16 @@ public sealed class EditingTabs(TimeProvider clock, IOptions<EditingTabsOptions>
     private readonly ConcurrentDictionary<(ClientName Client, TabSubject Subject, Guid TabId), EditingTab> _tabs = new();
     private readonly ConcurrentDictionary<(ClientName Client, TabSubject Subject), ImmutableArray<RemoteTab>> _remote = new();
     private readonly ConcurrentQueue<ClosedTab> _closed = new();
+    // Closed tabs' ids, by when they closed or the beat took them, whichever was later: kept GoneAfter.
+    private readonly ConcurrentDictionary<Guid, DateTimeOffset> _closedLately = new();
     private readonly Lock _evaluating = new();
     private TaskCompletionSource _opened = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     /// <summary>
     /// Registers a tab opened now. <paramref name="changed"/> is called whenever the tab's
     /// <see cref="EditingTab.OthersEditing"/> flips, on the thread that flipped it, so it should only hand
-    /// the news on to the page's circuit and return. Disposing the result closes the tab.
+    /// the news on to the page's circuit and return. Disposing the result closes the tab. The tab's notice
+    /// is worked out once as it opens, so it may be told before this returns.
     /// </summary>
     /// <param name="circuitId">The circuit the tab's page runs on, for <see cref="SetConnected"/>.</param>
     public EditingTab Register(ClientName client, TabSubject subject, Guid circuitId, Action changed)
@@ -48,6 +51,9 @@ public sealed class EditingTabs(TimeProvider clock, IOptions<EditingTabsOptions>
         _tabs[tab.Key] = tab;
         // After the tab is in, so a wait that looked before and found none is woken.
         Interlocked.Exchange(ref _opened, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+        // Another tab that typed after this one's opening time was read, while it was not yet in, was
+        // worked out without it: work it out now rather than at the next beat.
+        Evaluate(other => ReferenceEquals(other, tab), except: null);
         return tab;
     }
 
@@ -75,15 +81,19 @@ public sealed class EditingTabs(TimeProvider clock, IOptions<EditingTabsOptions>
 
     /// <summary>
     /// Replaces what is known of the tabs on other instances for this client and subject with
-    /// <paramref name="rows"/>, as the beat read them, leaving out this instance's own tabs, open or closed
-    /// and not yet deleted; then tells the tabs here whose notice flipped. Kept only while a tab here has
-    /// the subject open.
+    /// <paramref name="rows"/>, as the beat read them, leaving out this instance's own tabs: open, or closed
+    /// within <see cref="EditingTabsOptions.GoneAfter"/> of the beat taking them (<see cref="DrainClosed"/>),
+    /// so a row whose delete failed, or that a beat wrote just as its tab closed, is never another tab here;
+    /// past that the row is stale. Then tells the tabs here whose notice flipped. Kept only while a tab here
+    /// has the subject open.
     /// </summary>
     public void ApplyRemote(ClientName client, TabSubject subject, IEnumerable<RemoteTab> rows)
     {
+        Forget(clock.GetUtcNow());
         // Open tabs first, then closed: a tab closes by joining the closed before it leaves the open, so
         // one closing meanwhile is in one or the other.
         var local = _tabs.Keys.Select(key => key.TabId).ToHashSet();
+        local.UnionWith(_closedLately.Keys);
         local.UnionWith(_closed.Select(c => c.TabId));
         var remote = rows.Where(row => !local.Contains(row.TabId)).ToImmutableArray();
         List<EditingTab> flipped;
@@ -96,19 +106,32 @@ public sealed class EditingTabs(TimeProvider clock, IOptions<EditingTabsOptions>
         Tell(flipped);
     }
 
-    /// <summary>This instance's open tabs, for the beat to write as rows.</summary>
+    /// <summary>
+    /// This instance's open tabs, for the beat to write as rows. A tab already closing is left out: it is
+    /// among the closed before it leaves the open, and a beat that took it there must not write it back.
+    /// </summary>
     public IReadOnlyList<LocalTab> Snapshot() =>
-        _tabs.Values.Select(tab =>
+        _tabs.Values.Where(tab => !tab.IsDisposed).Select(tab =>
         {
             var state = tab.State;
             return new LocalTab(tab.Client, tab.Subject, tab.TabId, state.LastTyped, state.Connected);
         }).ToList();
 
-    /// <summary>The tabs closed since the last call, each once, for the beat to delete their rows.</summary>
+    /// <summary>
+    /// The tabs closed since the last call, each once, for the beat to delete their rows. Their ids are
+    /// still this instance's own to <see cref="ApplyRemote"/> for <see cref="EditingTabsOptions.GoneAfter"/>
+    /// from now: every row the beat wrote for them was written before this.
+    /// </summary>
     public IReadOnlyList<ClosedTab> DrainClosed()
     {
+        var now = clock.GetUtcNow();
+        Forget(now);
         var drained = new List<ClosedTab>();
-        while (_closed.TryDequeue(out var closed)) drained.Add(closed);
+        while (_closed.TryDequeue(out var closed))
+        {
+            _closedLately[closed.TabId] = now;
+            drained.Add(closed);
+        }
         return drained;
     }
 
@@ -132,7 +155,10 @@ public sealed class EditingTabs(TimeProvider clock, IOptions<EditingTabsOptions>
 
     internal void Close(EditingTab tab)
     {
+        // Among the closed and kept as closed lately before it leaves the open. Kept from when it closed
+        // unless a beat took it meanwhile, which keeps it from then.
         _closed.Enqueue(new ClosedTab(tab.Client, tab.Subject, tab.TabId));
+        _closedLately.TryAdd(tab.TabId, clock.GetUtcNow());
         _tabs.TryRemove(tab.Key, out _);
         List<EditingTab> flipped;
         lock (_evaluating)
@@ -144,6 +170,13 @@ public sealed class EditingTabs(TimeProvider clock, IOptions<EditingTabsOptions>
     }
 
     private bool HasOpen((ClientName, TabSubject) edits) => _tabs.Values.Any(tab => tab.Edits == edits);
+
+    // Drops the closed tabs' ids kept GoneAfter, unless kept again meanwhile.
+    private void Forget(DateTimeOffset now)
+    {
+        foreach (var closed in _closedLately)
+            if (now - closed.Value >= _settings.GoneAfter) _closedLately.TryRemove(closed);
+    }
 
     private void Evaluate(Func<EditingTab, bool> which, EditingTab? except)
     {
