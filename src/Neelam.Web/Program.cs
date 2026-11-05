@@ -123,6 +123,15 @@ builder.Services.AddOptions<CampaignWatchOptions>()
     .Validate(watch => watch.Problem() is null,
         "CampaignWatch:Interval must lie between 00:00:10 and 00:02:00, such as 00:01:00.")
     .ValidateOnStart();
+// The editor tabs open on this instance, so a tab can say the same thing is also being edited in another:
+// another tab typed since it opened, within EditingTabs:QuietAfter, and is still there.
+builder.Services.AddSingleton<EditingTabs>();
+builder.Services.AddOptions<EditingTabsOptions>()
+    .Bind(builder.Configuration.GetSection(EditingTabsOptions.Section))
+    .Validate(tabs => tabs.Problem() is null,
+        "EditingTabs:Interval and EditingTabs:QuietAfter must be positive, EditingTabs:GoneAfter longer than the " +
+        "interval and EditingTabs:SweepAfter longer than that, such as 00:01:00, 00:05:00, 00:03:00 and 1.00:00:00.")
+    .ValidateOnStart();
 // The campaign page's working copy of unsaved edits (owner, 2026-11-03): written WorkingCopy:Debounce after
 // she stops changing the form, at least every WorkingCopy:Cap while she goes on, and swept once nobody has
 // written it for WorkingCopy:KeepUnchanged.
