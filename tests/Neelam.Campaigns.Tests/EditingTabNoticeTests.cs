@@ -84,6 +84,33 @@ public class EditingTabNoticeTests
         Assert.Equal(2, mineDrawn);
     }
 
+    // Told as it registers, before the page holds its tab (EditingTabs works a tab out as it opens): here a row
+    // of another instance whose clock runs ahead. The render that news brought read the page before it held the
+    // tab, so the page is drawn once more, and then shows it.
+    [Fact]
+    public void A_tab_told_as_it_opens_is_drawn_again_once_the_page_holds_it()
+    {
+        var subject = TabSubject.Campaign(Guid.NewGuid());
+        using var here = Notice(() => { });
+        here.Open(Client, subject);
+        var now = _clock.GetUtcNow();
+        _tabs.ApplyRemote(Client, subject, [new RemoteTab(Guid.NewGuid(), now + TimeSpan.FromSeconds(1), now)]);
+        var drawn = new List<bool>();
+        EditingTabNotice? mine = null;
+        mine = Notice(async work =>
+        {
+            await work();
+            drawn.Add(mine!.OthersEditing);
+        });
+
+        mine.Open(Client, subject);
+
+        Assert.True(mine.OthersEditing);
+        Assert.NotEmpty(drawn);
+        Assert.True(drawn[^1]);
+        mine.Dispose();
+    }
+
     [Fact]
     public void News_the_closing_page_cannot_take_is_dropped_and_anything_else_is_logged_by_type()
     {

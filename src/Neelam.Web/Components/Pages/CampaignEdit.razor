@@ -1079,7 +1079,17 @@ else
     // Her own actions: no working copy is written while one runs, and the form is kept again after it.
     protected override Task BeforeActingAsync() => _keeper?.PauseAsync() ?? Task.CompletedTask;
 
-    protected override Task AfterActingAsync() => _keeper?.ResumeAsync(_session) ?? Task.CompletedTask;
+    // Every action she takes is editing, once it is done (owner, 2026-11-05: "It feels weird not to count
+    // loading - that's a serious update, no? Just as undo is (since that's effectively a reload as is
+    // Restore)"): the other tabs on the campaign are told, as for typing. Discard removes a working copy
+    // another tab may have written; Undo changes the stored campaign as the other tab may not notice. The tab
+    // opens first on a campaign the action brought (Restore of a deleted one).
+    protected override async Task AfterActingAsync()
+    {
+        if (_keeper is not null) await _keeper.ResumeAsync(_session);
+        OpenTab(_session?.Id);
+        _tab?.Typed();
+    }
 
     // A new campaign given its id at her first change: the address names it now, so a reload opens it again.
     // Only the address changes, as after a first save. Its tab opens on the id at once, so that change counts.

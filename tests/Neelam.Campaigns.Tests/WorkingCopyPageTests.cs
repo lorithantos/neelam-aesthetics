@@ -397,7 +397,47 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal("Mine, again", Held(save.Id));
         var html = await page.HtmlAsync();
         Assert.Equal(WorkingCopyWords.OtherTab, RenderedPage.Named(html, "working-copy-other-tab"));
-        Assert.Contains("<section class=\"card\" role=\"status\" data-testid=\"working-copy-other-tab\">", html);
+        // A card, as the page's other notices, said politely rather than as grey help.
+        Assert.Equal("card", RenderedPage.Attribute(html, "working-copy-other-tab", "class"));
+        Assert.Equal("status", RenderedPage.Attribute(html, "working-copy-other-tab", "role"));
+    }
+
+    // The backstop is of each write (2026-11-05): another tab wrote since this page's last write. Both tabs
+    // wrote, the other closes: the notice stays only until this page's next write finds its own last one.
+    [Fact]
+    public async Task The_backstop_holds_only_until_her_next_write_finds_no_other_tab_s()
+    {
+        var save = await Saved();
+        var (clockA, clockB) = (Clock(), Clock());
+        var a = await Open(save.Id, clockA);
+        var closed = false;
+        try
+        {
+            await using var b = await Open(save.Id, clockB);
+            Later();
+            await Typed(a, clockA, "Mine", Settings.Debounce);
+            clockA.Advance(Settings.Debounce);
+            await Settled(a);
+            await Typed(b, clockB, "Theirs", Settings.Debounce);
+            clockB.Advance(Settings.Debounce);
+            await Settled(b);
+            Assert.Equal("Theirs", Held(save.Id));
+
+            closed = true;
+            await a.DisposeAsync();
+
+            // Its last write did find the other tab's: still said.
+            Assert.Equal(1, RenderedPage.Count(await b.HtmlAsync(), "working-copy-other-tab"));
+            await Typed(b, clockB, "Theirs, again", Settings.Debounce);
+            clockB.Advance(Settings.Debounce);
+            await Settled(b);
+            Assert.Equal("Theirs, again", Held(save.Id));
+            Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), "working-copy-other-tab"));
+        }
+        finally
+        {
+            if (!closed) await a.DisposeAsync();
+        }
     }
 
     [Fact]
@@ -419,23 +459,143 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal(0, RenderedPage.Count(await a.HtmlAsync(), "working-copy-other-tab"));
     }
 
-    // Her own action that leaves the form as it was, or puts the newest save in it, is not editing it: the
-    // other tab is told of a save by its "modified" notice, not this one.
+    // ---- Every action she takes is editing (owner, 2026-11-05: "It feels weird not to count loading -
+    // that's a serious update, no? Just as undo is (since that's effectively a reload as is Restore)") ----
+
+    // Whether a tab of this page's campaign has typed, by the registry's own record: what the page does by
+    // itself never marks it, so no other tab can be told of it.
+    private bool AnyTyped(Guid id) =>
+        Tabs.Snapshot().Any(tab => tab.Client == DemoApp.Client && tab.Subject == TabSubject.Campaign(id) && tab.LastTyped is not null);
+
+    // Two tabs open on the campaign, the app's clock moved on, and what she does in the first tells the second.
+    private async Task TellsTheOtherTab(Guid id, Func<OpenCampaignPage, Task> action)
+    {
+        await using var a = await Open(id, Clock());
+        await using var b = await Open(id, Clock());
+        Later();
+        Assert.False(AnyTyped(id));
+
+        await action(a);
+
+        Assert.Equal(WorkingCopyWords.OtherTab, RenderedPage.Named(await Told(b), "working-copy-other-tab"));
+    }
+
     [Fact]
-    public async Task A_save_with_nothing_changed_tells_no_other_tab_she_is_editing()
+    public async Task Opening_the_campaign_and_bringing_back_its_working_copy_tell_no_one()
+    {
+        var save = await Saved();
+        await Written(save.Id, "Unsaved, brought back", save);
+        await using var a = await Open(save.Id, Clock());
+        await using var b = await Open(save.Id, Clock());
+        Later();
+        await Settled(a);
+        await Settled(b);
+
+        Assert.Equal(1, RenderedPage.Count(await a.HtmlAsync(), "working-copy-notice"));
+        Assert.Equal(2, Tabs.Snapshot().Count(tab => tab.Subject == TabSubject.Campaign(save.Id)));
+        Assert.False(AnyTyped(save.Id));
+        Assert.Equal(0, RenderedPage.Count(await a.HtmlAsync(), "working-copy-other-tab"));
+        Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), "working-copy-other-tab"));
+    }
+
+    [Fact]
+    public async Task A_save_tells_the_other_tab()
+    {
+        var save = await Saved();
+        await TellsTheOtherTab(save.Id, a => a.ClickAsync("save-button"));
+    }
+
+    [Fact]
+    public async Task Discard_tells_the_other_tab()
+    {
+        var save = await Saved();
+        await Written(save.Id, "Unsaved", save);
+        await TellsTheOtherTab(save.Id, a => a.ClickAsync("working-copy-discard"));
+    }
+
+    [Fact]
+    public async Task Undo_tells_the_other_tab()
+    {
+        var id = Guid.NewGuid();
+        await Saved(id, "First");
+        await Saved(id, "Second");
+        await TellsTheOtherTab(id, async a =>
+        {
+            await a.ClickAsync("undo-button");
+            await a.ClickAsync("undo-confirm");
+        });
+    }
+
+    // Undone in the first tab before the second opened, so only the restore can tell it.
+    [Fact]
+    public async Task Restore_tells_the_other_tab()
+    {
+        var id = Guid.NewGuid();
+        await Saved(id, "First");
+        await Saved(id, "Second");
+        await using var a = await Open(id, Clock());
+        await a.ClickAsync("undo-button");
+        await a.ClickAsync("undo-confirm");
+        await using var b = await Open(id, Clock());
+        Later();
+
+        await a.ClickAsync("restore-button");
+
+        Assert.Equal("Second", RenderedPage.Attribute(await a.HtmlAsync(), "subject", "value"));
+        await Told(b);
+    }
+
+    [Fact]
+    public async Task Load_the_latest_tells_the_other_tab()
     {
         var save = await Saved();
         await using var a = await Open(save.Id, Clock());
         await using var b = await Open(save.Id, Clock());
         Later();
-
-        await a.ClickAsync("save-button");
-        await b.WaitForAsync("modified-notice");
-
+        // Saved in the second tab: the first is offered the latest, and has done nothing to tell the second.
+        await b.TypeAsync("subject", "Saved in the other tab");
+        await b.ClickAsync("save-button");
+        await a.WaitForAsync("load-latest");
+        Assert.Single(Tabs.Snapshot(), tab => tab.Subject == TabSubject.Campaign(save.Id) && tab.LastTyped is not null);
         Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), "working-copy-other-tab"));
-        Assert.Equal(0, RenderedPage.Count(await a.HtmlAsync(), "working-copy-other-tab"));
+        Later();
+
+        await a.ClickAsync("load-latest");
+
+        Assert.Equal("Saved in the other tab", RenderedPage.Attribute(await a.HtmlAsync(), "subject", "value"));
+        await Told(b);
     }
 
+    [Fact]
+    public async Task Use_this_template_tells_the_other_tab()
+    {
+        var template = Guid.NewGuid();
+        await Store.SaveTemplateAsync(template, DraftFixtures.Membership);
+        var save = await Store.SaveDraftAsync(Guid.NewGuid(), "WE’RE TURNING ONE!", DraftFixtures.Finished());
+        Later();
+        await TellsTheOtherTab(save.Id, async a =>
+        {
+            await a.ChooseAsync("template-picker", template.ToString());
+            Assert.False(AnyTyped(save.Id));
+            await a.ClickAsync("template-use");
+        });
+    }
+
+    [Fact]
+    public async Task A_suggested_fix_used_tells_the_other_tab()
+    {
+        var draft = ProofreadPageTests.Plain();
+        draft.Text("Headline").Set("Our new hours🤍today");
+        var save = await Store.SaveDraftAsync(Guid.NewGuid(), "Hello", draft);
+        Later();
+        await TellsTheOtherTab(save.Id, async a =>
+        {
+            var use = Assert.Single(RenderedPage.NamesStartingWith(await a.HtmlAsync(), "finding-use-"));
+            await a.ClickAsync($"finding-use-{use}");
+        });
+    }
+
+    // The other tab wrote nothing over this one's working copy: once it closes, the notice goes at once.
     [Fact]
     public async Task The_notice_goes_when_the_other_tab_closes()
     {
@@ -447,7 +607,10 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         {
             await using var b = await Open(save.Id, clockB);
             Later();
-            await a.TypeAsync("subject", "Mine, then closed");
+            await Typed(a, clockA, "Mine, then closed", Settings.Debounce);
+            clockA.Advance(Settings.Debounce);
+            await Settled(a);
+            Assert.Equal("Mine, then closed", Held(save.Id));
             await Told(b);
 
             closed = true;

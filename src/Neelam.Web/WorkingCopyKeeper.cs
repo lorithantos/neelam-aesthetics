@@ -42,9 +42,10 @@ namespace Neelam.Web;
 /// campaign's own, so a reload opens it again.
 /// </param>
 /// <param name="changed">
-/// She changed the form (the page tells its tab, <see cref="EditingTabNotice.Typed"/>): any change seen after a
-/// render, and one her own action made, other than putting storage's newest save in the form. For a new
-/// campaign, after <paramref name="started"/>, so the change counts on its id.
+/// She changed the form (the page tells its tab, <see cref="EditingTabNotice.Typed"/>): a change seen after a
+/// render, so typing, or a field such as a suggested fix used. Not what her own actions do to it: the page
+/// tells of every action itself, once it is done. For a new campaign, after <paramref name="started"/>, so the
+/// change counts on its id.
 /// </param>
 public sealed class WorkingCopyKeeper(
     WorkingCopies copies, IWorkingCopyDisk disk, ClientName client, TimeProvider clock, WorkingCopyOptions options,
@@ -54,9 +55,6 @@ public sealed class WorkingCopyKeeper(
 
     // The form at its last look, to tell a change; null with nothing to keep.
     private string? _seen;
-
-    // The form as one of her own actions began, to tell whether the action changed it.
-    private string? _beforeAction;
 
     // What the working copy holds as far as this page knows; null for none.
     private string? _written;
@@ -75,7 +73,10 @@ public sealed class WorkingCopyKeeper(
     private int _paused;
     private int _disposed;
 
-    /// <summary>True once another tab has written this campaign's working copy since this page last did.</summary>
+    /// <summary>
+    /// Whether this page's last write found another tab's write (or removal) since its own before; false again
+    /// at its next write that does not, and when the page removes the copy.
+    /// </summary>
     public bool OtherTab { get; private set; }
 
     /// <summary>
@@ -172,9 +173,8 @@ public sealed class WorkingCopyKeeper(
             if (_onDisk && _timer is null) Schedule(options.Cap);
             return;
         }
-        // After a render, her change; after her own action (nothing seen since, ResumeAsync), hers unless the
-        // action left the form as it was or put the newest save in it (Load the latest, Discard, a save).
-        var hers = _seen is not null || form != _beforeAction && !_session!.IsNewestSave(form);
+        // After a render, her change; after her own action (nothing seen since, ResumeAsync), the page tells of it.
+        var hers = _seen is not null;
         _seen = form;
         if (_session!.Id is null)
         {
@@ -249,10 +249,12 @@ public sealed class WorkingCopyKeeper(
         try
         {
             var etag = await copies.WriteAsync(id, draft, basedOn, _expected, title);
+            // Of each write (2026-11-05): another tab wrote or removed it since this page's last write, or not,
+            // so the notice goes at her next write once the other tab has stopped.
+            OtherTab = etag is null;
             if (etag is null)
             {
-                // Another tab wrote or removed it since: said, and then the last writer wins.
-                OtherTab = true;
+                // Said, and then the last writer wins.
                 etag = await copies.WriteAsync(id, draft, basedOn, BlobExpected.Anything, title);
             }
             _expected = etag is null ? BlobExpected.Anything : BlobExpected.Version(etag);
@@ -316,7 +318,7 @@ public sealed class WorkingCopyKeeper(
     /// <summary>One of the page's own actions starts: nothing is written until it is done, and a write under way finishes first.</summary>
     public async Task PauseAsync()
     {
-        if (_paused++ == 0) _beforeAction = Form();
+        _paused++;
         _timer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         try
         {

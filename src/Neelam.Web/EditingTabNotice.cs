@@ -36,6 +36,8 @@ public sealed class EditingTabNotice(EditingTabs tabs, TabCircuit circuit, Func<
         _tab = tabs.Register(client, subject, circuit.Id, Changed);
         // Closed meanwhile on another thread: the tab just opened goes with it.
         if (IsDisposed) _tab.Dispose();
+        // Told as it registered, the page may have been drawn before it held the tab: drawn once more.
+        else if (_tab.OthersEditing) Changed();
     }
 
     /// <summary>She changed what the page shows: the other tabs on it are told she is editing. Nothing before the page opens its tab.</summary>
