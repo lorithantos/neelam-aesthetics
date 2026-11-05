@@ -126,6 +126,9 @@ builder.Services.AddOptions<CampaignWatchOptions>()
 // The editor tabs open on this instance, so a tab can say the same thing is also being edited in another:
 // another tab typed since it opened, within EditingTabs:QuietAfter, and is still there.
 builder.Services.AddSingleton<EditingTabs>();
+// A circuit's id, shared by its pages and its handler, which tells EditingTabs when the browser drops.
+builder.Services.AddScoped<TabCircuit>();
+builder.Services.AddScoped<Microsoft.AspNetCore.Components.Server.Circuits.CircuitHandler, EditingTabsCircuitHandler>();
 builder.Services.AddOptions<EditingTabsOptions>()
     .Bind(builder.Configuration.GetSection(EditingTabsOptions.Section))
     .Validate(tabs => tabs.Problem() is null,
