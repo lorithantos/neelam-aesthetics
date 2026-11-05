@@ -20,8 +20,9 @@ namespace Neelam.Web;
 /// </para>
 /// <para>
 /// Each page remembers the version of its own last write and writes with If-Match. When another tab wrote
-/// since, the page says so (<see cref="OtherTab"/>) and writes anyway: the last writer wins. Two tabs are
-/// not handled beyond that (concurrency phase 3, not built).
+/// since, the page says so (<see cref="OtherTab"/>) and writes anyway: the last writer wins. That is the
+/// backstop since 2026-11-05: the page says it sooner, as soon as another tab types (its
+/// <see cref="EditingTabNotice"/>, told of her own changes through <c>changed</c>), with the same words.
 /// </para>
 /// <para>
 /// A write storage cannot take never reaches her: it is logged, the form goes to the server's disk instead
@@ -40,14 +41,22 @@ namespace Neelam.Web;
 /// A new campaign was given its id at her first change (owner, 2026-11-03): the page moves its address to the
 /// campaign's own, so a reload opens it again.
 /// </param>
+/// <param name="changed">
+/// She changed the form (the page tells its tab, <see cref="EditingTabNotice.Typed"/>): any change seen after a
+/// render, and one her own action made, other than putting storage's newest save in the form. For a new
+/// campaign, after <paramref name="started"/>, so the change counts on its id.
+/// </param>
 public sealed class WorkingCopyKeeper(
     WorkingCopies copies, IWorkingCopyDisk disk, ClientName client, TimeProvider clock, WorkingCopyOptions options,
-    Func<Func<Task>, Task> onCircuit, Func<Guid, Task> started, ILogger log) : IDisposable
+    Func<Func<Task>, Task> onCircuit, Func<Guid, Task> started, ILogger log, Action? changed = null) : IDisposable
 {
     private DraftSession? _session;
 
     // The form at its last look, to tell a change; null with nothing to keep.
     private string? _seen;
+
+    // The form as one of her own actions began, to tell whether the action changed it.
+    private string? _beforeAction;
 
     // What the working copy holds as far as this page knows; null for none.
     private string? _written;
@@ -163,6 +172,9 @@ public sealed class WorkingCopyKeeper(
             if (_onDisk && _timer is null) Schedule(options.Cap);
             return;
         }
+        // After a render, her change; after her own action (nothing seen since, ResumeAsync), hers unless the
+        // action left the form as it was or put the newest save in it (Load the latest, Discard, a save).
+        var hers = _seen is not null || form != _beforeAction && !_session!.IsNewestSave(form);
         _seen = form;
         if (_session!.Id is null)
         {
@@ -170,6 +182,7 @@ public sealed class WorkingCopyKeeper(
             {
                 var id = _session.TakeId();
                 await started(id);
+                if (hers) changed?.Invoke();
                 await (_writing = WriteAsync());
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -178,6 +191,7 @@ public sealed class WorkingCopyKeeper(
             }
             return;
         }
+        if (hers) changed?.Invoke();
         var now = clock.GetUtcNow();
         _since ??= now;
         var due = now + options.Debounce < _since.Value + options.Cap ? now + options.Debounce : _since.Value + options.Cap;
@@ -302,7 +316,7 @@ public sealed class WorkingCopyKeeper(
     /// <summary>One of the page's own actions starts: nothing is written until it is done, and a write under way finishes first.</summary>
     public async Task PauseAsync()
     {
-        _paused++;
+        if (_paused++ == 0) _beforeAction = Form();
         _timer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         try
         {

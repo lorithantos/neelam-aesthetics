@@ -38,6 +38,8 @@
 @inject DailyProofreadAllowance Allowance
 @inject Microsoft.Extensions.Options.IOptions<WorkingCopyOptions> WorkingCopySettings
 @inject IWorkingCopyDisk WorkingCopyDisk
+@inject EditingTabs OpenTabs
+@inject TabCircuit Circuit
 
 <PageTitle>@Title</PageTitle>
 
@@ -181,8 +183,10 @@ else if (_session is not null)
                         : "Use this version again saves this version as the newest.") + " The other version stays in the campaign's history.")" />
 
     @* The working copy (owner, 2026-11-03): changes she had not saved, brought back on opening, with Discard
-       to go back to the newest save; and that another tab wrote the working copy since this page did. Neither
-       is a save: the form holds unsaved changes, as if she had typed them. Placeholder wording (WorkingCopyWords). *@
+       to go back to the newest save. Not a save: the form holds unsaved changes, as if she had typed them.
+       And that another tab is editing the campaign (2026-11-05): it typed since this page opened (EditingTabs,
+       as soon as it types), or wrote the working copy since this page did (the backstop); one notice, styled
+       like the page's other notices. Placeholder wording (WorkingCopyWords). *@
     @if (_broughtBack is { } back)
     {
         <section class="card" role="status" data-testid="working-copy-notice">
@@ -190,9 +194,9 @@ else if (_session is not null)
             <button type="button" class="button" data-testid="working-copy-discard" @onclick="DiscardAsync">@WorkingCopyWords.Discard</button>
         </section>
     }
-    @if (_keeper?.OtherTab == true)
+    @if (_tab?.OthersEditing == true || _keeper?.OtherTab == true)
     {
-        <p class="field-help" role="status" data-testid="working-copy-other-tab">@WorkingCopyWords.OtherTab</p>
+        <section class="card" role="status" data-testid="working-copy-other-tab"><p>@WorkingCopyWords.OtherTab</p></section>
     }
 
     <div class="workspace">
@@ -981,8 +985,10 @@ else
             return;
         }
         var store = _store = Stores.Campaigns(client, actor, approvalsRequired);
+        // Made here, opened only once the page is live (OpenTab): rendered ahead of time, the page is thrown away.
+        _tab = new EditingTabNotice(OpenTabs, Circuit, OnCircuitAsync, Logs.CreateLogger<EditingTabNotice>());
         _keeper = new WorkingCopyKeeper(store.WorkingCopies, WorkingCopyDisk, client, Clock, WorkingCopySettings.Value, OnCircuitAsync,
-            StartedAsync, Logs.CreateLogger<WorkingCopyKeeper>());
+            StartedAsync, Logs.CreateLogger<WorkingCopyKeeper>(), changed: () => _tab?.Typed());
         if (Id is { } id)
         {
             _session = await DraftSession.OpenAsync(store, id);
@@ -1035,6 +1041,17 @@ else
     // The working copy brought back into the form on opening, while the page says so; null otherwise.
     private WorkingCopy? _broughtBack;
 
+    // This tab among the campaign's open tabs (2026-11-05), so another tab's typing is said at once; told of
+    // every change she makes through the keeper. Null until the page opens.
+    private EditingTabNotice? _tab;
+
+    // Live on its circuit, never while rendered ahead of time: the tab is open on the campaign the page shows,
+    // once it has an id, and moves if the page comes to show another.
+    private void OpenTab(Guid? id)
+    {
+        if (_client is { } client && id is { } campaign) _tab?.Open(client, TabSubject.Campaign(campaign));
+    }
+
     // On opening a saved campaign: a working copy, from storage or the server's disk, that differs from its newest
     // save goes into the form, unsaved, and the page says so with Discard (WorkingCopyKeeper.OpenAsync).
     private async Task BringBackAsync(DraftSession session) => _broughtBack = await _keeper!.OpenAsync(session);
@@ -1065,10 +1082,18 @@ else
     protected override Task AfterActingAsync() => _keeper?.ResumeAsync(_session) ?? Task.CompletedTask;
 
     // A new campaign given its id at her first change: the address names it now, so a reload opens it again.
-    // Only the address changes, as after a first save.
-    private Task StartedAsync(Guid id) => ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{id}").AbsoluteUri);
+    // Only the address changes, as after a first save. Its tab opens on the id at once, so that change counts.
+    private Task StartedAsync(Guid id)
+    {
+        OpenTab(id);
+        return ShowAddressAsync(Navigation.ToAbsoluteUri($"campaigns/{id}").AbsoluteUri);
+    }
 
-    protected override void Disposing() => _keeper?.Dispose();
+    protected override void Disposing()
+    {
+        _keeper?.Dispose();
+        _tab?.Dispose();
+    }
 
     // The watch's read last seen when the export was not offered (no approval in force): it is offered
     // again only from a later read, so it never comes back from what the page alone holds. The watch
@@ -1083,7 +1108,9 @@ else
     // the campaign is open; the page renders "One moment" before): whether the export may be offered.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // Every change she makes ends in a render: the working copy is set to be written if the form changed.
+        OpenTab(_session?.Id);
+        // Every change she makes ends in a render: the working copy is set to be written if the form changed,
+        // and her tab told she is editing.
         if (_keeper is not null) await _keeper.LookedAsync();
         if (Watcher is not { } watch) return;
         if (_session?.CurrentApproval is null)

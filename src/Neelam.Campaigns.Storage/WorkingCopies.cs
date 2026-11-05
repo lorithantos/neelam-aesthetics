@@ -164,8 +164,11 @@ public static class WorkingCopyWords
     /// <summary>The button beside it: removes the working copy and opens the newest save.</summary>
     public const string Discard = "Discard";
 
-    /// <summary>When another tab wrote the working copy since this page last did.</summary>
-    public const string OtherTab = "This campaign is being edited in another tab";
+    /// <summary>
+    /// When another tab is editing the campaign: it typed since this page opened (EditingTabs), or wrote the
+    /// working copy since this page last did. One notice for both. A draft for Priya (2026-11-05).
+    /// </summary>
+    public const string OtherTab = "Someone is also editing this campaign in another tab. Whichever tab changes it last is what's kept.";
 
     /// <summary>The campaigns list's heading over the campaigns typed into and never saved. Placeholder wording.</summary>
     public const string NotSavedYetHeading = "Not saved yet";

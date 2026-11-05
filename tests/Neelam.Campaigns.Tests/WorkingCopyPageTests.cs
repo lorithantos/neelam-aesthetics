@@ -329,10 +329,57 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal("Theirs", RenderedPage.Attribute(await a.HtmlAsync(), "subject", "value"));
     }
 
-    // Each page writes over its own last write only (If-Match); another tab's write since is said, then the
-    // last writer wins. Nothing more is done about two tabs (concurrency phase 3).
+    // ---- Two tabs on one campaign (EditingTabs; the owner's browser check, 2026-11-05) ----
+
+    private EditingTabs Tabs => app.Services.GetRequiredService<EditingTabs>();
+
+    // Another tab's typing counts only once it is after this tab opened: the app's clock, which EditingTabs
+    // keeps, moves on between a tab opening and the other one typing.
+    private void Later() => app.Clock.Now += TimeSpan.FromSeconds(1);
+
+    private static Task<string> Told(OpenCampaignPage page) => page.WaitForAsync("working-copy-other-tab");
+
+    // The other tab says so as soon as this one types, before it has typed anything itself, not only once
+    // both have written the working copy; and the last writer still wins.
     [Fact]
     public async Task Another_tab_s_write_is_said_and_then_written_over()
+    {
+        var save = await Saved(subject: "Saved subject");
+        var (clockA, clockB) = (Clock(), Clock());
+        await using var a = await Open(save.Id, clockA);
+        await using var b = await Open(save.Id, clockB);
+        Later();
+
+        await Typed(a, clockA, "Mine, first", Settings.Debounce);
+
+        var html = await Told(b);
+        Assert.Equal(WorkingCopyWords.OtherTab, RenderedPage.Named(html, "working-copy-other-tab"));
+        Assert.Equal("Saved subject", RenderedPage.Attribute(html, "subject", "value"));
+        Assert.Null(Held(save.Id));
+
+        clockA.Advance(Settings.Debounce);
+        await Settled(a);
+        Assert.Equal("Mine, first", Held(save.Id));
+        await Typed(b, clockB, "Theirs, last", Settings.Debounce);
+        clockB.Advance(Settings.Debounce);
+        await Settled(b);
+
+        Assert.Equal("Theirs, last", Held(save.Id));
+        Assert.Equal(WorkingCopyWords.OtherTab, RenderedPage.Named(await Told(a), "working-copy-other-tab"));
+    }
+
+    // The campaign's words, one notice for both ways of knowing (a draft for Priya, 2026-11-05).
+    [Fact]
+    public void The_notice_says_whichever_tab_changes_it_last_is_kept()
+    {
+        Assert.Equal("Someone is also editing this campaign in another tab. Whichever tab changes it last is what's kept.",
+            WorkingCopyWords.OtherTab);
+    }
+
+    // A tab this instance has not heard type (one on another instance, before its beat): this page's write
+    // over its working copy (If-Match) still says so, with the same words and look, and the last writer wins.
+    [Fact]
+    public async Task A_write_over_another_tab_s_is_said_though_no_tab_here_typed()
     {
         var save = await Saved();
         var clock = Clock();
@@ -348,7 +395,110 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         await Settled(page);
 
         Assert.Equal("Mine, again", Held(save.Id));
-        Assert.Equal(WorkingCopyWords.OtherTab, RenderedPage.Named(await page.HtmlAsync(), "working-copy-other-tab"));
+        var html = await page.HtmlAsync();
+        Assert.Equal(WorkingCopyWords.OtherTab, RenderedPage.Named(html, "working-copy-other-tab"));
+        Assert.Contains("<section class=\"card\" role=\"status\" data-testid=\"working-copy-other-tab\">", html);
+    }
+
+    [Fact]
+    public async Task Her_own_typing_never_tells_her_own_tab()
+    {
+        var save = await Saved();
+        var (clockA, clockB) = (Clock(), Clock());
+        await using var a = await Open(save.Id, clockA);
+        await using var b = await Open(save.Id, clockB);
+        Later();
+
+        await Typed(a, clockA, "Mine", Settings.Debounce);
+        await Told(b);
+        clockA.Advance(Settings.Debounce);
+        await Settled(a);
+        await a.TypeAsync("subject", "Mine, again");
+
+        Assert.Equal("Mine", Held(save.Id));
+        Assert.Equal(0, RenderedPage.Count(await a.HtmlAsync(), "working-copy-other-tab"));
+    }
+
+    // Her own action that leaves the form as it was, or puts the newest save in it, is not editing it: the
+    // other tab is told of a save by its "modified" notice, not this one.
+    [Fact]
+    public async Task A_save_with_nothing_changed_tells_no_other_tab_she_is_editing()
+    {
+        var save = await Saved();
+        await using var a = await Open(save.Id, Clock());
+        await using var b = await Open(save.Id, Clock());
+        Later();
+
+        await a.ClickAsync("save-button");
+        await b.WaitForAsync("modified-notice");
+
+        Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), "working-copy-other-tab"));
+        Assert.Equal(0, RenderedPage.Count(await a.HtmlAsync(), "working-copy-other-tab"));
+    }
+
+    [Fact]
+    public async Task The_notice_goes_when_the_other_tab_closes()
+    {
+        var save = await Saved();
+        var (clockA, clockB) = (Clock(), Clock());
+        var a = await Open(save.Id, clockA);
+        var closed = false;
+        try
+        {
+            await using var b = await Open(save.Id, clockB);
+            Later();
+            await a.TypeAsync("subject", "Mine, then closed");
+            await Told(b);
+
+            closed = true;
+            await a.DisposeAsync();
+
+            await b.WaitForAsync(html => RenderedPage.Count(html, "working-copy-other-tab") == 0, "the notice gone");
+        }
+        finally
+        {
+            // Closed however the test ends, so no tab of it is left open for the next.
+            if (!closed) await a.DisposeAsync();
+        }
+    }
+
+    // Given its id at her first change, the new campaign's tab counts from then: a second tab opened at its
+    // address is told when she types again, and hers is told when the second one types, with nothing more typed.
+    [Fact]
+    public async Task A_never_saved_campaign_s_tab_counts_from_her_first_change()
+    {
+        var (clockA, clockB) = (Clock(), Clock());
+        await using var a = await OpenNew(clockA);
+        var before = WorkingNames;
+        await a.TypeAsync("subject", "Typed, never saved");
+        await Settled(a);
+        var id = IdOf(Assert.Single(WorkingNames.Except(before)));
+        await using var b = await Open(id, clockB);
+        Later();
+
+        await b.TypeAsync("subject", "Typed in the second tab");
+        await Told(a);
+
+        Later();
+        await a.TypeAsync("subject", "Typed again in the first");
+        await Told(b);
+    }
+
+    // Rendered ahead of time, the page is thrown away and never live (a request's scope, not a circuit's):
+    // it opens no tab, so no other tab is told of it and nothing of it reaches the table.
+    [Fact]
+    public async Task A_page_rendered_ahead_of_time_opens_no_tab()
+    {
+        var save = await Saved();
+        Assert.True(Tabs.IsEmpty);
+        var opened = Tabs.WaitForTabsAsync(CancellationToken.None);
+
+        var response = await app.CreateClient().GetAsync($"/campaigns/{save.Id}");
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("Saved subject", await response.Content.ReadAsStringAsync());
+        Assert.False(opened.IsCompleted);
+        Assert.True(Tabs.IsEmpty);
     }
 
     [Fact]
