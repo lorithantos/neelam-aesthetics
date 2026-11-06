@@ -16,6 +16,7 @@
 @inject ClientWorkspace Workspace
 @inject ClientStores Stores
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 @inject EditingTabs OpenTabs
 @inject TabCircuit Circuit
 
@@ -300,7 +301,23 @@ else if (_fields is not null)
         if (Acted != "1" || _actedTold) return;
         _actedTold = true;
         _tab?.Typed();
-        Navigation.NavigateTo(Navigation.GetUriWithQueryParameter(ActedMark, (string?)null), replace: true);
+        _ = ShowAddressAsync(Navigation.GetUriWithQueryParameter(ActedMark, (string?)null));
+    }
+
+    // The browser's address, replaced in place, as CampaignEdit does after a first save: navigating, even to
+    // replace the entry, is an enhanced navigation that loads this page afresh, closing this tab and so
+    // clearing the other tab's notice. A failure is only logged: the address keeps a mark that does no harm,
+    // since this page tells once.
+    private async Task ShowAddressAsync(string address)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("history.replaceState", null, "", address);
+        }
+        catch (Exception ex) when (ex is JSException or JSDisconnectedException or TaskCanceledException)
+        {
+            Logs.CreateLogger<Look>().LogWarning(ex, "Could not take the mark off the look's address.");
+        }
     }
 
     // Each action loads the page again (the look is drawn in each page's head), marked as hers.

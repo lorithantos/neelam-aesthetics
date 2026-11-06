@@ -316,15 +316,16 @@ public class LookEditingTabTests(DemoApp app) : IClassFixture<DemoApp>
             await OtherTabs.Untold(b);
 
             var reloading = new StayingNavigation(navigation.LastAsked);
-            await using var again = await OpenAt(navigation.LastAsked, reloading);
+            var browser = new RecordingBrowser();
+            await using var again = await OpenAt(navigation.LastAsked, reloading, browser);
 
             OtherTabs.IsTheNotice(await OtherTabs.Told(b));
             Assert.Equal(0, RenderedPage.Count(await again.HtmlAsync(), OtherTabs.Notice));
-            // Taken off the address within the page, without loading it again, so a reload of hers tells no one.
-            var (_, moved) = Assert.Single(reloading.Asked);
-            Assert.False(moved.ForceLoad);
-            Assert.True(moved.ReplaceHistoryEntry);
-            Assert.Equal("http://localhost/" + endsAt, reloading.Uri);
+            // Taken off the address by the browser's own history, not by navigating: a navigation here is an
+            // enhanced one that loads the page afresh and would close this tab, and the other tab's notice with it.
+            Assert.Empty(reloading.Asked);
+            var moved = Assert.Single(browser.Calls, c => c.Identifier == "history.replaceState");
+            Assert.Equal("http://localhost/" + endsAt, (string)moved.Arguments[2]!);
         }
         finally
         {

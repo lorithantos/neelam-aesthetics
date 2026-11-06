@@ -242,7 +242,8 @@ public class EditingTabsBeatTests
     // ---- Never in the way ----
 
     // Each failing call is logged by type, status and code and the beat goes on: the next subject, the
-    // sweep, the next beat.
+    // sweep, the next beat. The campaign's read fails and it comes first (subjects are taken in order of
+    // their text), so the template after it is read only if the beat goes on past a failure.
     [Fact]
     public async Task A_failing_store_call_is_logged_and_the_beat_carries_on()
     {

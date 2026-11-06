@@ -60,7 +60,12 @@ public sealed class EditingTabsBeat(
     private async Task BeatAsync(CancellationToken cancellationToken)
     {
         await DeleteClosedAsync(cancellationToken);
-        foreach (var subject in tabs.Snapshot().GroupBy(tab => (tab.Client, tab.Subject)))
+        // In a fixed order (by subject, then client), not the registry's, which follows its tabs' random ids:
+        // a beat then does the same each time, and a subject that fails is always followed by the same ones.
+        var subjects = tabs.Snapshot().GroupBy(tab => (tab.Client, tab.Subject))
+            .OrderBy(group => group.Key.Subject.ToString(), StringComparer.Ordinal)
+            .ThenBy(group => group.Key.Client.ToString(), StringComparer.Ordinal);
+        foreach (var subject in subjects)
         {
             var (client, edits) = subject.Key;
             foreach (var tab in subject.Where(tab => tab.Connected))
