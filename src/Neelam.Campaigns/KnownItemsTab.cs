@@ -9,12 +9,13 @@ namespace Neelam.Campaigns;
 public static class KnownItemsTab
 {
     public const string Treatments = "treatments";
+    public const string Promotions = "promotions";
     public const string BenefitLines = "benefit-lines";
     public const string Tiers = "tiers";
     public const string Ladders = "ladders";
 
     /// <summary>The tabs in the page's order.</summary>
-    public static IReadOnlyList<string> All { get; } = [Treatments, BenefitLines, Tiers, Ladders];
+    public static IReadOnlyList<string> All { get; } = [Treatments, Promotions, BenefitLines, Tiers, Ladders];
 
     /// <summary>The page open on <paramref name="tab"/>, relative to the site's base as its other links are.</summary>
     public static string Link(string tab) => $"known-items?show={tab}";

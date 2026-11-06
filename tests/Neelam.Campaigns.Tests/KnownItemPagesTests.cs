@@ -21,6 +21,9 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
     private static readonly Guid Finished = Guid.Parse("bbbbbbbb-0000-0000-0000-000000000002");
 
+    // The seeded Full-Face Facial Balancing, which the seeded promotion uses.
+    private static readonly string BalancingId = KnownItem.NewId();
+
     private async Task<(HttpStatusCode Status, string Page)> Get(string path, string[] roles, Guid[]? groups = null)
     {
         if ((await app.Clients.ListAsync()).Count == 0)
@@ -30,9 +33,11 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
             foreach (var salon in new[] { SalonOne, SalonTwo })
                 await app.Stores.Campaigns(salon.Name, Actor.Demo).SaveDraftAsync(Finished, "WE’RE TURNING ONE!", DraftFixtures.Finished());
             await app.KnownItems.AddAsync(SalonOne.Name, new KnownTreatment(KnownItem.NewId(), "Wellness injection"));
-            await app.KnownItems.AddAsync(SalonOne.Name, new KnownTreatment(KnownItem.NewId(), "Full-Face Facial Balancing", 5100m));
+            await app.KnownItems.AddAsync(SalonOne.Name, new KnownTreatment(BalancingId, "Full-Face Facial Balancing", 5100m));
             await app.KnownItems.AddAsync(SalonOne.Name, new KnownBenefit(KnownItem.NewId(), new BirthdayCredit(75m)));
             await app.KnownItems.AddAsync(SalonOne.Name, new KnownTier(KnownItem.NewId(), "Diamond Member", 499m, [new BirthdayCredit(100m)]));
+            await app.KnownItems.AddAsync(SalonOne.Name, new KnownPromotion(KnownItem.NewId(), "Holiday filler promo", null, null,
+                [new KnownTreatmentLine(BalancingId, 3499m)], "Not valid with other offers."));
         }
         var client = app.CreateClient(new() { AllowAutoRedirect = false });
         if (roles.Length > 0) client.SignedIn(roles, groups ?? [SalonOne.GroupId]);
@@ -77,6 +82,37 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.True(tiers.IndexOf("Add tier</button>") < tiers.IndexOf("<h3>Diamond Member"));
     }
 
+    [Fact]
+    public async Task The_treatments_tab_shows_each_price_or_none_and_where_saved_promotions_use_it()
+    {
+        var (_, page) = await Get("/known-items", [Features.Campaigns]);
+
+        Assert.Contains("<span>Wellness injection</span> <span class=\"muted\">no regular price yet</span>", page);
+        Assert.Contains("<span>Full-Face Facial Balancing, regularly $5,100</span>", page);
+        Assert.Contains($"<span class=\"muted\" data-testid=\"used-in-{BalancingId}\">Used in: Holiday filler promo</span>", page);
+    }
+
+    [Fact]
+    public async Task The_promotions_tab_shows_each_saved_promotion_at_today_s_prices_after_the_way_to_build_one()
+    {
+        var (_, page) = await Get("/known-items?show=promotions", [Features.Campaigns]);
+
+        Assert.Contains("<h3>Holiday filler promo</h3>", page);
+        Assert.Contains("<li>Full-Face Facial Balancing — $3,499 (Regularly $5,100, saving $1,601)</li>", page);
+        Assert.Contains("Not valid with other offers.", page);
+        Assert.Contains($"data-testid=\"promotion-fine-print-help-new\">{KnownPromotionForm.FinePrintHelp}</p>", page);
+        var add = page.IndexOf("Add promotion</button>", StringComparison.Ordinal);
+        Assert.True(add > 0, "the way to build one is on the page");
+        Assert.True(add < page.IndexOf("<h3>Holiday filler promo</h3>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_tabs_are_in_the_page_s_order_and_promotions_can_be_chosen()
+    {
+        Assert.Equal(["treatments", "promotions", "benefit-lines", "tiers", "ladders"], KnownItemsTab.All);
+        Assert.Equal("promotions", KnownItemsTab.Chosen("promotions", null));
+    }
+
     // ---- One kind at a time (owner, 2026-11-03: "Selection is much easier than scrolling down a long
     // page finding what selections exist"): a tab per kind, each a link to the page's own address.
 
@@ -84,6 +120,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     private static readonly (string Show, string Drawn, string Tab)[] Kinds =
     [
         ("treatments", "aria-label=\"Treatments and services\"", "Treatments (2)"),
+        ("promotions", "aria-label=\"Promotions\"", "Promotions (1)"),
         ("benefit-lines", "aria-label=\"Benefit lines\"", "Benefit lines (1)"),
         ("tiers", "aria-label=\"Offers and tiers\"", "Tiers (1)"),
         ("ladders", "id=\"ladders-heading\"", "Tier name ladders"),
@@ -95,6 +132,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     // Only the chosen kind is drawn, and only its tab is marked as the one open.
     [Theory]
     [InlineData("treatments")]
+    [InlineData("promotions")]
     [InlineData("benefit-lines")]
     [InlineData("tiers")]
     [InlineData("ladders")]
@@ -172,13 +210,13 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task Another_client_s_items_are_never_shown()
     {
         var pages = new List<string>();
-        foreach (var (show, none) in new[] { ("treatments", "No treatments yet."), ("benefit-lines", "No benefit lines yet."), ("tiers", "No tiers yet.") })
+        foreach (var (show, none) in new[] { ("treatments", "No treatments yet."), ("promotions", "No promotions yet."), ("benefit-lines", "No benefit lines yet."), ("tiers", "No tiers yet.") })
         {
             var (status, page) = await Get($"/known-items?show={show}", [Features.Campaigns], [SalonTwo.GroupId]);
             Assert.Equal(HttpStatusCode.OK, status);
             Assert.Contains(none, page);
             // Her own counts on the tabs, none of salon one's.
-            foreach (var tab in new[] { "Treatments (0)", "Benefit lines (0)", "Tiers (0)" })
+            foreach (var tab in new[] { "Treatments (0)", "Promotions (0)", "Benefit lines (0)", "Tiers (0)" })
                 Assert.Contains($">{tab}</a>", page);
             pages.Add(page);
         }
@@ -187,6 +225,7 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         {
             Assert.DoesNotContain("<span>Wellness injection</span>", page);
             Assert.DoesNotContain("birthday credit", page);
+            Assert.DoesNotContain("Holiday filler promo", page);
             // Diamond is also a word on the standard tier-name ladders, which are on a tab of their own.
             Assert.DoesNotContain("Diamond", page);
             Assert.DoesNotContain("<option value=\"", page.Split("</select>")[^1]);
@@ -607,5 +646,65 @@ public class KnownItemsTabPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.True(said > 0, "the refusal is on the page");
         Assert.InRange(html.IndexOf("<nav class=\"tabs\"", StringComparison.Ordinal), 0, said - 1);
         Assert.True(said < html.IndexOf("aria-label=\"Treatments and services\"", StringComparison.Ordinal));
+    }
+
+    private static Task<OpenCampaignPage> OpenPromotions(DemoApp app) =>
+        OpenCampaignPage.OpenAtAsync<Neelam.Web.Components.Pages.KnownItemsPage>(
+            app, "known-items?show=promotions", new Dictionary<string, object?>());
+
+    [Fact]
+    public async Task A_promotion_is_built_on_the_page_and_says_what_joined_her_treatments()
+    {
+        await using var page = await OpenPromotions(app);
+
+        await page.TypeIntoAsync("promotion-name-new", "Built here");
+        await page.ClickAsync("promotion-add-treatment-new");
+        await page.TypeIntoAsync("known-line-treatment-new-l0", "Brand-new peel 1");
+        await page.TypeIntoAsync("known-line-price-new-l0", "99");
+        await page.TypeIntoAsync("known-line-regular-new-l0", "150");
+
+        Assert.Contains("The email says: Brand-new peel 1 — $99 (Regularly $150, saving $51)",
+            WebUtility.HtmlDecode(await page.WaitForAsync("known-line-sentence-new-l0")));
+
+        await page.ClickAsync("add-promotion");
+
+        var html = WebUtility.HtmlDecode(await page.HtmlAsync());
+        Assert.Contains("Added Brand-new peel 1 to your treatments, regularly $150.", html);
+        Assert.Contains("<h3>Built here</h3>", html);
+    }
+
+    [Fact]
+    public async Task Changing_a_used_treatment_says_how_far_it_reaches_and_removing_it_says_which_promotion_uses_it()
+    {
+        var treatment = new KnownTreatment(KnownItem.NewId(), "Reach test 2", 5100m);
+        await app.KnownItems.AddAsync(DemoApp.Client, treatment);
+        await app.KnownItems.AddAsync(DemoApp.Client, new KnownPromotion(
+            KnownItem.NewId(), "Reach promo 2", null, null, [new KnownTreatmentLine(treatment.Id, 10m)], null));
+        await using var page = await OpenCampaignPage.OpenAtAsync<Neelam.Web.Components.Pages.KnownItemsPage>(
+            app, "known-items", new Dictionary<string, object?>());
+
+        await page.ClickAsync($"remove-{treatment.Id}");
+        Assert.Contains("Used by Reach promo 2. Change or remove that promotion first.", WebUtility.HtmlDecode(await page.HtmlAsync()));
+
+        await page.ClickAsync($"change-{treatment.Id}");
+        var html = WebUtility.HtmlDecode(await page.HtmlAsync());
+        Assert.Contains("data-testid=\"treatment-reach\">Used in 1 saved promotion; it will show the new price.</p>", html);
+    }
+
+    [Fact]
+    public async Task A_saved_promotion_at_its_regular_price_shows_the_problem_on_its_card()
+    {
+        var treatment = new KnownTreatment(KnownItem.NewId(), "Card problem 3", 5100m);
+        await app.KnownItems.AddAsync(DemoApp.Client, treatment);
+        await app.KnownItems.AddAsync(DemoApp.Client, new KnownPromotion(
+            KnownItem.NewId(), "Card promo 3", null, null, [new KnownTreatmentLine(treatment.Id, 3499m)], null));
+        await app.KnownItems.UpdateAsync(DemoApp.Client, treatment with { RegularPrice = 3499m });
+
+        await using var page = await OpenPromotions(app);
+
+        var html = WebUtility.HtmlDecode(await page.HtmlAsync());
+        var card = html[html.IndexOf("aria-label=\"Card promo 3\"", StringComparison.Ordinal)..];
+        card = card[..card.IndexOf("</section>", StringComparison.Ordinal)];
+        Assert.Contains("'Card problem 3' is $3,499 in the promotion but regularly $3,499: the promotion price must be below the regular price.", card);
     }
 }

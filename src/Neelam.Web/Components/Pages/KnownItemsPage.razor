@@ -73,16 +73,67 @@ else if (_session is not null)
                                 <label for="edit-treatment-price">Regular price, in dollars (optional)</label>
                                 <input id="edit-treatment-price" inputmode="decimal" @bind="editing.RegularPrice" @bind:event="oninput" />
                             </div>
+                            @if (_session.Reach(item) is { } reach)
+                            {
+                                <p class="field-help" data-testid="treatment-reach">@reach</p>
+                            }
                             @EditActions
                         }
                         else
                         {
                             <span>@item.Shown</span>
+                            @if (item.RegularPrice is null)
+                            {
+                                @(" ")<span class="muted">no regular price yet</span>
+                            }
+                            @if (items.PromotionsUsing(item.Id) is { Count: > 0 } usedBy)
+                            {
+                                @(" ")<span class="muted" data-testid="used-in-@item.Id">Used in: @string.Join(", ", usedBy.Select(p => p.Name))</span>
+                            }
                             @ItemActions(item)
                         }
                     </li>
                 }
             </ul>
+        </section>
+    }
+    else if (tab == KnownItemsTab.Promotions)
+    {
+        <h2>Promotions</h2>
+        <section class="card" aria-label="Promotions">
+            <h3>Build a promotion</h3>
+            @PromotionFormFields(_session.NewPromotion, "new")
+            <button class="button primary" data-testid="add-promotion" @onclick="() => _session.AddPromotionAsync()">Add promotion</button>
+            @if (items.Promotions.Count == 0)
+            {
+                <p>No promotions yet.</p>
+            }
+            @foreach (var p in items.Promotions)
+            {
+                <section class="card tier" aria-label="@p.Name">
+                    @if (_session.Editing?.Id == p.Id && _session.EditPromotion is { } editing)
+                    {
+                        @PromotionFormFields(editing, "edit")
+                        @EditActions
+                    }
+                    else
+                    {
+                        <h3>@p.Name</h3>
+                        <ul>
+                            @foreach (var line in p.Shown(items))
+                            {
+                                <li>@line</li>
+                            }
+                        </ul>
+                        @if (p.FinePrint is { } finePrint)
+                        {
+                            <p data-testid="promotion-fine-print-@p.Id">@finePrint</p>
+                        }
+                        <Problems Messages="KnownItemRules.Problems(p, items)" />
+                        @ItemActions(p)
+                    }
+                </section>
+            }
         </section>
     }
     else if (tab == KnownItemsTab.BenefitLines)
@@ -180,6 +231,7 @@ else if (_session is not null)
     private static IEnumerable<(string Kind, string Name)> Tabs(KnownItems items) =>
     [
         (KnownItemsTab.Treatments, $"Treatments ({items.Treatments.Count})"),
+        (KnownItemsTab.Promotions, $"Promotions ({items.Promotions.Count})"),
         (KnownItemsTab.BenefitLines, $"Benefit lines ({items.Benefits.Count})"),
         (KnownItemsTab.Tiers, $"Tiers ({items.Tiers.Count})"),
         (KnownItemsTab.Ladders, "Tier name ladders"),
@@ -190,6 +242,8 @@ else if (_session is not null)
     private KnownItemsSession? _session;
     // Per tier form, the text in its "Pick a benefit" box.
     private readonly Dictionary<KnownTierForm, string> _picks = [];
+    // The same, for a promotion form's.
+    private readonly Dictionary<KnownPromotionForm, string> _promotionPicks = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -206,8 +260,8 @@ else if (_session is not null)
     }
 
     private RenderFragment ItemActions(KnownItem item) => @<span class="block-actions">
-        <button class="button" aria-label="Change @item.Text" @onclick="() => _session!.StartEdit(item)">Change</button>
-        <button class="button danger" aria-label="Remove @item.Text" @onclick="() => _session!.RemoveAsync(item)">Remove</button>
+        <button class="button" data-testid="change-@item.Id" aria-label="Change @item.Text" @onclick="() => _session!.StartEdit(item)">Change</button>
+        <button class="button danger" data-testid="remove-@item.Id" aria-label="Remove @item.Text" @onclick="() => _session!.RemoveAsync(item)">Remove</button>
     </span>;
 
     private RenderFragment EditActions => @<span class="block-actions">
@@ -316,5 +370,78 @@ else if (_session is not null)
     {
         form.AddKnown(known);
         _picks.Remove(form);
+    }
+
+    // A promotion's name, summary, audience, lines and fine print. A treatment line names one of her
+    // treatments, a promotion price and the regular price, which is her treatment's: the sentence
+    // under it is what the email will say. (Labels proposed, for Priya.)
+    private RenderFragment PromotionFormFields(KnownPromotionForm form, string id) => @<div>
+        <div class="field">
+            <label for="promotion-name-@id">Promotion name</label>
+            <input id="promotion-name-@id" @bind="form.Name" @bind:event="oninput" />
+        </div>
+        <div class="field">
+            <label for="promotion-summary-@id">Summary (optional)</label>
+            <input id="promotion-summary-@id" @bind="form.Summary" @bind:event="oninput" />
+        </div>
+        <div class="field">
+            <label for="promotion-audience-@id">Who it is for (optional)</label>
+            <input id="promotion-audience-@id" @bind="form.Audience" @bind:event="oninput" />
+        </div>
+        @for (var i = 0; i < form.Lines.Count; i++)
+        {
+            var line = form.Lines[i];
+            var key = $"{id}-l{i}";
+            <div class="benefit">
+                @if (line is KnownTreatmentLineForm treatment)
+                {
+                    <div class="field">
+                        <label for="known-line-treatment-@key">Treatment @(i + 1)</label>
+                        <input id="known-line-treatment-@key" list="@KnownItemLists.Treatments" value="@treatment.Treatment"
+                               @oninput="e => treatment.SetTreatment(e.Value?.ToString() ?? string.Empty, _session!.Items)" />
+                    </div>
+                    <div class="field">
+                        <label for="known-line-price-@key">Promotion price, in dollars</label>
+                        <input id="known-line-price-@key" inputmode="decimal" @bind="treatment.Price" @bind:event="oninput" />
+                    </div>
+                    <div class="field">
+                        <label for="known-line-regular-@key">Regular price, in dollars</label>
+                        <input id="known-line-regular-@key" inputmode="decimal" @bind="treatment.RegularPrice" @bind:event="oninput" />
+                        <span class="field-help">@KnownTreatmentLineForm.RegularPriceHelp</span>
+                    </div>
+                    @if (treatment.Sentence(_session!.Items) is { } sentence)
+                    {
+                        <p class="field-help" data-testid="known-line-sentence-@key">The email says: @sentence</p>
+                    }
+                }
+                else if (line is KnownBenefitLineForm benefit)
+                {
+                    <BenefitFields Benefit="benefit.Benefit" Id="@key" Label="@($"Benefit {i + 1}")" />
+                }
+                <button class="button danger" aria-label="Remove line @(i + 1)" @onclick="() => form.RemoveLine(line)">Remove line</button>
+            </div>
+        }
+        <p>
+            <button class="button" data-testid="promotion-add-treatment-@id" @onclick="() => form.AddTreatment()">Add a treatment</button>
+            <button class="button" data-testid="promotion-add-benefit-@id" @onclick="() => form.AddBenefit()">Type a benefit</button>
+        </p>
+        @if (_session!.Items.Benefits.Count > 0)
+        {
+            <KnownItemPicker TItem="KnownBenefit" Id="@($"promotion-pick-{id}")" Label="Pick a benefit" List="@KnownItemLists.Benefits"
+                             Placeholder="Start typing to search your benefit lines" Find="_session!.Items.BenefitNamed"
+                             Text="@_promotionPicks.GetValueOrDefault(form, "")" TextChanged="text => _promotionPicks[form] = text"
+                             Picked="known => PickForPromotion(form, known)" />
+        }
+        <div class="field">
+            <label for="promotion-fine-print-@id">Fine print (optional)</label>
+            <textarea id="promotion-fine-print-@id" @bind="form.FinePrint" @bind:event="oninput"></textarea>
+            <p class="field-help" data-testid="promotion-fine-print-help-@id">@KnownPromotionForm.FinePrintHelp</p>
+        </div>
+    </div>;
+
+    private void PickForPromotion(KnownPromotionForm form, KnownBenefit known)
+    {
+        form.AddKnown(known);
+        _promotionPicks.Remove(form);
     }
 }

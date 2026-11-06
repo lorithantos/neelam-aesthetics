@@ -19,8 +19,15 @@
         <option value="@t.Name"></option>
     }
 </datalist>
+<datalist id="@Promotions">
+    @foreach (var p in Known.Promotions)
+    {
+        <option value="@p.Name"></option>
+    }
+</datalist>
 
 @code {
+    public const string Promotions = "known-promotions";
     public const string Treatments = "known-treatments";
     public const string Benefits = "known-benefits";
     public const string Tiers = "known-tiers";
