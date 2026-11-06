@@ -45,25 +45,8 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
         CampaignDraft draft, CampaignTemplate template, Guid templateId, DateTimeOffset version,
         CampaignTemplate? madeFrom = null, bool approved = false)
     {
-        var left = draft.Blocks.ToList();
-        var matched = new BlockDraft?[template.Blocks.Count];
-
-        for (var i = 0; i < matched.Length; i++)
-        {
-            var t = template.Blocks[i];
-            matched[i] = left.FirstOrDefault(b => b.Type == t.Type && SameLabel(b.Label, t.Label));
-            if (matched[i] is { } hers) left.Remove(hers);
-        }
-
-        foreach (var type in template.Blocks.Select(t => t.Type).Distinct())
-        {
-            var unmatched = Enumerable.Range(0, matched.Length)
-                .Where(i => matched[i] is null && template.Blocks[i].Type == type).ToList();
-            var hers = left.Where(b => b.Type == type).ToList();
-            if (unmatched.Count != 1 || hers.Count != 1) continue;
-            matched[unmatched[0]] = hers[0];
-            left.Remove(hers[0]);
-        }
+        var matched = Match(draft.Blocks, template.Blocks.Select(t => (t.Label, t.Type)).ToList());
+        var left = draft.Blocks.Where(b => !matched.Contains(b)).ToList();
 
         var replaced = new List<string>();
         var blocks = new List<BlockDraft>();
@@ -90,6 +73,38 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
         Copy(draft.Subject, result.Subject);
         Copy(draft.Preheader, result.Preheader);
         return new TemplateUpdate(result, left.Where(b => b.HasContent).Select(b => b.Label).ToList(), replaced);
+    }
+
+    /// <summary>
+    /// Which of her blocks goes into each place of <paramref name="into"/>, or null for a place matched to
+    /// nothing: first by label, ignoring case and surrounding spaces, and type alike; then, of those left,
+    /// the one block of a type left on each side, whatever its label; two of a type left on either side
+    /// pair nothing. The one rule for pairing blocks: the update pours her content by it, and
+    /// <see cref="CampaignComparison"/> pairs two drafts' blocks by it.
+    /// </summary>
+    internal static BlockDraft?[] Match(IReadOnlyList<BlockDraft> hers, IReadOnlyList<(string Label, BlockType Type)> into)
+    {
+        var left = hers.ToList();
+        var matched = new BlockDraft?[into.Count];
+
+        for (var i = 0; i < matched.Length; i++)
+        {
+            var (label, type) = into[i];
+            matched[i] = left.FirstOrDefault(b => b.Type == type && SameLabel(b.Label, label));
+            if (matched[i] is { } found) left.Remove(found);
+        }
+
+        foreach (var type in into.Select(t => t.Type).Distinct())
+        {
+            var unmatched = Enumerable.Range(0, matched.Length)
+                .Where(i => matched[i] is null && into[i].Type == type).ToList();
+            var ofType = left.Where(b => b.Type == type).ToList();
+            if (unmatched.Count != 1 || ofType.Count != 1) continue;
+            matched[unmatched[0]] = ofType[0];
+            left.Remove(ofType[0]);
+        }
+
+        return matched;
     }
 
     private static bool SameLabel(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
