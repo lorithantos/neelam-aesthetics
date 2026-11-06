@@ -743,6 +743,43 @@ public class KnownPromotionTests
         public Task RemoveAsync(ClientName client, string id, CancellationToken ct = default) => throw new NotSupportedException();
     }
 
+    // Her table, which fails or refuses (as the given exception) every treatment added; the rest goes through.
+    private sealed class TreatmentAddsFail(Exception fault) : IKnownItemStore
+    {
+        public InMemoryKnownItems Inner { get; } = new();
+        public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken ct = default) => Inner.ForClientAsync(client, ct);
+        public Task AddAsync(ClientName client, KnownItem item, CancellationToken ct = default) =>
+            item is KnownTreatment ? throw fault : Inner.AddAsync(client, item, ct);
+        public Task UpdateAsync(ClientName client, KnownItem item, CancellationToken ct = default) => Inner.UpdateAsync(client, item, ct);
+        public Task RemoveAsync(ClientName client, string id, CancellationToken ct = default) => Inner.RemoveAsync(client, id, ct);
+    }
+
+    // Final review, Important 2: the button works on an unsaved form, so nothing says her campaign is saved, and an
+    // add that fails or is refused is always said, with the store's own words for a refusal.
+    [Theory]
+    [InlineData(false, "Try again in a moment.")]
+    [InlineData(true, "That name is too long for your treatments.")]
+    public async Task A_new_treatment_that_cannot_be_added_is_said_in_this_button_s_words_and_nothing_is_saved(bool refused, string then)
+    {
+        var store = new TreatmentAddsFail(refused
+            ? new ArgumentException("That name is too long for your treatments.")
+            : new Azure.RequestFailedException(503, "The table service is unavailable."));
+        await store.Inner.AddAsync(Salon, Midface);
+        var editor = PromotionTests.FillerPromo(new KnownItems([Midface]), Editable);
+        var made = editor.PromotionToKnown(PromotionBlock(editor), new KnownItems([Midface]));
+        var log = new ListLogger<KnownItemsSession>();
+
+        var said = await KnownItemsSession.SavePromotionFromCampaignAsync(
+            store, TestRecords.Unwatched.For(Salon, Actor.Demo), made.Promotion!, made.Added, log);
+
+        Assert.Equal(
+            [$"Couldn't save Filler Promo to your known items: Full-Face Facial Balancing couldn't be added to your treatments. Your campaign is untouched. {then}"],   // (proposed)
+            said);
+        Assert.Empty((await store.ForClientAsync(Salon)).Promotions);
+        Assert.Equal(refused ? 0 : 1, log.Entries.Count);
+        Assert.DoesNotContain(log.Entries, e => e.ToString()!.Contains("Balancing"));
+    }
+
     // Decision 12: a name her saved promotions already have is said, not saved twice; a store failure is said, not thrown.
     [Fact]
     public async Task Saving_a_promotion_named_as_one_of_hers_says_it_is_already_known_and_a_store_failure_is_said_not_thrown()

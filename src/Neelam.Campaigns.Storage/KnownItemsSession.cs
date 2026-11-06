@@ -20,6 +20,9 @@ public sealed class KnownItemsSession
     public const string SaveFailed =
         "Couldn't save that to your known items. What you typed is still here. Try again in a moment.";
 
+    // What ends a sentence saying a store failure kept something from being saved.
+    private const string TryAgain = "Try again in a moment.";
+
     /// <summary>What this page says when the store fails to remove an item.</summary>
     public const string RemoveFailed = "Couldn't remove that from your known items. Try again in a moment.";
 
@@ -268,39 +271,61 @@ public sealed class KnownItemsSession
         var said = new List<string>();
         foreach (var treatment in treatments)
         {
-            try
-            {
-                await store.AddAsync(trail.Client, treatment, ct);
-            }
-            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
-            {
-                continue;
-            }
-            catch (Exception ex) when (IsStorageFailure(ex))
-            {
-                LogFailure(log ?? NullLogger.Instance, ex, "add from a promotion", treatment, trail.Client);
+            var (outcome, _) = await AddTreatmentAsync(store, trail, treatment, log, ct);
+            if (outcome == AddOutcome.Added) said.Add(AddedSentence(treatment));
+            else if (outcome == AddOutcome.Failed)
                 said.Add($"Couldn't add {treatment.Name} to your treatments just now. Your campaign is saved; add it on the Known items page.");
-                continue;
-            }
-            await trail.RecordAsync(ActivityEntity.KnownItem, treatment.Id, null, ActivityAction.KnownItemAdded, ct);
-            said.Add(AddedSentence(treatment));
         }
         return said;
     }
 
+    private enum AddOutcome { Added, Refused, Failed }
+
+    // One treatment added through the store and the trail (one KnownItemAdded event by id). Refused carries the
+    // store's own message; a failure is logged by id and carries none.
+    private static async Task<(AddOutcome Outcome, string? Refusal)> AddTreatmentAsync(
+        IKnownItemStore store, ActivityTrail trail, KnownTreatment treatment, ILogger? log, CancellationToken ct)
+    {
+        try
+        {
+            await store.AddAsync(trail.Client, treatment, ct);
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            return (AddOutcome.Refused, ex.Message);
+        }
+        catch (Exception ex) when (IsStorageFailure(ex))
+        {
+            LogFailure(log ?? NullLogger.Instance, ex, "add from a promotion", treatment, trail.Client);
+            return (AddOutcome.Failed, null);
+        }
+        await trail.RecordAsync(ActivityEntity.KnownItem, treatment.Id, null, ActivityAction.KnownItemAdded, ct);
+        return (AddOutcome.Added, null);
+    }
+
     /// <summary>
-    /// Saves a campaign's promotion as a known one: first the treatments its lines name that are new to her list
-    /// (<see cref="AddFromPromotionAsync"/>), then her list is read again and each line that points at one of
-    /// those goes to the treatment of that name now on it (another tab may have added it under its own id), and
-    /// last the promotion (<see cref="SaveFromCampaignAsync"/>), whose refusal of a name her saved promotions
-    /// already have is the rules' "already in your known items". Never throws, as both are.
+    /// Saves a campaign's promotion as a known one: first the treatments its lines name that are new to her list,
+    /// as <see cref="AddFromPromotionAsync"/> adds them, then her list is read again and each line that points at
+    /// one of those goes to the treatment of that name now on it (another tab may have added it under its own id),
+    /// and last the promotion (<see cref="SaveFromCampaignAsync"/>), whose refusal of a name her saved promotions
+    /// already have is the rules' "already in your known items". A treatment that could not be added, by a failure
+    /// or the store's refusal, and is not on her list after all keeps the promotion from being saved, and that is
+    /// said in this button's words, with the refusal's own message or "Try again in a moment.": the
+    /// campaign may not be saved, as the button works on the form. Never throws, and never says nothing.
     /// </summary>
     /// <returns>What to tell her: the sentences of the treatments added, then of the promotion, in order.</returns>
     public static async Task<IReadOnlyList<string>> SavePromotionFromCampaignAsync(
         IKnownItemStore store, ActivityTrail trail, KnownPromotion promotion, IReadOnlyList<KnownTreatment> added,
         ILogger? log = null, CancellationToken ct = default)
     {
-        var said = (await AddFromPromotionAsync(store, trail, added, log, ct)).ToList();
+        var said = new List<string>();
+        var notAdded = new Dictionary<string, string>();   // by treatment id: what follows "Your campaign is untouched."
+        foreach (var treatment in added)
+        {
+            var (outcome, refusal) = await AddTreatmentAsync(store, trail, treatment, log, ct);
+            if (outcome == AddOutcome.Added) said.Add(AddedSentence(treatment));
+            else notAdded[treatment.Id] = refusal ?? TryAgain;
+        }
         if (added.Count > 0)
         {
             KnownItems known;
@@ -319,8 +344,13 @@ public sealed class KnownItemsSession
             {
                 if (line is KnownTreatmentLine l && added.FirstOrDefault(a => a.Id == l.TreatmentId) is { } wanted)
                 {
-                    // One that could not be added is already said; the promotion would only be refused for it.
-                    if (known.TreatmentNamed(wanted.Name) is not { } now) return said;
+                    // One refused as already there is on her list now; one not on it would only get the promotion refused.
+                    if (known.TreatmentNamed(wanted.Name) is not { } now)
+                    {
+                        said.Add($"Couldn't save {promotion.Name} to your known items: {wanted.Name} couldn't be added to your treatments. "
+                            + $"Your campaign is untouched. {notAdded.GetValueOrDefault(wanted.Id, TryAgain)}");   // (proposed)
+                        return said;
+                    }
                     lines.Add(l with { TreatmentId = now.Id });
                 }
                 else lines.Add(line);
