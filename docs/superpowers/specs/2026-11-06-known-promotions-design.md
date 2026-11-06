@@ -27,7 +27,7 @@ else is derived from it:
 | Treatment name | her treatments (known items) | saved promotion lines; linked campaign lines |
 | Regular price | her treatments | the line's regular price |
 | Saving | regular price minus promotion price | "saving $1,601" |
-| Promotion dates | the campaign's Promotion block | the fine print's validity sentence |
+| Promotion dates | the campaign's Promotion block | the "Offer valid …" sentence that block ends with |
 
 ## Owner decisions (2026-11-06)
 
@@ -40,6 +40,16 @@ else is derived from it:
 6. A campaign whose newest version is not approved follows her list when opened; an approved
    version never changes.
 7. A product new to her list is added to it wherever it first appears.
+
+The owner's answers on the plan (2026-11-06, "Yes, take them"):
+
+8. No fine-print dates flag. The Promotion block's export already ends "Offer valid …"
+   (`EditorExport.DatesText`), so the dates are said once, by the block that owns them.
+9. A newest version with some but not all of its approvals is not approved, and follows her list.
+10. Lowering a regular price to or below a saved promotion's price is allowed: her list is the one
+    source. That saved promotion shows the problem on its card and cannot be used until fixed.
+11. A Fine print block the template fixes is left alone when a saved promotion is picked.
+12. Saving a promotion under a name her saved promotions already have is refused, as tiers are.
 
 Not decided here, and not changed by this design: whether known items supersede `ClientCatalog`
 (WIP open item 8), and whether Remove on a known item asks first or is restorable (thread item
@@ -81,6 +91,9 @@ no infrastructure deploy.
 - Renaming a treatment or changing its regular price flows into every saved promotion using it.
 - Removing a treatment a saved promotion uses is refused, naming it. Draft words: "Used by Holiday
   filler promo. Change or remove that promotion first."
+- Lowering a treatment's regular price to or below a saved promotion's price for it goes through
+  (decision 10). The saved promotion's card then shows the problem, from `KnownItemRules.Problems`,
+  and it cannot be used until she fixes it.
 - A line whose treatment id is not on her list (removed in another tab at the same moment) shows
   "a treatment no longer on your list" and must be fixed before the promotion can be used. It is
   never dropped silently.
@@ -128,7 +141,7 @@ Tabs, in order: Treatments, **Promotions**, Benefit lines, Tiers, Tier name ladd
     says so: "Changing it here changes it on your treatments and in every promotion that uses it."
     For a treatment with no price yet, this is where she gives one.
   - A benefit line uses the tier's benefit editor.
-  - Fine print: a text box, with the generated validity sentence shown read-only above it.
+  - Fine print: a text box. It holds no dates: the campaign's Promotion block states them.
 - Saved promotions as cards: name, each line as the email says it at today's prices, the fine
   print; Change and Remove, following the tier's pattern.
 - Campaigns that used a removed promotion keep their text, as with tiers.
@@ -142,8 +155,10 @@ Tabs, in order: Treatments, **Promotions**, Benefit lines, Tiers, Tier name ladd
 - Picking fills the name, summary, audience and lines (treatment lines linked by id; names and
   regular prices from her list today; promotion prices from the saved promotion). Dates are left
   empty, and the block's Still to do says so.
-- It fills the Fine print block with the saved fine print, marked to start with the promotion's
-  dates (section 4).
+- It fills the Fine print block with the saved fine print, as ordinary text. The dates come from
+  the Promotion block (section 4).
+- A Fine print block the template fixes is left alone (decision 11): "This campaign's fine print
+  is the template's own, so the promotion's fine print wasn't added."
 - She is asked before anything she wrote is replaced: "Replace this promotion with Holiday filler
   promo?" when the block has lines; "Replace the fine print too, or keep yours?" when the Fine
   print block has text.
@@ -158,10 +173,13 @@ Tabs, in order: Treatments, **Promotions**, Benefit lines, Tiers, Tier name ladd
 - When the campaign's promotion is not one of her saved ones (written fresh, or picked and
   changed), "Save as a known promotion" appears beside it, as "Save as a known item" does for a
   tier. A button, not automatic: one-off promotions should not pile up.
+- A name her saved promotions already have is refused as already in her known items, as a tier's
+  is (decision 12).
 - Not built now: updating a saved promotion from inside a campaign.
 
 ### Following her list until approved
 
+- A newest version with some but not all of its approvals is not approved (decision 9).
 - On opening a campaign whose newest version is not approved, each linked promotion line takes its
   treatment's current name and regular price from her list. A note says what changed. Draft words:
   "From your treatments: Full-Face Facial Balancing is now regularly $5,400 (was $5,100)."
@@ -173,14 +191,13 @@ Tabs, in order: Treatments, **Promotions**, Benefit lines, Tiers, Tier name ladd
 
 ## 4. Fine print and dates, checks, rollback, testing
 
-### Fine print follows the dates
+### The dates are said once
 
-- The Fine print block gains an optional flag, starts-with-the-promotion's-dates. When set, the
-  preview and the export put the validity sentence first, built from the Promotion block's dates
-  each time (`EditorExport.DatesText`): "Offer valid November 1 – December 31, 2026." Fine print
-  typed by hand is unchanged.
-- Saving a promotion from a campaign removes a leading validity sentence that matches the
-  promotion's dates from the saved fine print.
+- The Promotion block's export already ends with its validity sentence, built from its dates each
+  time (`EditorExport.DatesText`): "Offer valid November 1 – December 31, 2026." Nothing is added
+  to the Fine print block for dates, and the block is unchanged (decision 8).
+- Saved fine print carries no dates. Saving a promotion from a campaign removes a leading validity
+  sentence that matches the promotion's dates from the saved fine print.
 - No new rule reads dates out of prose; the LLM proofread already reads the fine print.
 
 ### Checks
@@ -195,8 +212,8 @@ Tabs, in order: Treatments, **Promotions**, Benefit lines, Tiers, Tier name ladd
 ### Rollback (only if staging is rolled back to Build 209)
 
 - An older build skips a "Promotion" row in `knownItems` and logs it; her other known items load.
-- The new optional campaign fields (`TreatmentId`, the fine print flag) are ignored by an older
-  build: campaign JSON does not refuse unknown members.
+- The new optional campaign field (`TreatmentId`) is ignored by an older build: campaign JSON does
+  not refuse unknown members.
 
 ### Testing
 
@@ -212,7 +229,11 @@ No test touches the network. In-memory fakes throughout.
   dates empty; asking before replacing; an unapproved campaign follows her list on open with the
   note, no other-tab notice and no working copy; an approved one does not change; Save as a known
   promotion is offered only when it should be.
-- Fine print: the validity sentence follows a date change in preview and export.
+- Fine print: a picked promotion's dates appear once in the export, from the Promotion block;
+  saving a promotion strips a matching leading validity sentence and keeps one that doesn't match;
+  a template-fixed Fine print block is left alone.
+- Her list: lowering a regular price below a saved promotion's price goes through and that
+  promotion shows the problem; a partly approved campaign follows her list on open.
 - Every new test is mutation-checked.
 - After deploy: a browser run on staging on a BROWSER TEST campaign. Building a test promotion
   there changes staging's copy of her known items, so ask first.
