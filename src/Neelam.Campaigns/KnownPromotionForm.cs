@@ -34,13 +34,14 @@ public sealed class KnownPromotionForm
             else if (line is KnownTreatmentLine treatment)
             {
                 var found = known.TreatmentById(treatment.TreatmentId);
-                form._lines.Add(new KnownTreatmentLineForm
+                var priced = new KnownTreatmentLineForm
                 {
                     Treatment = found?.Name ?? KnownPromotion.NoLongerOnYourList,
                     MissingId = found is null ? treatment.TreatmentId : null,
                     Price = PlainNumber.Text(treatment.Price),
-                    RegularPrice = found?.RegularPriceText ?? "",
-                });
+                };
+                priced.Fill(found);
+                form._lines.Add(priced);
             }
         }
         return form;
@@ -124,16 +125,41 @@ public sealed class KnownTreatmentLineForm : KnownPromotionLineForm
     /// <summary>The promotion price, in dollars such as 3499 or 3,499.</summary>
     public string Price { get; set; } = "";
 
-    /// <summary>Her treatment's regular price, blank for none: changing it changes her treatment.</summary>
-    public string RegularPrice { get; set; } = "";
+    private string _regularPrice = "";
 
-    /// <summary>Names the treatment; an empty regular price is filled from her treatment of that name.</summary>
+    // Whether the box holds what the form filled in from her treatment rather than what she typed.
+    private bool _filled;
+
+    /// <summary>
+    /// Her treatment's regular price, blank for none. Set by her, it is hers: changing it changes her treatment.
+    /// </summary>
+    public string RegularPrice
+    {
+        get => _regularPrice;
+        set
+        {
+            _regularPrice = value;
+            _filled = false;
+        }
+    }
+
+    /// <summary>
+    /// Names the treatment. An empty regular price box, or one the form filled, takes the price of her treatment of
+    /// that name, or is emptied when she has none of that name: typing "Botox Cosmetic" passes through "Botox". A
+    /// price she typed stays.
+    /// </summary>
     public void SetTreatment(string text, KnownItems known)
     {
         Treatment = text;
         MissingId = null;
-        if (FormText.Clean(RegularPrice).Length == 0 && known.TreatmentNamed(text) is { } found)
-            RegularPrice = found.RegularPriceText;
+        if (_filled || FormText.Clean(RegularPrice).Length == 0) Fill(known.TreatmentNamed(text));
+    }
+
+    /// <summary>The box filled with <paramref name="treatment"/>'s regular price, blank for none, as not typed by her.</summary>
+    internal void Fill(KnownTreatment? treatment)
+    {
+        _regularPrice = treatment?.RegularPriceText ?? "";
+        _filled = true;
     }
 
     /// <summary>The line as the email says it, once the treatment and both prices are there.</summary>
@@ -156,7 +182,8 @@ public sealed class KnownTreatmentLineForm : KnownPromotionLineForm
         if (MissingId is { } missing && name == KnownPromotion.NoLongerOnYourList)
             return Finish(mine, price is { } p ? new KnownTreatmentLine(missing, p) : null);
 
-        var regular = FormText.Clean(RegularPrice).Length == 0 ? null : FormText.Money(RegularPrice, "the regular price", mine);
+        // Only a price she typed is a new one for her list: a filled box says her list's own.
+        var regular = _filled || FormText.Clean(RegularPrice).Length == 0 ? null : FormText.Money(RegularPrice, "the regular price", mine);
         string? id = null;
         if (name.Length == 0) mine.Insert(0, "fill in the treatment, or remove the line.");   // (proposed)
         else if (known.TreatmentNamed(name) is { } existing)

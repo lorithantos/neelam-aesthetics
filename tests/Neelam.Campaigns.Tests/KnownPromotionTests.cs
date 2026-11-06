@@ -284,6 +284,47 @@ public class KnownPromotionTests
             known.PromotionNamed("Spring refresh")!.Shown(known)[1]);
     }
 
+    // Final review, Important 1: typing "Botox Cosmetic" passes through "Botox", an exact match. A box the
+    // form filled follows the treatment named; only a price she typed is a new one for her list.
+    [Fact]
+    public void A_regular_price_the_form_filled_in_follows_the_treatment_named_and_only_one_she_typed_reprices()
+    {
+        var botox = new KnownTreatment(KnownItem.NewId(), "Botox", 15m);
+        var cosmetic = new KnownTreatment(KnownItem.NewId(), "Botox Cosmetic", 500m);
+        var known = new KnownItems([botox, cosmetic]);
+        var form = new KnownPromotionForm { Name = "Smooth start" };
+        var line = form.AddTreatment();
+        line.Price = "400";
+
+        line.SetTreatment("Botox", known);
+        Assert.Equal("15", line.RegularPrice);
+        line.SetTreatment("Botox Cosmetic", known);
+        Assert.Equal("500", line.RegularPrice);
+        var (plan, errors) = form.ToPlan(KnownItem.NewId(), known);
+        Assert.Empty(errors);
+        Assert.Empty(plan!.Repriced);
+        Assert.Equal([new KnownTreatmentLine(cosmetic.Id, 400m)], plan.Promotion.Lines);
+
+        // Her list changed meanwhile (another tab): a filled box is not her price, so nothing is put back.
+        Assert.Empty(form.ToPlan(KnownItem.NewId(), new KnownItems([botox, cosmetic with { RegularPrice = 550m }])).Plan!.Repriced);
+
+        line.SetTreatment("Lip filler", known);                     // new to her list: the filled price goes
+        Assert.Equal("", line.RegularPrice);
+        Assert.Null(form.ToPlan(KnownItem.NewId(), known).Plan!.Added.Single().RegularPrice);
+
+        line.SetTreatment("Botox", known);
+        line.RegularPrice = "450";                                    // typed by her: hers, whatever is named
+        line.SetTreatment("Botox Cosmetic", known);
+        Assert.Equal("450", line.RegularPrice);
+        Assert.Equal([cosmetic with { RegularPrice = 450m }], form.ToPlan(KnownItem.NewId(), known).Plan!.Repriced);
+
+        // A saved promotion opened to change: its boxes are her treatments' prices, filled, and follow a new name.
+        var editing = KnownPromotionForm.Of(Holiday(), Known);
+        var balancing = Assert.IsType<KnownTreatmentLineForm>(editing.Lines[1]);
+        balancing.SetTreatment(Midface.Name, Known);
+        Assert.Equal("2550", balancing.RegularPrice);
+    }
+
     [Fact]
     public async Task A_refused_promotion_adds_no_treatment_and_changes_no_price()
     {
