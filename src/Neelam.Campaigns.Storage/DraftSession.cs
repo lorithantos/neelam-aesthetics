@@ -173,6 +173,16 @@ public sealed class DraftSession : IWatched<SaveRef>
         }
     }
 
+    /// <summary>
+    /// On opening: while <see cref="Latest"/> is not approved, each promotion line linked to one of her treatments
+    /// takes its name and regular price from her list as it is now (<see cref="CampaignEditor.FollowKnownTreatments"/>),
+    /// unsaved until she saves. An approved version is never changed: the checks say where her list differs. A version
+    /// approved by fewer people than needed is not approved (<see cref="SaveRef.PartApproval"/>), so it follows.
+    /// </summary>
+    /// <returns>What changed, each sentence once; empty when nothing did or the newest version is approved.</returns>
+    public IReadOnlyList<string> FollowHerList(KnownItems known) =>
+        Latest?.Approval is not null ? [] : Editor.FollowKnownTreatments(known);
+
     /// <summary>True when the campaign has a save in use older than <see cref="Latest"/>, to compare it with.</summary>
     public bool HasEarlierSaves => Latest is not null && _versions > 1;
 

@@ -109,6 +109,24 @@ public sealed class CampaignEditor
             .ToList();
 
     /// <summary>
+    /// Every line of every promotion linked to one of her treatments (<see cref="PricedTreatmentEditor.TreatmentId"/>)
+    /// takes that treatment's name and regular price from her list as it is now (<see cref="PricedTreatmentEditor.Follow"/>).
+    /// A line typed by hand, linked to none, is never followed; a treatment no longer on her list, or without a regular
+    /// price, leaves the line's price as it is.
+    /// </summary>
+    /// <returns>What changed, in the lines' order, each sentence once; empty when nothing did.</returns>
+    public IReadOnlyList<string> FollowKnownTreatments(KnownItems known)
+    {
+        var said = new List<string>();
+        foreach (var line in Blocks.OfType<PromotionBlockEditor>().SelectMany(p => p.Promotion.Lines.OfType<PricedTreatmentEditor>()))
+        {
+            if (line.TreatmentId is not { } id || known.TreatmentById(id) is not { } treatment) continue;
+            if (line.Follow(treatment) is { } sentence && !said.Contains(sentence, StringComparer.Ordinal)) said.Add(sentence);
+        }
+        return said;
+    }
+
+    /// <summary>
     /// What to ask, in turn, before a saved promotion goes into <paramref name="block"/>, so nothing she wrote
     /// is replaced unasked: whether to replace the promotion, when the block has a line or a name, summary or
     /// audience with text; and whether to replace the fine print too, when the first Fine print block the
@@ -901,6 +919,32 @@ public sealed class PricedTreatmentEditor : PromotionLineEditor
     {
         Treatment.Text = text;
         Line.TreatmentId = null;
+    }
+
+    /// <summary>
+    /// The line brought up to date with <paramref name="treatment"/>, the one of hers it is linked to: her name for it
+    /// when the line's differs (ordinal), and her regular price when she has one and the line's differs. A treatment
+    /// without a regular price leaves the line's as it is. The link stays.
+    /// </summary>
+    /// <returns>What changed, as a sentence for the page; null when nothing did.</returns>
+    public string? Follow(KnownTreatment treatment)
+    {
+        var name = FormText.Clean(Treatment.Text);
+        var renamed = !string.Equals(name, treatment.Name, StringComparison.Ordinal);
+        decimal? was = Line.RegularPrice.HasValue ? Line.RegularPrice.Value : null;
+        var regular = treatment.RegularPrice is { } r && r != was ? r : (decimal?)null;
+        if (renamed) Treatment.Text = treatment.Name;
+        if (regular is { } price) RegularPrice.Text = PlainNumber.Text(price);
+
+        var wasText = was is { } w ? $" (was {Dollars.Text(w)})" : "";
+        return (renamed, regular) switch
+        {
+            (true, { } p) => $"From your treatments: {name} is now called {treatment.Name}, regularly {Dollars.Text(p)}{wasText}.",
+            (true, null) => $"From your treatments: {name} is now called {treatment.Name}.",
+            (false, { } p) when was is not null => $"From your treatments: {name} is now regularly {Dollars.Text(p)}{wasText}.",
+            (false, { } p) => $"From your treatments: {name} is regularly {Dollars.Text(p)}.",
+            _ => null,
+        };
     }
 
     /// <summary>The saving the email will state, once both prices are in; null until then.</summary>

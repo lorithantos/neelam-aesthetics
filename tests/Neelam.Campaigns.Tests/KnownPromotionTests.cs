@@ -722,6 +722,81 @@ public class KnownPromotionTests
     }
 
     #endregion
+
+    #region Following her list
+
+    // Holiday filler promo used in a new campaign: both lines linked to her treatments, at today's prices.
+    private static CampaignEditor WithHoliday()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        Assert.True(editor.UsePromotion(PromotionBlock(editor), Known.Promotions[0], Known, replaceFinePrint: false).Used);
+        return editor;
+    }
+
+    [Fact]
+    public void Following_her_list_takes_each_linked_line_s_current_name_and_price_and_says_what_changed()
+    {
+        var editor = WithHoliday();
+        var known = new KnownItems([Midface with { Name = "Midface Lift" }, Balancing with { RegularPrice = 5400m }, Holiday()]);
+
+        Assert.Equal(
+            ["From your treatments: Midface Lift / Cheek Rejuvenation is now called Midface Lift.",
+             "From your treatments: Full-Face Facial Balancing is now regularly $5,400 (was $5,100)."],
+            editor.FollowKnownTreatments(known));
+        Assert.Equal("Midface Lift", Line(editor, 0).Treatment.Text);
+        Assert.Equal("5400", Line(editor, 1).RegularPrice.Text);
+        // The link stays: a renamed treatment is still hers.
+        Assert.Equal(Midface.Id, Line(editor, 0).TreatmentId);
+        Assert.Empty(editor.FollowKnownTreatments(known));
+    }
+
+    // The sentences for a new name with a new price, and for a price the line did not have.
+    [Fact]
+    public void Following_a_new_name_and_price_or_a_first_price_says_so()
+    {
+        var editor = WithHoliday();
+
+        Assert.Equal("From your treatments: Full-Face Facial Balancing is now called Facial Balancing, regularly $5,400 (was $5,100).",
+            Line(editor, 1).Follow(Balancing with { Name = "Facial Balancing", RegularPrice = 5400m }));
+        Line(editor, 0).RegularPrice.Text = "";
+        Assert.Equal("From your treatments: Midface Lift / Cheek Rejuvenation is regularly $2,550.", Line(editor, 0).Follow(Midface));
+        Assert.Equal("2550", Line(editor, 0).RegularPrice.Text);
+        Assert.Null(Line(editor, 0).Follow(Midface));
+    }
+
+    [Fact]
+    public void A_treatment_on_two_lines_is_said_once()
+    {
+        var known = new KnownItems([Balancing, Holiday(new KnownTreatmentLine(Balancing.Id, 3499m), new KnownTreatmentLine(Balancing.Id, 2999m))]);
+        var editor = CampaignEditor.Start(Editable);
+        Assert.True(editor.UsePromotion(PromotionBlock(editor), known.Promotions[0], known, replaceFinePrint: false).Used);
+
+        Assert.Equal(["From your treatments: Full-Face Facial Balancing is now regularly $5,400 (was $5,100)."],
+            editor.FollowKnownTreatments(new KnownItems([Balancing with { RegularPrice = 5400m }])));
+        Assert.Equal(["5400", "5400"], PromotionBlock(editor).Promotion.Lines.Cast<PricedTreatmentEditor>().Select(l => l.RegularPrice.Text));
+    }
+
+    [Fact]
+    public void Lines_typed_by_hand_are_never_followed()
+    {
+        var editor = PromotionTests.FillerPromo(template: Editable);
+
+        Assert.Empty(editor.FollowKnownTreatments(new KnownItems([Balancing with { RegularPrice = 9000m }])));
+        Assert.Equal("5,100", Line(editor, 1).RegularPrice.Text);
+    }
+
+    // Review Focus 5: her list is followed only for what it has; nothing is taken away.
+    [Fact]
+    public void A_line_whose_treatment_was_removed_or_lost_its_price_is_left_as_it_is()
+    {
+        var editor = WithHoliday();
+
+        Assert.Empty(editor.FollowKnownTreatments(new KnownItems([Balancing with { RegularPrice = null }])));
+        Assert.Equal(("Midface Lift / Cheek Rejuvenation", "2550"), (Line(editor, 0).Treatment.Text, Line(editor, 0).RegularPrice.Text));
+        Assert.Equal("5100", Line(editor, 1).RegularPrice.Text);
+    }
+
+    #endregion
 }
 
 /// <summary>
@@ -880,5 +955,65 @@ public class KnownPromotionPageTests(ProofreadDemoApp app) : IClassFixture<Proof
 
         Assert.Equal("This campaign has no Fine print block, so the promotion's fine print wasn't added.",
             RenderedPage.Named(await page.HtmlAsync(), "promotion-use-message"));
+    }
+
+    // ---- Following her list on opening, until approved ----
+
+    private CampaignStore Store => app.Stores.Campaigns(DemoApp.Client, Actor.Demo);
+
+    // Her treatment at $5,100, named with the test's own suffix, and a finished campaign saved with its one
+    // line linked to it.
+    private async Task<(KnownTreatment Treatment, SaveRef Save)> LinkedAsync(int n)
+    {
+        var treatment = new KnownTreatment(KnownItem.NewId(), $"Full-Face Facial Balancing {n}", 5100m);
+        await app.KnownItems.AddAsync(DemoApp.Client, treatment);
+        var editor = PromotionTests.FillerPromo(template: KnownPromotionTests.Editable);
+        var promotion = editor.Blocks.OfType<PromotionBlockEditor>().Single().Promotion;
+        while (promotion.Lines.Count > 0) promotion.RemoveLine(promotion.Lines[^1]);
+        var line = promotion.AddTreatment();
+        line.SetTreatment(treatment.Name, new KnownItems([treatment]));
+        line.Price.Text = "3499";
+        Assert.Equal(treatment.Id, line.TreatmentId);
+        var save = await Store.SaveDraftAsync(Guid.NewGuid(), "Filler Promo", editor.Draft);
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        return (treatment, save);
+    }
+
+    [Fact]
+    public async Task An_unapproved_campaign_follows_her_list_on_opening_with_the_note_and_saves_nothing()
+    {
+        var (treatment, save) = await LinkedAsync(7);
+        await app.KnownItems.UpdateAsync(DemoApp.Client, treatment with { RegularPrice = 5400m });
+
+        await using var page = await OpenCampaignPage.OpenAsync(app, save.Id, FakeProofreader.Clean);
+
+        var html = await page.HtmlAsync();
+        Assert.Equal($"From your treatments: {treatment.Name} is now regularly $5,400 (was $5,100).", RenderedPage.Named(html, "known-followed"));
+        Assert.Contains("(Regularly $5,400, saving $1,901)", RenderedPage.Named(html, "line-sentence-1-l0"));
+        Assert.Single(await Store.HistoryAsync(DocumentKind.Draft, save.Id));
+
+        await page.ClickAsync("save-button");
+
+        Assert.Equal(0, RenderedPage.Count(await page.HtmlAsync(), "known-followed"));
+        Assert.Equal(2, (await Store.HistoryAsync(DocumentKind.Draft, save.Id)).Count);
+        var saved = (await DraftSession.OpenAsync(Store, save.Id))!.Editor;
+        Assert.Equal("5400",
+            Assert.IsType<PricedTreatmentEditor>(saved.Blocks.OfType<PromotionBlockEditor>().Single().Promotion.Lines[0]).RegularPrice.Text);
+    }
+
+    [Fact]
+    public async Task An_approved_campaign_is_not_changed_and_the_worth_a_look_stands()
+    {
+        var (treatment, save) = await LinkedAsync(8);
+        await Store.ApproveAsync(save, "Priya");
+        await app.KnownItems.UpdateAsync(DemoApp.Client, treatment with { RegularPrice = 5400m });
+
+        await using var page = await OpenCampaignPage.OpenAsync(app, save.Id, FakeProofreader.Clean);
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(0, RenderedPage.Count(html, "known-followed"));
+        Assert.Contains("(Regularly $5,100, saving $1,601)", RenderedPage.Named(html, "line-sentence-1-l0"));
+        Assert.Contains("is regularly $5,400 in your known items; here it is $5,100.", RenderedPage.Named(html, "checks-findings"));
+        Assert.Equal(1, RenderedPage.Count(html, "approved"));
     }
 }

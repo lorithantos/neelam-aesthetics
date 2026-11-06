@@ -94,6 +94,12 @@ public sealed class WorkingCopyKeeper(
     }
 
     /// <summary>
+    /// The form as it is now is what the page last saw: for a change the page makes by itself (following her list
+    /// on opening), which is neither written as a working copy nor told to her tab.
+    /// </summary>
+    public void TakeAsSeen() => _seen = Form();
+
+    /// <summary>
     /// On opening a saved campaign: what she had not saved, brought into the form, or null when there is
     /// nothing to bring back. The newest of the working copy in storage and one on the server's disk, while it
     /// is newer than the newest save and not the same as it; a disk copy is taken into storage now, and goes

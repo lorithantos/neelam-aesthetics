@@ -203,6 +203,12 @@ else if (_session is not null)
             <button type="button" class="button" data-testid="working-copy-discard" @onclick="DiscardAsync">@WorkingCopyWords.Discard</button>
         </section>
     }
+    @* Her treatments' names and prices taken into its promotion lines as it opened, while not approved: unsaved
+       until she saves (DraftSession.FollowHerList). *@
+    @if (_followed.Count > 0)
+    {
+        <section class="card" role="status" data-testid="known-followed"><p>@string.Join(" ", _followed)</p></section>
+    }
     @if (_tab?.OthersEditing == true || _keeper?.OtherTab == true)
     {
         <section class="card" role="status" data-testid="working-copy-other-tab"><p>@WorkingCopyWords.OtherTab</p></section>
@@ -1224,6 +1230,11 @@ else
         try
         {
             await LoadChecksAsync(client, actor);
+            // Her list followed, on opening only: the page acting, not her, so it is not editing. The keeper has
+            // tracked the form already, and takes the followed one as seen, so it is neither written as a working
+            // copy nor told to her tab.
+            _followed = _session?.FollowHerList(Known) ?? [];
+            _keeper.TakeAsSeen();
         }
         catch (RegistrationUnreadableException ex)
         {
@@ -1253,6 +1264,9 @@ else
 
     // The working copy brought back into the form on opening, while the page says so; null otherwise.
     private WorkingCopy? _broughtBack;
+
+    // What following her list changed as the page opened, while the page says so: until a save, Load the latest or Discard.
+    private IReadOnlyList<string> _followed = [];
 
     // This tab among the campaign's open tabs (2026-11-05), so another tab's typing is said at once; told of
     // every change she makes through the keeper. Null until the page opens.
@@ -1378,6 +1392,7 @@ else
         if (discard) await _keeper!.DiscardAsync(id);
         else await _keeper!.RemoveAsync(id);
         _broughtBack = null;
+        _followed = [];
         _proofreadMessage = _fixMessage = null;
         _approver = "";
         _session = latest;
@@ -1431,6 +1446,8 @@ else
         _confirmingUndo = _confirmingDelete = false;
         // A new version: what was said of the last one's proofread, or of a fix put in, no longer applies.
         _proofreadMessage = _fixMessage = null;
+        // What following her list changed is saved now.
+        _followed = [];
         await AddPromotionTreatmentsAsync();
         // The address now names the campaign, so a reload opens what was saved. Only the address
         // changes: navigating would load the page afresh, at the top and without the saved line.

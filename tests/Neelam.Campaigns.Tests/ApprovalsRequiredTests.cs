@@ -201,6 +201,27 @@ public class ApprovalsRequiredTests
         Assert.NotNull((await DraftSession.OpenAsync(this.Store(1), session.Id.Value))!.CurrentApproval);
     }
 
+    // Decision 9: a version approved by fewer people than needed is not approved yet, so on opening it
+    // takes her treatments' current prices, as any unapproved campaign does.
+    [Fact]
+    public async Task A_version_approved_in_part_follows_her_list_on_opening()
+    {
+        CampaignEditor editor = PromotionTests.FillerPromo(template: KnownPromotionTests.Editable);
+        Assert.True(editor.UsePromotion(editor.Blocks.OfType<PromotionBlockEditor>().Single(), KnownPromotionTests.Known.Promotions[0],
+            KnownPromotionTests.Known, replaceFinePrint: true).Used);
+        Guid id = Guid.NewGuid();
+        await this.Store(2).SaveDraftAsync(id, "Filler Promo", editor.Draft);
+        this._clock.Now += TimeSpan.FromMinutes(1);
+        await (await DraftSession.OpenAsync(this.Store(2), id))!.ApproveAsync("Priya");
+
+        DraftSession reopened = (await DraftSession.OpenAsync(this.Store(2), id))!;
+
+        Assert.NotNull(reopened.CurrentPartApproval);
+        Assert.Equal(
+            ["From your treatments: Full-Face Facial Balancing is now regularly $5,400 (was $5,100)."],
+            reopened.FollowHerList(new KnownItems([KnownPromotionTests.Midface, KnownPromotionTests.Balancing with { RegularPrice = 5400m }])));
+    }
+
     // The assistant export names everyone who approved and when the last did; with one, as before.
     [Fact]
     public async Task The_export_names_every_approver()

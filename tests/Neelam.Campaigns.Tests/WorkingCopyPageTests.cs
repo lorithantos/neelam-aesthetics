@@ -498,6 +498,36 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         Assert.Equal(0, RenderedPage.Count(await b.HtmlAsync(), "working-copy-other-tab"));
     }
 
+    // Following her list on opening is the page acting, not her: no other tab is told, and it is not written
+    // as a working copy, even after the cap; it is unsaved until she saves.
+    [Fact]
+    public async Task Following_her_list_on_opening_tells_no_one_and_writes_no_working_copy()
+    {
+        var t = new KnownTreatment(KnownItem.NewId(), "Follow-quiet treatment", 5100m);
+        await app.KnownItems.AddAsync(DemoApp.Client, t);
+        var editor = CampaignEditor.Start(KnownPromotionTests.Editable);
+        // A subject, so a working copy written would show in Held.
+        editor.Subject.Text = "Follow-quiet";
+        var line = editor.Blocks.OfType<PromotionBlockEditor>().Single().Promotion.AddTreatment();
+        line.SetTreatment(t.Name, new KnownItems([t]));
+        line.Price.Text = "100";
+        var save = await Store.SaveDraftAsync(Guid.NewGuid(), "Follow-quiet", editor.Draft);
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        await using var a = await Open(save.Id, Clock());
+        await app.KnownItems.UpdateAsync(DemoApp.Client, t with { RegularPrice = 5400m });
+
+        var clockB = Clock();
+        await using var b = await Open(save.Id, clockB);
+        Later();
+        clockB.Advance(Settings.Cap);
+        await Settled(b);
+
+        Assert.Equal(1, RenderedPage.Count(await b.HtmlAsync(), "known-followed"));
+        Assert.False(AnyTyped(save.Id));
+        Assert.Equal(0, RenderedPage.Count(await a.HtmlAsync(), "working-copy-other-tab"));
+        Assert.Null(Held(save.Id));
+    }
+
     [Fact]
     public async Task A_save_tells_the_other_tab()
     {
