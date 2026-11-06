@@ -127,7 +127,7 @@ public class KnownPromotionTests
     public void A_promotion_row_that_cannot_be_read_is_left_out_and_logged_by_its_key_alone()
     {
         var log = new ListLogger<KnownItemTable>();
-        string?[] bad = [null, "{not json", "[null]", """[{"line":"treatment","treatmentId":"","price":1}]"""];
+        string?[] bad = [null, "{not json", "[null]", """[{"line":"treatment","treatmentId":"","price":1}]""", """[{"line":"benefit"}]"""];
         var rows = bad.Select(lines =>
         {
             var row = new Azure.Data.Tables.TableEntity(Salon.Value, KnownItem.NewId()) { ["Kind"] = "Promotion", ["Text"] = "Secret" };
@@ -138,7 +138,7 @@ public class KnownPromotionTests
         var read = KnownItemTable.ReadAll(Salon, rows, log);
 
         Assert.Equal([Balancing.Id], read.All.Select(i => i.Id));
-        Assert.Equal(4, log.Entries.Count);
+        Assert.Equal(5, log.Entries.Count);
         Assert.DoesNotContain(log.Entries, e => e.ToString()!.Contains("Secret"));
     }
 
@@ -325,6 +325,22 @@ public class KnownPromotionTests
         Assert.Equal("2550", balancing.RegularPrice);
     }
 
+    // Final review, Minor 3: lines naming one new treatment keep the first regular price given, as Save as a known promotion does.
+    [Fact]
+    public void Lines_naming_one_new_treatment_keep_the_first_regular_price_given()
+    {
+        var form = new KnownPromotionForm { Name = "Lip week" };
+        foreach (var (regular, price) in new[] { ("", "199"), ("699", "499"), ("799", "399") })
+        {
+            var line = form.AddTreatment();
+            line.SetTreatment("Lip filler", KnownItems.None);
+            line.Price = price;
+            line.RegularPrice = regular;
+        }
+
+        Assert.Equal(699m, form.ToPlan(KnownItem.NewId(), KnownItems.None).Plan!.Added.Single().RegularPrice);
+    }
+
     [Fact]
     public async Task A_refused_promotion_adds_no_treatment_and_changes_no_price()
     {
@@ -480,6 +496,21 @@ public class KnownPromotionTests
         Assert.Equal("", block.Promotion.Ends.Text);
         Assert.Contains(editor.Status().Missing, m => m.Location == "Promotion › Starts");
         Assert.Equal(saved.FinePrint, FinePrint(editor).Field.Text);
+    }
+
+    // A benefit line comes in as her saved one says it, and the promotion is then hers, so Save is not offered.
+    [Fact]
+    public void Using_a_saved_promotion_with_a_benefit_line_fills_that_benefit_and_is_then_one_of_hers()
+    {
+        var known = new KnownItems([Midface, Holiday(new KnownTreatmentLine(Midface.Id, 1599m), new KnownBenefitLine(new Credit(50m, "your next appointment")))]);
+        var editor = CampaignEditor.Start(Editable);
+        var block = PromotionBlock(editor);
+
+        Assert.True(editor.UsePromotion(block, known.Promotions[0], known, replaceFinePrint: false).Used);
+
+        var benefit = Assert.IsType<BenefitLineDraft>(editor.Draft.Promotion("Promotion").Lines[1]);
+        Assert.Equal("$50 credit toward your next appointment", benefit.Benefit.Value.Describe());
+        Assert.True(block.Promotion.IsOneOf(known));
     }
 
     // Decision 8: the dates are the Promotion block's, said once by the sentence its export ends with.
@@ -728,6 +759,21 @@ public class KnownPromotionTests
         Assert.Equal("Two months to refresh.\nBook now.", made.Promotion!.Summary);
         Assert.Null(made.Promotion.Audience);
         Assert.True(block.Promotion.IsOneOf(new KnownItems([Midface, .. made.Added, made.Promotion])));
+    }
+
+    // Final review, Minor 3: as on the Promotions tab, the first line naming a new treatment gives its regular price.
+    [Fact]
+    public void Lines_naming_one_new_treatment_in_a_campaign_keep_the_first_line_s_regular_price()
+    {
+        var editor = PromotionTests.FillerPromo(KnownItems.None, Editable);
+        var again = PromotionBlock(editor).Promotion.AddTreatment();
+        again.SetTreatment("Full-Face Facial Balancing", KnownItems.None);
+        again.Price.Text = "3,999";
+        again.RegularPrice.Text = "5,400";
+
+        var made = editor.PromotionToKnown(PromotionBlock(editor), KnownItems.None);
+
+        Assert.Equal(5100m, made.Added.Single(t => t.Name == "Full-Face Facial Balancing").RegularPrice);
     }
 
     [Fact]

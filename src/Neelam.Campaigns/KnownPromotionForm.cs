@@ -201,7 +201,8 @@ public sealed class KnownTreatmentLineForm : KnownPromotionLineForm
         {
             var same = added.FindIndex(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
             var treatment = same >= 0 ? added[same] : new KnownTreatment(KnownItem.NewId(), name, regular);
-            if (same >= 0) added[same] = treatment = treatment with { RegularPrice = regular ?? treatment.RegularPrice };
+            // The first line giving a regular price gives it, as Save as a known promotion keeps the first.
+            if (same >= 0) added[same] = treatment = treatment with { RegularPrice = treatment.RegularPrice ?? regular };
             else added.Add(treatment);
             id = treatment.Id;
         }

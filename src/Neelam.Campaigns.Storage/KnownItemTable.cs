@@ -225,8 +225,8 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
     }
 
     /// <summary>
-    /// A promotion from its row. Its Lines must parse, hold no empty line and no treatment line without
-    /// an id; otherwise the row is malformed, left out by <see cref="ReadAll"/> like any other. The
+    /// A promotion from its row. Its Lines must parse, hold no empty line, no treatment line without
+    /// an id and no benefit line without a benefit; otherwise the row is malformed, left out by <see cref="ReadAll"/> like any other. The
     /// summary, audience and fine print are optional columns.
     /// </summary>
     private static KnownPromotion Promotion(TableEntity row)
@@ -235,6 +235,8 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         if (lines.Any(l => l is null)) throw new InvalidDataException($"Known item {row.RowKey} has an empty line.");
         if (lines.Any(l => l is KnownTreatmentLine { TreatmentId: var id } && string.IsNullOrWhiteSpace(id)))
             throw new InvalidDataException($"Known item {row.RowKey} has a line with no treatment.");
+        if (lines.Any(l => l is KnownBenefitLine { Benefit: null }))
+            throw new InvalidDataException($"Known item {row.RowKey} has a line with no benefit.");
         return new KnownPromotion(row.RowKey, row.GetString("Text")!, row.GetString("Summary"), row.GetString("Audience"),
             lines, row.GetString("FinePrint"));
     }
