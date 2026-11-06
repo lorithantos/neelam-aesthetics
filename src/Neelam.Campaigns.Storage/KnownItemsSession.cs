@@ -403,10 +403,13 @@ public sealed class KnownItemsSession
         return true;
     }
 
-    // A store call failed part way: what was written stands, so the list shown is read again.
+    // A store call failed part way: what was written stands, so the list shown is read again and she is
+    // told what joined or changed on it, beside the error. Her form keeps what she typed.
     private async Task<bool> StoppedAsync(List<string> written, CancellationToken ct)
     {
-        if (written.Count > 0) await ReloadAsync(ct);
+        if (written.Count == 0) return false;
+        Message = string.Join(' ', written);
+        await ReloadAsync(ct);
         return false;
     }
 

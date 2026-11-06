@@ -349,6 +349,45 @@ public class KnownPromotionTests
         Assert.All(records.Activity.Events, e => Assert.Equal(holiday.Id, e.EntityId));
     }
 
+    // Her table, unreachable for the promotion's own write only.
+    private sealed class FailingPromotionWrites : IKnownItemStore
+    {
+        private readonly InMemoryKnownItems _inner = new();
+        public bool Fail { get; set; } = true;
+
+        public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken ct = default) => _inner.ForClientAsync(client, ct);
+
+        public Task AddAsync(ClientName client, KnownItem item, CancellationToken ct = default) =>
+            Fail && item is KnownPromotion ? throw new Azure.RequestFailedException(503, "The table service is unavailable.")
+                : _inner.AddAsync(client, item, ct);
+
+        public Task UpdateAsync(ClientName client, KnownItem item, CancellationToken ct = default) => _inner.UpdateAsync(client, item, ct);
+        public Task RemoveAsync(ClientName client, string id, CancellationToken ct = default) => _inner.RemoveAsync(client, id, ct);
+    }
+
+    [Fact]
+    public async Task A_promotion_save_that_fails_midway_says_what_joined_her_list_and_leaves_the_session_usable()
+    {
+        var store = new FailingPromotionWrites();
+        var records = new TestRecords(new ManualClock(new DateTimeOffset(2026, 11, 6, 12, 0, 0, TimeSpan.Zero)));
+        var session = await KnownItemsSession.OpenAsync(store, records.Recorder.For(Salon, Priya));
+        session.NewPromotion.Name = "Holiday filler promo";
+        TreatmentLine(session, session.NewPromotion, "Lip filler", "499", "699");
+
+        Assert.False(await session.AddPromotionAsync());
+
+        Assert.Equal([KnownItemsSession.SaveFailed], session.Errors);
+        Assert.Equal("Added Lip filler to your treatments, regularly $699.", session.Message);
+        Assert.NotNull(session.Items.TreatmentNamed("Lip filler"));            // the list shown was read again
+        Assert.Empty((await store.ForClientAsync(Salon)).Promotions);
+        Assert.Single(session.NewPromotion.Lines);                              // what she typed is still there
+
+        store.Fail = false;
+        Assert.True(await session.AddPromotionAsync());
+        Assert.Equal("Added \"Holiday filler promo\".", session.Message);
+        Assert.Single(session.Items.Promotions);
+    }
+
     [Fact]
     public async Task A_line_to_a_treatment_removed_meanwhile_shows_as_no_longer_on_her_list_and_is_not_saved_unchanged()
     {
