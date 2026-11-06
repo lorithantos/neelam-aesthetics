@@ -110,12 +110,13 @@ public sealed class KnownItemsSession
         EditBenefit = item is KnownBenefit b ? BenefitEditor.Standalone(b.Benefit) : null;
         EditLimits = item is KnownBenefit line ? AmountLimitsForm.Of(line) : null;
         EditTier = item is KnownTier tier ? KnownTierForm.Of(tier) : null;
+        EditPromotion = item is KnownPromotion promotion ? KnownPromotionForm.Of(promotion, Items) : null;
     }
 
     public void CancelEdit()
     {
         Editing = null;
-        (EditBenefit, EditLimits, EditTier, EditTreatment) = (null, null, null, null);
+        (EditBenefit, EditLimits, EditTier, EditTreatment, EditPromotion) = (null, null, null, null, null);
         Errors = [];
     }
 
@@ -135,6 +136,12 @@ public sealed class KnownItemsSession
                 if (line is null) return Refuse([.. problems]);
                 changed = line;
                 break;
+            case KnownPromotion:
+                var (plan, planErrors) = EditPromotion!.ToPlan(editing.Id, Items);
+                if (plan is null) return Refuse([.. planErrors]);
+                if (!await ApplyAsync(plan, adding: false, ct)) return false;
+                CancelEdit();
+                return true;
             default:
                 var (tier, errors) = EditTier!.ToItem(editing.Id);
                 if (tier is null) return Refuse([.. errors]);
@@ -276,9 +283,7 @@ public sealed class KnownItemsSession
                 continue;
             }
             await trail.RecordAsync(ActivityEntity.KnownItem, treatment.Id, null, ActivityAction.KnownItemAdded, ct);
-            said.Add(treatment.RegularPrice is { } regular
-                ? $"Added {treatment.Name} to your treatments, regularly {Dollars.Text(regular)}."
-                : $"Added {treatment.Name} to your treatments.");
+            said.Add(AddedSentence(treatment));
         }
         return said;
     }
@@ -316,6 +321,16 @@ public sealed class KnownItemsSession
 
     private async Task<bool> ChangeAsync(KnownItem item, bool adding, CancellationToken ct)
     {
+        if (!await WriteAsync(item, adding, ct)) return false;
+        (Message, Errors) = ($"{(adding ? "Added" : "Changed")} \"{item.Text}\".", []);
+        await ReloadAsync(ct);
+        return true;
+    }
+
+    // One store call and its trail event; says nothing and reads nothing again, so a change of several
+    // items can say it once.
+    private async Task<bool> WriteAsync(KnownItem item, bool adding, CancellationToken ct)
+    {
         try
         {
             if (adding) await _store.AddAsync(_trail.Client, item, ct);
@@ -333,8 +348,69 @@ public sealed class KnownItemsSession
         await _trail.RecordAsync(ActivityEntity.KnownItem, item.Id, null,
             adding ? ActivityAction.KnownItemAdded : ActivityAction.KnownItemChanged, ct);
         _caps.Remove(item.Id);
-        (Message, Errors) = ($"{(adding ? "Added" : "Changed")} \"{item.Text}\".", []);
+        return true;
+    }
+
+    // ---- A promotion and what it does to her treatments ----
+
+    /// <summary>The new promotion's form.</summary>
+    public KnownPromotionForm NewPromotion { get; private set; } = new();
+
+    /// <summary>The promotion open for changing, or null.</summary>
+    public KnownPromotionForm? EditPromotion { get; private set; }
+
+    public async Task<bool> AddPromotionAsync(CancellationToken ct = default)
+    {
+        var (plan, errors) = NewPromotion.ToPlan(KnownItem.NewId(), Items);
+        if (plan is null) return Refuse([.. errors]);
+        if (!await ApplyAsync(plan, adding: true, ct)) return false;
+        NewPromotion = new KnownPromotionForm();
+        return true;
+    }
+
+    /// <summary>How far changing one of her treatments reaches, said beside its form; null when no saved promotion uses it.</summary>
+    public string? Reach(KnownTreatment treatment) => Items.PromotionsUsing(treatment.Id).Count switch
+    {
+        0 => null,
+        1 => "Used in 1 saved promotion; it will show the new price.",   // (proposed)
+        var n => $"Used in {n} saved promotions; they will show the new price.",
+    };
+
+    // The promotion is checked against her list as the plan would leave it before anything is written,
+    // so a promotion that would be refused adds no treatment and changes no price. Then her new
+    // treatments, her repriced ones, and the promotion, in that order: a line never points at nothing.
+    private async Task<bool> ApplyAsync(KnownPromotionPlan plan, bool adding, CancellationToken ct)
+    {
+        var provisional = new KnownItems([
+            .. Items.All.Where(i => plan.Repriced.All(r => r.Id != i.Id)), .. plan.Repriced, .. plan.Added]);
+        if (KnownItemRules.Problems(plan.Promotion, provisional) is { Count: > 0 } problems) return Refuse([.. problems]);
+
+        var said = new List<string>();
+        foreach (var treatment in plan.Added)
+        {
+            if (!await WriteAsync(treatment, adding: true, ct)) return await StoppedAsync(said, ct);
+            said.Add(AddedSentence(treatment));
+        }
+        foreach (var treatment in plan.Repriced)
+        {
+            if (!await WriteAsync(treatment, adding: false, ct)) return await StoppedAsync(said, ct);
+            said.Add($"Changed {treatment.Name}'s regular price to {Dollars.Text(treatment.RegularPrice!.Value)}.");   // (proposed)
+        }
+        if (!await WriteAsync(plan.Promotion, adding, ct)) return await StoppedAsync(said, ct);
+        said.Add($"{(adding ? "Added" : "Changed")} \"{plan.Promotion.Text}\".");
+        (Message, Errors) = (string.Join(' ', said), []);
         await ReloadAsync(ct);
         return true;
     }
+
+    // A store call failed part way: what was written stands, so the list shown is read again.
+    private async Task<bool> StoppedAsync(List<string> written, CancellationToken ct)
+    {
+        if (written.Count > 0) await ReloadAsync(ct);
+        return false;
+    }
+
+    private static string AddedSentence(KnownTreatment treatment) => treatment.RegularPrice is { } regular
+        ? $"Added {treatment.Name} to your treatments, regularly {Dollars.Text(regular)}."
+        : $"Added {treatment.Name} to your treatments.";
 }
