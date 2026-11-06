@@ -5,8 +5,15 @@
    it, and the checks point out a price other than hers. The saving is worked out, never typed. A
    treatment new to her list is added to her known items when the campaign is saved (P6), as the
    page says then. Modelled on OfferFields; removing a line is a plain button that asks first. Every
-   change tells the page (FieldsComponent). *@
+   change tells the page (FieldsComponent). "Use a saved promotion" comes first, only where the page
+   passes UseSaved (the campaign page, never the template page), and the page decides what a pick does. *@
 @inherits FieldsComponent
+@if (UseSaved.HasDelegate && Known.Promotions.Count > 0)
+{
+    <KnownItemPicker TItem="KnownPromotion" Id="@($"promotion-use-saved-{Index}")" Label="Use a saved promotion" List="@KnownItemLists.Promotions"
+                     Placeholder="Start typing to search your saved promotions" Find="Known.PromotionNamed" Picked="p => UseSaved.InvokeAsync(p)"
+                     Help="Choosing one fills in its name, lines and fine print; you give it its dates." />
+}
 <div class="field">
     <label for="promotion-name-@Index">Promotion name</label>
     <input id="promotion-name-@Index" @bind="Promotion.Name.Text" @bind:event="oninput" />
@@ -121,6 +128,9 @@
 
     /// <summary>Her known items, to pick from. None: nothing is offered.</summary>
     [Parameter] public KnownItems Known { get; set; } = KnownItems.None;
+
+    /// <summary>Told the saved promotion she picked; none, no saved promotion is offered.</summary>
+    [Parameter] public EventCallback<KnownPromotion> UseSaved { get; set; }
 
     private string _benefitPick = "";
     private object? _confirmingRemove;

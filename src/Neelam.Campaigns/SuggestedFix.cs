@@ -128,7 +128,7 @@ public static class SuggestedFix
             switch (line)
             {
                 case PricedTreatmentEditor t:
-                    fields.Add(new(() => t.Treatment.Text, v => t.Treatment.Text = v));
+                    fields.Add(new(() => t.Treatment.Text, v => t.Rename(v)));
                     break;
                 case BenefitLineEditor { Benefit: var b }:
                     fields.Add(new(() => b.AppliesTo, v => b.AppliesTo = v));

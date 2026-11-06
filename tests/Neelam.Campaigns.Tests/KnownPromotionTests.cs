@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.RegularExpressions;
 using Neelam.Campaigns.Storage;
 
 namespace Neelam.Campaigns.Tests;
@@ -403,4 +405,302 @@ public class KnownPromotionTests
     }
 
     #endregion
+
+    #region Using a saved promotion
+
+    private static PromotionBlockEditor PromotionBlock(CampaignEditor editor) => editor.Blocks.OfType<PromotionBlockEditor>().Single();
+
+    private static TextBlockEditor FinePrint(CampaignEditor editor) =>
+        editor.Blocks.OfType<TextBlockEditor>().Single(b => b.Type == BlockType.FinePrint);
+
+    private static PricedTreatmentEditor Line(CampaignEditor editor, int index) =>
+        Assert.IsType<PricedTreatmentEditor>(PromotionBlock(editor).Promotion.Lines[index]);
+
+    [Fact]
+    public void Using_a_saved_promotion_fills_its_parts_with_linked_lines_at_today_s_prices_and_leaves_the_dates()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        var block = PromotionBlock(editor);
+        var saved = Known.Promotions[0];
+
+        var use = editor.UsePromotion(block, saved, Known, replaceFinePrint: false);
+
+        Assert.True(use.Used);
+        Assert.Empty(use.Said);
+        Assert.Equal("Holiday filler promo", block.Promotion.Name.Text);
+        Assert.Equal(
+            new (string?, string, string, string)[]
+            {
+                (Midface.Id, "Midface Lift / Cheek Rejuvenation", "1599", "2550"),
+                (Balancing.Id, "Full-Face Facial Balancing", "3499", "5100"),
+            },
+            block.Promotion.Lines.Cast<PricedTreatmentEditor>().Select(l => (l.TreatmentId, l.Treatment.Text, l.Price.Text, l.RegularPrice.Text)));
+        Assert.Equal("", block.Promotion.Starts.Text);
+        Assert.Equal("", block.Promotion.Ends.Text);
+        Assert.Contains(editor.Status().Missing, m => m.Location == "Promotion › Starts");
+        Assert.Equal(saved.FinePrint, FinePrint(editor).Field.Text);
+    }
+
+    // Decision 8: the dates are the Promotion block's, said once by the sentence its export ends with.
+    [Fact]
+    public void A_picked_promotion_s_dates_are_said_once_in_the_export()
+    {
+        var editor = PromotionTests.FillerPromo(template: Editable);
+        var saved = Known.Promotions[0];
+
+        Assert.True(editor.UsePromotion(PromotionBlock(editor), saved, Known, replaceFinePrint: true).Used);
+
+        var preview = EditorExport.Preview(editor.Draft.Build().Campaign!);
+        const string dates = "Offer valid November 1 – December 31, 2026.";
+        Assert.Equal(1, (preview.Length - preview.Replace(dates, "", StringComparison.Ordinal).Length) / dates.Length);
+        Assert.Contains(saved.FinePrint!, preview);
+    }
+
+    [Fact]
+    public void It_asks_before_replacing_her_lines_or_her_fine_print_and_not_otherwise()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        var block = PromotionBlock(editor);
+        var saved = Known.Promotions[0];
+        Assert.Equal(new PromotionAsks(null, null), editor.AsksBeforeUsing(block, saved));
+
+        block.Promotion.AddTreatment();
+        FinePrint(editor).Field.Text = "Mine.";
+
+        Assert.Equal(new PromotionAsks("Replace this promotion with Holiday filler promo?", "Replace the fine print too, or keep yours?"),
+            editor.AsksBeforeUsing(block, saved));
+        Assert.True(editor.UsePromotion(block, saved, Known, replaceFinePrint: false).Used);
+        Assert.Equal("Mine.", FinePrint(editor).Field.Text);
+    }
+
+    [Fact]
+    public void With_no_fine_print_block_it_says_the_fine_print_was_not_added()
+    {
+        var noFinePrint = new CampaignTemplate("No fine print", [.. Editable.Blocks.Where(b => b.Type != BlockType.FinePrint)]);
+        var editor = CampaignEditor.Start(noFinePrint);
+
+        var use = editor.UsePromotion(PromotionBlock(editor), Known.Promotions[0], Known, replaceFinePrint: true);
+
+        Assert.True(use.Used);
+        Assert.Equal(["This campaign has no Fine print block, so the promotion's fine print wasn't added."], use.Said);
+    }
+
+    // Decision 11: a Fine print block the template fixes is the template's to change. The saved fine print
+    // differs from the template's here, so writing it in would show.
+    [Fact]
+    public void A_fixed_fine_print_block_is_left_as_the_template_has_it()
+    {
+        var editor = CampaignEditor.Start(PromotionTests.Template);
+        var saved = Known.Promotions[0] with { FinePrint = "Valid at the front desk only." };
+
+        var use = editor.UsePromotion(PromotionBlock(editor), saved, Known, replaceFinePrint: true);
+
+        Assert.True(use.Used);
+        Assert.StartsWith("Offer valid for filler treatments booked and performed within those dates.", FinePrint(editor).Field.Text);
+        Assert.Equal(["This campaign's fine print is the template's own, so the promotion's fine print wasn't added."], use.Said);
+    }
+
+    [Fact]
+    public void A_line_whose_treatment_has_no_regular_price_is_left_for_her_to_fill()
+    {
+        var known = new KnownItems([Wellness, Holiday(new KnownTreatmentLine(Wellness.Id, 99m))]);
+        var editor = CampaignEditor.Start(Editable);
+
+        Assert.True(editor.UsePromotion(PromotionBlock(editor), known.Promotions[0], known, replaceFinePrint: false).Used);
+
+        Assert.Equal("", Line(editor, 0).RegularPrice.Text);
+        Assert.Contains(editor.Status().Missing, m => m.Location == "Promotion › Line 1 › Regular price");
+    }
+
+    // Decision 10: a saved promotion with problems fills nothing, and says what to fix where.
+    [Fact]
+    public void A_saved_promotion_with_a_problem_is_not_used()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        var block = PromotionBlock(editor);
+        var missing = new KnownItems([Midface, Holiday()]);
+
+        var use = editor.UsePromotion(block, missing.Promotions[0], missing, replaceFinePrint: true);
+
+        Assert.False(use.Used);
+        Assert.Equal(["Holiday filler promo can't be used until it is fixed on the Known items page.",
+            "Line 2 is a treatment no longer on your list: change or remove it."], use.Said);
+        Assert.Empty(block.Promotion.Lines);
+        Assert.Equal("", block.Promotion.Name.Text);
+        Assert.Equal("", FinePrint(editor).Field.Text);
+
+        var priced = new KnownItems([Midface, Balancing with { RegularPrice = 3499m }, Holiday()]);
+        var again = editor.UsePromotion(block, priced.Promotions[0], priced, replaceFinePrint: true);
+
+        Assert.False(again.Used);
+        Assert.Equal("'Full-Face Facial Balancing' is $3,499 in the promotion but regularly $3,499: the promotion price must be below the regular price.",
+            again.Said[1]);
+        Assert.Empty(block.Promotion.Lines);
+    }
+
+    [Fact]
+    public void Editing_what_was_filled_never_changes_the_saved_promotion()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        var saved = Known.Promotions[0];
+        editor.UsePromotion(PromotionBlock(editor), saved, Known, replaceFinePrint: false);
+
+        Line(editor, 0).Price.Text = "1";
+        PromotionBlock(editor).Promotion.Name.Text = "Changed";
+
+        Assert.Equal(1599m, Assert.IsType<KnownTreatmentLine>(Known.Promotions[0].Lines[0]).Price);
+        Assert.Equal("Holiday filler promo", Known.Promotions[0].Name);
+        Assert.Equal(1m, ((PricedTreatmentDraft)editor.Draft.Promotion("Promotion").Lines[0]).Price.Value);
+    }
+
+    // Decision 6: linking is exact; the regular price is still filled ignoring case.
+    [Fact]
+    public void A_line_typed_with_exactly_her_treatment_s_name_is_linked_and_any_other_is_not()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        var line = PromotionBlock(editor).Promotion.AddTreatment();
+
+        line.SetTreatment("Full-Face Facial Balancing", Known);
+        Assert.Equal(Balancing.Id, line.TreatmentId);
+        Assert.Equal(Balancing.Id, ((PricedTreatmentDraft)editor.Draft.Promotion("Promotion").Lines[0]).TreatmentId);
+
+        line.SetTreatment("full-face facial balancing", Known);
+        Assert.Null(line.TreatmentId);
+        Assert.Equal("5100", line.RegularPrice.Text);
+    }
+
+    [Fact]
+    public void A_linked_line_renamed_by_hand_or_by_a_suggested_fix_is_no_longer_linked()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        editor.UsePromotion(PromotionBlock(editor), Known.Promotions[0], Known, replaceFinePrint: false);
+
+        Line(editor, 0).SetTreatment("Midface Lift", Known);
+        Assert.Null(Line(editor, 0).TreatmentId);
+
+        Assert.Equal(Balancing.Id, Line(editor, 1).TreatmentId);
+        var spelling = new Finding(Severity.Warning, "ai-spelling", "Promotion", "Spelling.", Excerpt: "Full-Face Facial Balancing")
+            { Suggestion = "Full Face Balancing" };
+        Assert.Equal(FixOutcome.Applied, SuggestedFix.Apply(editor, spelling));
+        Assert.Equal("Full Face Balancing", Line(editor, 1).Treatment.Text);
+        Assert.Null(Line(editor, 1).TreatmentId);
+    }
+
+    #endregion
+}
+
+/// <summary>
+/// "Use a saved promotion" on the campaign page, held as its circuit holds it: the questions asked in turn,
+/// and what the use says. The class shares one app, so each test names its own treatments and promotion.
+/// </summary>
+public class KnownPromotionPageTests(ProofreadDemoApp app) : IClassFixture<ProofreadDemoApp>
+{
+    private const string SavedFinePrint =
+        "Offer valid for filler treatments booked and performed within those dates. Not valid with other offers.";
+
+    // Her two treatments and a saved promotion of both, named with the test's own suffix.
+    private async Task<KnownPromotion> SeedAsync(int n)
+    {
+        var midface = new KnownTreatment(KnownItem.NewId(), $"Midface Lift / Cheek Rejuvenation {n}", 2550m);
+        var balancing = new KnownTreatment(KnownItem.NewId(), $"Full-Face Facial Balancing {n}", 5100m);
+        var saved = new KnownPromotion(KnownItem.NewId(), $"Holiday filler promo {n}", null, null,
+            [new KnownTreatmentLine(midface.Id, 1599m), new KnownTreatmentLine(balancing.Id, 3499m)], SavedFinePrint);
+        await app.KnownItems.AddAsync(DemoApp.Client, midface);
+        await app.KnownItems.AddAsync(DemoApp.Client, balancing);
+        await app.KnownItems.AddAsync(DemoApp.Client, saved);
+        return saved;
+    }
+
+    private async Task<OpenCampaignPage> OpenAsync(CampaignDraft draft)
+    {
+        var save = await app.Stores.Campaigns(DemoApp.Client, Actor.Demo).SaveDraftAsync(Guid.NewGuid(), "Filler Promo", draft);
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        return await OpenCampaignPage.OpenAsync(app, save.Id, FakeProofreader.Clean);
+    }
+
+    // What the field with this id holds as the page shows it.
+    private static string ValueOf(string html, string id)
+    {
+        var field = Regex.Match(html, $"<(input|textarea) id=\"{Regex.Escape(id)}\"[^>]*>");
+        Assert.True(field.Success, $"one field with the id {id}");
+        return WebUtility.HtmlDecode(Regex.Match(field.Value, " value=\"([^\"]*)\"").Groups[1].Value);
+    }
+
+    private static CampaignEditor WithFinePrint(CampaignEditor editor, string text)
+    {
+        editor.Blocks.OfType<TextBlockEditor>().Single(b => b.Type == BlockType.FinePrint).Field.Text = text;
+        return editor;
+    }
+
+    [Fact]
+    public async Task Picking_a_saved_promotion_fills_the_block_and_the_fine_print_with_the_dates_left_empty()
+    {
+        var saved = await SeedAsync(1);
+        await using var page = await OpenAsync(CampaignEditor.Start(KnownPromotionTests.Editable).Draft);
+
+        await page.TypeIntoAsync("promotion-use-saved-1", saved.Name);
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(saved.Name, ValueOf(html, "promotion-name-1"));
+        Assert.Equal("The email says: Midface Lift / Cheek Rejuvenation 1 — $1,599 (Regularly $2,550, saving $951)",
+            RenderedPage.Named(html, "line-sentence-1-l0"));
+        Assert.Equal(SavedFinePrint, ValueOf(html, "text-3"));
+        Assert.Equal("", ValueOf(html, "promotion-starts-1"));
+        Assert.Contains("Promotion › Starts", RenderedPage.Text(html));
+    }
+
+    [Fact]
+    public async Task Picking_over_her_lines_asks_first_and_keep_mine_changes_nothing()
+    {
+        var saved = await SeedAsync(2);
+        await using var page = await OpenAsync(PromotionTests.FillerPromo(template: KnownPromotionTests.Editable).Draft);
+        var before = RenderedPage.Named(await page.HtmlAsync(), "line-sentence-1-l0");
+
+        await page.TypeIntoAsync("promotion-use-saved-1", saved.Name);
+
+        Assert.Contains($"Replace this promotion with {saved.Name}?", RenderedPage.Named(await page.HtmlAsync(), "promotion-replace-question"));
+        await page.ClickAsync("promotion-keep");
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(before, RenderedPage.Named(html, "line-sentence-1-l0"));
+        Assert.Equal("Filler Promo", ValueOf(html, "promotion-name-1"));
+        Assert.Equal(0, RenderedPage.Count(html, "promotion-replace-question"));
+        Assert.Equal(0, RenderedPage.Count(html, "fine-print-question"));
+    }
+
+    [Fact]
+    public async Task Picking_over_her_fine_print_asks_and_keeping_hers_fills_only_the_promotion()
+    {
+        var saved = await SeedAsync(3);
+        await using var page = await OpenAsync(WithFinePrint(PromotionTests.FillerPromo(template: KnownPromotionTests.Editable), "Mine.").Draft);
+
+        await page.TypeIntoAsync("promotion-use-saved-1", saved.Name);
+        await page.ClickAsync("promotion-replace");
+
+        var asked = await page.HtmlAsync();
+        Assert.Equal(0, RenderedPage.Count(asked, "promotion-replace-question"));
+        Assert.Contains("Replace the fine print too, or keep yours?", RenderedPage.Named(asked, "fine-print-question"));
+        await page.ClickAsync("fine-print-keep");
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(saved.Name, ValueOf(html, "promotion-name-1"));
+        Assert.Equal("The email says: Midface Lift / Cheek Rejuvenation 3 — $1,599 (Regularly $2,550, saving $951)",
+            RenderedPage.Named(html, "line-sentence-1-l0"));
+        Assert.Equal("Mine.", ValueOf(html, "text-3"));
+        Assert.Equal(0, RenderedPage.Count(html, "fine-print-question"));
+    }
+
+    [Fact]
+    public async Task With_no_fine_print_block_the_page_says_so()
+    {
+        var saved = await SeedAsync(4);
+        var noFinePrint = new CampaignTemplate("No fine print",
+            [.. KnownPromotionTests.Editable.Blocks.Where(b => b.Type != BlockType.FinePrint)]);
+        await using var page = await OpenAsync(CampaignEditor.Start(noFinePrint).Draft);
+
+        await page.TypeIntoAsync("promotion-use-saved-1", saved.Name);
+
+        Assert.Equal("This campaign has no Fine print block, so the promotion's fine print wasn't added.",
+            RenderedPage.Named(await page.HtmlAsync(), "promotion-use-message"));
+    }
 }

@@ -505,6 +505,20 @@ public class WorkingCopyPageTests(DemoApp app) : IClassFixture<DemoApp>
         await TellsTheOtherTab(save.Id, a => a.ClickAsync("save-button"));
     }
 
+    // Picking a saved promotion is editing, as typing is: the keeper sees the change after the render.
+    [Fact]
+    public async Task Picking_a_saved_promotion_tells_the_other_tab()
+    {
+        var treatment = new KnownTreatment(KnownItem.NewId(), "Pick-tells treatment", 500m);
+        await app.KnownItems.AddAsync(DemoApp.Client, treatment);
+        await app.KnownItems.AddAsync(DemoApp.Client, new KnownPromotion(KnownItem.NewId(), "Pick-tells promo", null, null,
+            [new KnownTreatmentLine(treatment.Id, 100m)], null));
+        var save = await Store.SaveDraftAsync(Guid.NewGuid(), "Pick-tells", CampaignEditor.Start(KnownPromotionTests.Editable).Draft);
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+
+        await TellsTheOtherTab(save.Id, a => a.TypeIntoAsync("promotion-use-saved-1", "Pick-tells promo"));
+    }
+
     [Fact]
     public async Task Discard_tells_the_other_tab()
     {

@@ -307,7 +307,31 @@ else if (_session is not null)
                                     <OfferFields Offer="offerBlock.Offer" Index="index" Known="Known" SaveKnown="SaveKnownAsync" Changed="StateHasChanged" />
                                     break;
                                 case PromotionBlockEditor promotionBlock:
-                                    <PromotionFields Promotion="promotionBlock.Promotion" Index="index" Known="Known" Changed="StateHasChanged" />                                    break;
+                                    <PromotionFields Promotion="promotionBlock.Promotion" Index="index" Known="Known" UseSaved="p => AskToUse(promotionBlock, p)" Changed="StateHasChanged" />
+                                    @if (_using is { } use && ReferenceEquals(use.Block, promotionBlock) && _asks is { } asks)
+                                    {
+                                        if (asks.ReplacePromotion is { } replacePromotion)
+                                        {
+                                            <p role="alert" data-testid="promotion-replace-question">
+                                                @replacePromotion
+                                                <button type="button" class="button" data-testid="promotion-replace" @onclick="ReplacePromotion">Replace it</button>
+                                                <button type="button" class="button" data-testid="promotion-keep" @onclick="KeepPromotion">Keep mine</button>
+                                            </p>
+                                        }
+                                        else if (asks.ReplaceFinePrint is { } replaceFinePrint)
+                                        {
+                                            <p role="alert" data-testid="fine-print-question">
+                                                @replaceFinePrint
+                                                <button type="button" class="button" data-testid="fine-print-replace" @onclick="() => UseNow((use.Block, use.Saved, true))">Replace the fine print</button>
+                                                <button type="button" class="button" data-testid="fine-print-keep" @onclick="() => UseNow(use)">Keep mine</button>
+                                            </p>
+                                        }
+                                    }
+                                    @if (_used is { } used && ReferenceEquals(used.Block, promotionBlock))
+                                    {
+                                        <p role="status" data-testid="promotion-use-message">@used.Said</p>
+                                    }
+                                    break;
                             }
                             @if (block.Error is { } error)
                             {
@@ -822,6 +846,48 @@ else
             FixOutcome.Fixed => SuggestedFix.FixedText,
             _ => "The words it quotes aren't in that part any more. " + SuggestedFix.ByHand,
         };
+    }
+
+    // "Use a saved promotion" in a Promotion block: used at once, unless it would replace what she wrote; then
+    // the page asks first, in turn (CampaignEditor.AsksBeforeUsing): the promotion, then the fine print. Keep
+    // mine at the first stops it; keeping her fine print still fills the promotion. Picking and answering are
+    // editing, as typing is, never an action (ActingAsync): the keeper sees the change after the render and
+    // tells her other tab (owner, 2026-11-05: every action she takes is editing).
+    private (PromotionBlockEditor Block, KnownPromotion Saved, bool ReplaceFinePrint)? _using;
+
+    // The questions about _using still to answer; null when none is open.
+    private PromotionAsks? _asks;
+
+    // What the last use said, under its block; null when it said nothing.
+    private (PromotionBlockEditor Block, string Said)? _used;
+
+    private void AskToUse(PromotionBlockEditor block, KnownPromotion saved)
+    {
+        _used = null;
+        _using = (block, saved, false);
+        _asks = _session!.Editor.AsksBeforeUsing(block, saved);
+        if (_asks is { ReplacePromotion: null, ReplaceFinePrint: null }) UseNow(_using.Value);
+    }
+
+    private void ReplacePromotion()
+    {
+        if (_using is not { } use || _asks is not { } asks) return;
+        _asks = asks with { ReplacePromotion = null };
+        if (asks.ReplaceFinePrint is null) UseNow(use);
+    }
+
+    private void KeepPromotion()
+    {
+        _using = null;
+        _asks = null;
+    }
+
+    private void UseNow((PromotionBlockEditor Block, KnownPromotion Saved, bool ReplaceFinePrint) use)
+    {
+        _using = null;
+        _asks = null;
+        var done = _session!.Editor.UsePromotion(use.Block, use.Saved, Known, use.ReplaceFinePrint);
+        _used = done.Said.Count > 0 ? (use.Block, string.Join(" ", done.Said)) : null;
     }
 
     // Her click, and only that, runs the proofread, of the saved version as it stands. It never throws

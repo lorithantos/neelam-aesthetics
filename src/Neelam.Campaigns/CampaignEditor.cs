@@ -109,6 +109,46 @@ public sealed class CampaignEditor
             .ToList();
 
     /// <summary>
+    /// What to ask, in turn, before a saved promotion goes into <paramref name="block"/>: whether to replace
+    /// the promotion, when the block has lines; and whether to replace the fine print too, when the first
+    /// Fine print block the template does not fix has text and the saved promotion has fine print.
+    /// </summary>
+    public PromotionAsks AsksBeforeUsing(PromotionBlockEditor block, KnownPromotion saved) => new(
+        block.Promotion.Lines.Count > 0 ? $"Replace this promotion with {saved.Name}?" : null,
+        saved.FinePrint is not null && EditableFinePrint is { } fine && !string.IsNullOrWhiteSpace(fine.Field.Text)
+            ? "Replace the fine print too, or keep yours?"
+            : null);
+
+    /// <summary>
+    /// A saved promotion put into <paramref name="block"/> (<see cref="PromotionEditor.Use"/>), its dates left
+    /// as they are, and its fine print into the first Fine print block the template does not fix, when
+    /// <paramref name="replaceFinePrint"/> or that block is empty. A Fine print block the template fixes is the
+    /// template's, and is left alone. Nothing is filled while the saved promotion has any
+    /// <see cref="KnownItemRules.Problems"/>: they are said instead.
+    /// </summary>
+    public PromotionUse UsePromotion(PromotionBlockEditor block, KnownPromotion saved, KnownItems known, bool replaceFinePrint)
+    {
+        var problems = KnownItemRules.Problems(saved, known);
+        if (problems.Count > 0)
+            return new(false, [$"{saved.Name} can't be used until it is fixed on the Known items page.", .. problems]);
+
+        block.Promotion.Use(saved, known);
+        if (saved.FinePrint is not { } finePrint) return new(true, []);
+        if (EditableFinePrint is { } fine)
+        {
+            if (replaceFinePrint || string.IsNullOrWhiteSpace(fine.Field.Text)) fine.Field.Text = finePrint;
+            return new(true, []);
+        }
+        return new(true, [Blocks.Any(b => b.Type == BlockType.FinePrint)
+            ? "This campaign's fine print is the template's own, so the promotion's fine print wasn't added."
+            : "This campaign has no Fine print block, so the promotion's fine print wasn't added."]);
+    }
+
+    // The first Fine print block the template does not fix: the one a saved promotion's fine print goes into.
+    private TextBlockEditor? EditableFinePrint =>
+        Blocks.OfType<TextBlockEditor>().FirstOrDefault(b => b.Type == BlockType.FinePrint && !b.IsFixed);
+
+    /// <summary>
     /// Where the campaign stands: what is still missing, what the rule checks find, and the email as
     /// Square will show it. The checks and the preview run while parts are missing too, over what is
     /// filled in (<see cref="DraftSoFar"/>), with each missing part marked in the preview; the
@@ -146,6 +186,16 @@ public sealed class CampaignEditor
 /// </param>
 public sealed record DraftStatus(
     IReadOnlyList<Finding> Missing, IReadOnlyList<Finding> Findings, ReviewReport? Review, IReadOnlyList<EditorBlock> Preview);
+
+/// <summary>
+/// The questions to ask, in turn, before a saved promotion is used (<see cref="CampaignEditor.AsksBeforeUsing"/>);
+/// each null when it need not be asked.
+/// </summary>
+public sealed record PromotionAsks(string? ReplacePromotion, string? ReplaceFinePrint);
+
+/// <param name="Used">The saved promotion went into the block.</param>
+/// <param name="Said">What to tell her: why it was not used, or what of it was left out; empty when nothing.</param>
+public sealed record PromotionUse(bool Used, IReadOnlyList<string> Said);
 
 /// <summary>One block of the campaign as the form holds it.</summary>
 public abstract class BlockEditor
@@ -617,6 +667,37 @@ public sealed class PromotionEditor
         _lines.RemoveAt(index);
     }
 
+    /// <summary>
+    /// A saved promotion in place of what the block holds: every line removed, then its name, summary and
+    /// audience, and its lines in order, each as if she had typed it. A treatment line is linked to her
+    /// treatment and takes its name and regular price from her list today (none, the box is left for her
+    /// to fill), with the saved promotion price. The dates are left as they are: the campaign says them.
+    /// </summary>
+    public void Use(KnownPromotion saved, KnownItems known)
+    {
+        while (_lines.Count > 0) RemoveLine(_lines[^1]);
+        Name.Text = saved.Name;
+        Summary.Text = saved.Summary ?? "";
+        Audience.Text = saved.Audience ?? "";
+        foreach (var line in saved.Lines)
+        {
+            switch (line)
+            {
+                case KnownTreatmentLine t:
+                    var treatment = known.TreatmentById(t.TreatmentId);
+                    var priced = AddTreatment();
+                    priced.Line.TreatmentId = treatment?.Id;
+                    priced.Treatment.Text = treatment?.Name ?? "";
+                    priced.RegularPrice.Text = treatment?.RegularPrice is { } regular ? PlainNumber.Text(regular) : "";
+                    priced.Price.Text = PlainNumber.Text(t.Price);
+                    break;
+                case KnownBenefitLine b:
+                    AddKnownBenefit(b.Benefit);
+                    break;
+            }
+        }
+    }
+
     /// <summary>Typed text the promotion cannot hold yet, each with where it is; empty when there is none.</summary>
     public IReadOnlyList<string> Errors()
     {
@@ -690,18 +771,33 @@ public sealed class PricedTreatmentEditor : PromotionLineEditor
     public PriceField RegularPrice { get; }
 
     /// <summary>
-    /// The treatment as she types or picks it. When it names one of her known treatments that has a
+    /// The known treatment the line is linked to (<see cref="PricedTreatmentDraft.TreatmentId"/>); null for a
+    /// line that names none of hers exactly.
+    /// </summary>
+    public string? TreatmentId => Line.TreatmentId;
+
+    /// <summary>
+    /// The treatment as she types or picks it. Linked to her treatment when the text is exactly its name,
+    /// and to none otherwise. When it names one of her known treatments (ignoring case) that has a
     /// regular price, and the regular price box is empty, that price is filled in (P1); she can change
     /// it, and a price other than hers is worth a look in the checks. A price she typed is never replaced.
     /// </summary>
     public void SetTreatment(string text, KnownItems known)
     {
         Treatment.Text = text;
-        if (RegularPrice.Text.Trim().Length > 0) return;
         var name = FormText.Clean(text ?? "");
+        Line.TreatmentId = known.Treatments.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.Ordinal))?.Id;
+        if (RegularPrice.Text.Trim().Length > 0) return;
         if (known.Treatments.FirstOrDefault(t => string.Equals(t.Name.Trim(), name, StringComparison.OrdinalIgnoreCase)) is
             { RegularPrice: { } regular })
             RegularPrice.Text = PlainNumber.Text(regular);
+    }
+
+    /// <summary>The treatment renamed, by hand or by a suggested fix: the line is no longer linked to hers.</summary>
+    public void Rename(string text)
+    {
+        Treatment.Text = text;
+        Line.TreatmentId = null;
     }
 
     /// <summary>The saving the email will state, once both prices are in; null until then.</summary>
