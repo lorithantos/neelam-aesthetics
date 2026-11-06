@@ -1,6 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace Neelam.Campaigns;
 
-/// <summary>The three kinds of known item (owner, 2026-10-09).</summary>
+/// <summary>The kinds of known item (owner, 2026-10-09; a promotion, 2026-11-06).</summary>
 public enum KnownItemKind
 {
     /// <summary>A treatment or service by its name, such as "Botox" or "Wellness injection".</summary>
@@ -11,6 +13,9 @@ public enum KnownItemKind
 
     /// <summary>A whole tier: its name, its price and its benefit lines.</summary>
     Tier,
+
+    /// <summary>A saved promotion: its name, its lines pointing at her treatments, and its fine print.</summary>
+    Promotion,
 }
 
 /// <summary>
@@ -213,6 +218,71 @@ public sealed record KnownTier(string Id, string Name, decimal Price, IReadOnlyL
     public string PriceShown => EditorExport.PriceText(Price, isRecurring: true);
 }
 
+/// <summary>
+/// One line of a saved promotion. A treatment line points at her treatment by id and keeps only the
+/// promotion price; the name and the regular price are her treatment's, so they are never typed twice.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "line")]
+[JsonDerivedType(typeof(KnownTreatmentLine), "treatment")]
+[JsonDerivedType(typeof(KnownBenefitLine), "benefit")]
+public abstract record KnownPromotionLine;
+
+/// <summary>A treatment of hers at a promotion price.</summary>
+public sealed record KnownTreatmentLine(string TreatmentId, decimal Price) : KnownPromotionLine;
+
+/// <summary>A typed benefit as a line of a saved promotion.</summary>
+public sealed record KnownBenefitLine(Benefit Benefit) : KnownPromotionLine;
+
+/// <summary>
+/// A whole promotion, kept to be dropped into a campaign's Promotion block. It stores no dates (the
+/// campaign says them), and its treatment lines store no name or regular price (her treatments do).
+/// </summary>
+public sealed record KnownPromotion(
+    string Id, string Name, string? Summary, string? Audience, IReadOnlyList<KnownPromotionLine> Lines, string? FinePrint)
+    : KnownItem(Id)
+{
+    /// <summary>What a line says of a treatment that has since been removed from her list.</summary>
+    public const string NoLongerOnYourList = "a treatment no longer on your list";
+
+    public override KnownItemKind Kind => KnownItemKind.Promotion;
+    public override string Text => Name;
+
+    /// <summary>Whether one of its lines is her treatment <paramref name="treatmentId"/>.</summary>
+    public bool Uses(string treatmentId) => Lines.OfType<KnownTreatmentLine>().Any(l => l.TreatmentId == treatmentId);
+
+    /// <summary>Whether a treatment line points at a treatment that is no longer on her list.</summary>
+    public bool HasMissingTreatment(KnownItems known) =>
+        Lines.OfType<KnownTreatmentLine>().Any(l => known.TreatmentById(l.TreatmentId) is null);
+
+    /// <summary>Each line as the email says it, at her treatments' prices today.</summary>
+    public IReadOnlyList<string> Shown(KnownItems known) => Lines.Select(line => line switch
+    {
+        KnownTreatmentLine { } l => known.TreatmentById(l.TreatmentId) switch
+        {
+            { RegularPrice: { } regular } t => new PricedTreatment(t.Name, l.Price, regular).Describe(),
+            { } t => $"{t.Name} — {Dollars.Text(l.Price)} (no regular price yet)",
+            null => $"{NoLongerOnYourList} — {Dollars.Text(l.Price)}",
+        },
+        KnownBenefitLine b => b.Benefit.Describe(),
+        _ => throw new InvalidOperationException("Unknown promotion line."),
+    }).ToList();
+
+    /// <summary>Why the lines cannot be kept; one sentence at most per line, in line order.</summary>
+    public IReadOnlyList<string> LineProblems(KnownItems known)
+    {
+        var problems = new List<string>();
+        for (var i = 0; i < Lines.Count; i++)
+        {
+            if (Lines[i] is not KnownTreatmentLine line) continue;
+            if (known.TreatmentById(line.TreatmentId) is not { } treatment)
+                problems.Add($"Line {i + 1} is {NoLongerOnYourList}: change or remove it.");
+            else if (CampaignReview.PromotionPriceProblem(treatment.Name, line.Price, treatment.RegularPrice) is { } problem)
+                problems.Add(problem);
+        }
+        return problems;
+    }
+}
+
 /// <summary>A client's known items, each kind in the order lists show it: alphabetical by its text.</summary>
 public sealed class KnownItems
 {
@@ -230,6 +300,21 @@ public sealed class KnownItems
     public IReadOnlyList<KnownTreatment> Treatments => All.OfType<KnownTreatment>().ToList();
     public IReadOnlyList<KnownBenefit> Benefits => All.OfType<KnownBenefit>().ToList();
     public IReadOnlyList<KnownTier> Tiers => All.OfType<KnownTier>().ToList();
+    public IReadOnlyList<KnownPromotion> Promotions => All.OfType<KnownPromotion>().ToList();
+
+    /// <summary>The treatment with this id, or null when it is not on her list.</summary>
+    public KnownTreatment? TreatmentById(string id) => Treatments.FirstOrDefault(t => t.Id == id);
+
+    /// <summary>The treatment a written name is, as the checks compare a treatment (<see cref="KnownItemMatch.IsKnown"/>).</summary>
+    public KnownTreatment? TreatmentNamed(string name) =>
+        Treatments.FirstOrDefault(t => KnownItemMatch.IsKnown(name, [t.Name]));
+
+    /// <summary>The saved promotions that have a line for this treatment.</summary>
+    public IReadOnlyList<KnownPromotion> PromotionsUsing(string treatmentId) =>
+        Promotions.Where(p => p.Uses(treatmentId)).ToList();
+
+    /// <summary>The saved promotion a picker's text names: exactly, else ignoring case.</summary>
+    public KnownPromotion? PromotionNamed(string text) => Named(Promotions, text);
 
     public KnownItem? Find(string id) => All.FirstOrDefault(i => i.Id == id);
 
@@ -391,6 +476,11 @@ public static class KnownItemRules
                 break;
             case KnownBenefit b:
                 problems.AddRange(b.LimitProblems());
+                break;
+            case KnownPromotion p:
+                if (string.IsNullOrWhiteSpace(p.Name)) problems.Add("Fill in the promotion's name.");
+                if (p.Lines.Count == 0) problems.Add("The promotion has no lines.");
+                problems.AddRange(p.LineProblems(existing));
                 break;
         }
         if (problems.Count == 0 && existing.SameAs(item) is { } same)

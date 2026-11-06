@@ -252,7 +252,15 @@ public static class CampaignJson
         JsonSerializer.Deserialize<List<Benefit>>(json, Compact)
         ?? throw new InvalidDataException("Empty benefit list.");
 
-    private static readonly JsonSerializerOptions Compact = new(Options) { WriteIndented = false };
+    /// <summary>A saved promotion's lines as compact JSON, each with its kind, as a known item keeps them in its row.</summary>
+    public static string SerializePromotionLines(IReadOnlyList<KnownPromotionLine> lines) =>
+        JsonSerializer.Serialize(lines, Compact);
+
+    public static IReadOnlyList<KnownPromotionLine> DeserializePromotionLines(string json) =>
+        JsonSerializer.Deserialize<List<KnownPromotionLine>>(json, Compact)
+        ?? throw new InvalidDataException("Empty promotion line list.");
+
+    private static readonly JsonSerializerOptions Compact =new(Options) { WriteIndented = false };
 
     public static string SerializePolicy(CampaignPolicy p) =>
         JsonSerializer.Serialize(new PolicyDocument(SchemaVersion, p), Options);

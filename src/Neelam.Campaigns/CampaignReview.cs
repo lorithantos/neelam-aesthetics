@@ -410,15 +410,23 @@ public static class CampaignReview
         for (var i = 0; i < promotion.Lines.Count; i++)
         {
             if (promotion.Lines[i] is not PricedTreatment line) continue;
-            var where = PromotionDraft.LineWhere(label, i);
-            var name = line.Treatment.Trim();
-            if (line.Price <= 0)
-                yield return new(Severity.Blocker, "promotion-price", where, $"'{name}' needs a promotion price above $0.");
-            else if (line.Price >= line.RegularPrice)
-                yield return new(Severity.Blocker, "promotion-price", where,
-                    $"'{name}' is {Dollars.Text(line.Price)} in the promotion but regularly {Dollars.Text(line.RegularPrice)}: " +
-                    "the promotion price must be below the regular price.");
+            if (PromotionPriceProblem(line.Treatment, line.Price, line.RegularPrice) is { } problem)
+                yield return new(Severity.Blocker, "promotion-price", PromotionDraft.LineWhere(label, i), problem);
         }
+    }
+
+    /// <summary>
+    /// The sentence for a promotion price that is no saving, or null when it is one. Shared with a saved
+    /// promotion's rules, so both say it alike. With no regular price, only a price above $0 is asked.
+    /// </summary>
+    internal static string? PromotionPriceProblem(string treatment, decimal price, decimal? regularPrice)
+    {
+        var name = treatment.Trim();
+        if (price <= 0) return $"'{name}' needs a promotion price above $0.";
+        if (regularPrice is { } regular && price >= regular)
+            return $"'{name}' is {Dollars.Text(price)} in the promotion but regularly {Dollars.Text(regular)}: " +
+                   "the promotion price must be below the regular price.";
+        return null;
     }
 
     /// <summary>
