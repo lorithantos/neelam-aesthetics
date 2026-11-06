@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace Neelam.Campaigns;
 
 /// <summary>Square's block kinds, as the real emails use them.</summary>
@@ -174,6 +176,25 @@ public static class EditorExport
     /// </summary>
     public static string DatesText(DateOnly starts, DateOnly ends, string? audience) =>
         $"Offer valid {Range(starts, ends)}{(string.IsNullOrWhiteSpace(audience) ? "" : $", for {audience.Trim().TrimEnd('.')}")}.";
+
+    /// <summary>
+    /// <paramref name="finePrint"/> without a validity sentence at its start that says the promotion's own dates
+    /// (<see cref="DatesText"/>, with its audience or without), so a saved promotion's fine print holds no dates:
+    /// the campaign says them once. Typed by hand it may differ in case, in spacing, and in a hyphen, en or em
+    /// dash for the en dash. Only a whole sentence at the very start goes; anything else is kept as it was.
+    /// </summary>
+    public static string WithoutLeadingDates(string finePrint, DateOnly starts, DateOnly ends, string? audience)
+    {
+        foreach (var sentence in new[] { DatesText(starts, ends, audience), DatesText(starts, ends, null) }.Distinct())
+        {
+            // The sentence as typed by hand: any case, any run of spaces, a hyphen, en or em dash for the en dash.
+            var pattern = "^\\s*" + string.Join("\\s+", sentence.Split(' ').Select(w => Regex.Escape(w).Replace("–", "[-–—]")))
+                          .Replace("\\s+[-–—]\\s+", "\\s*[-–—]\\s*") + "(?=\\s|$)";
+            var match = Regex.Match(finePrint, pattern, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            if (match.Success) return finePrint[match.Length..].Trim();
+        }
+        return finePrint.Trim();
+    }
 
     // US English whatever the server's culture, with an en dash between the days, as her fine print had it.
     private static string Range(DateOnly starts, DateOnly ends)

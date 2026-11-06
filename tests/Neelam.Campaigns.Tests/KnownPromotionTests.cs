@@ -597,6 +597,131 @@ public class KnownPromotionTests
     }
 
     #endregion
+
+    #region Saving a campaign's promotion
+
+    // Decision 8 and 14: a saved promotion's fine print holds no dates; the strip is a whole leading sentence only.
+    [Theory]
+    [InlineData("Offer valid November 1 – December 31, 2026. Not valid with other offers.", "Not valid with other offers.")]
+    [InlineData("  offer valid November 1 - December 31, 2026.   Not valid with other offers.", "Not valid with other offers.")]
+    [InlineData("Offer valid November 1 — December 31, 2026, for new clients. Not valid.", "Not valid.")]
+    [InlineData("Offer valid November 1 – December 31, 2026.", "")]
+    [InlineData("Offer valid November 2 – December 31, 2026. Not valid.", "Offer valid November 2 – December 31, 2026. Not valid.")]
+    [InlineData("Not valid. Offer valid November 1 – December 31, 2026.", "Not valid. Offer valid November 1 – December 31, 2026.")]
+    [InlineData("Offer valid November 1 – December 31, 2026.5 sessions", "Offer valid November 1 – December 31, 2026.5 sessions")]
+    public void A_leading_validity_sentence_for_the_promotion_s_dates_is_left_out_and_nothing_else(string typed, string kept) =>
+        Assert.Equal(kept, EditorExport.WithoutLeadingDates(typed, new(2026, 11, 1), new(2026, 12, 31), "new clients"));
+
+    [Fact]
+    public void Save_as_a_known_promotion_is_offered_only_when_the_promotion_is_not_one_of_hers()
+    {
+        var editor = CampaignEditor.Start(Editable);
+        var block = PromotionBlock(editor);
+
+        Assert.False(block.Promotion.IsOneOf(Known));
+        Assert.Equal("Fill in the promotion's name first.", editor.PromotionToKnown(block, Known).Problem);
+
+        Assert.True(editor.UsePromotion(block, Known.Promotions[0], Known, replaceFinePrint: true).Used);
+        Assert.True(block.Promotion.IsOneOf(Known));
+
+        block.Promotion.Starts.Text = "2026-11-01";                       // the dates are the campaign's, not hers
+        Assert.True(block.Promotion.IsOneOf(Known));
+
+        Line(editor, 0).Price.Text = "1499";
+        Assert.False(block.Promotion.IsOneOf(Known));
+    }
+
+    [Fact]
+    public async Task Saving_from_a_campaign_adds_new_treatments_first_then_links_its_lines_and_drops_the_dates_sentence()
+    {
+        var (_, store, _) = await Session(Midface);
+        var known = new KnownItems([Midface]);
+        var editor = PromotionTests.FillerPromo(known, Editable);
+        FinePrint(editor).Field.Text = "Offer valid November 1 – December 31, 2026. Not valid with other offers.";
+
+        var made = editor.PromotionToKnown(PromotionBlock(editor), known);
+
+        Assert.Null(made.Problem);
+        Assert.Equal(["Full-Face Facial Balancing"], made.Added.Select(t => t.Name));
+        var said = await KnownItemsSession.SavePromotionFromCampaignAsync(
+            store, TestRecords.Unwatched.For(Salon, Actor.Demo), made.Promotion!, made.Added);
+
+        Assert.Equal(["Added Full-Face Facial Balancing to your treatments, regularly $5,100.", "Saved \"Filler Promo\" to your known items."], said);
+        var kept = await store.ForClientAsync(Salon);
+        var saved = kept.Promotions.Single();
+        Assert.Equal([Midface.Id, kept.TreatmentNamed("Full-Face Facial Balancing")!.Id],
+            saved.Lines.Cast<KnownTreatmentLine>().Select(l => l.TreatmentId));
+        Assert.Equal("Not valid with other offers.", saved.FinePrint);
+    }
+
+    [Fact]
+    public async Task A_line_another_tab_added_meanwhile_is_linked_to_the_treatment_already_on_her_list()
+    {
+        var (_, store, _) = await Session(Midface);
+        var editor = PromotionTests.FillerPromo(new KnownItems([Midface]), Editable);
+        var made = editor.PromotionToKnown(PromotionBlock(editor), new KnownItems([Midface]));
+        var other = new KnownTreatment(KnownItem.NewId(), "Full-Face Facial Balancing", 5100m);
+        await store.AddAsync(Salon, other);
+
+        await KnownItemsSession.SavePromotionFromCampaignAsync(store, TestRecords.Unwatched.For(Salon, Actor.Demo), made.Promotion!, made.Added);
+
+        var kept = await store.ForClientAsync(Salon);
+        Assert.Equal(other.Id, Assert.IsType<KnownTreatmentLine>(kept.Promotions.Single().Lines[1]).TreatmentId);
+        Assert.Single(kept.Treatments, t => t.Name == "Full-Face Facial Balancing");
+    }
+
+    [Fact]
+    public void Saving_a_promotion_with_a_near_miss_line_is_refused_with_did_you_mean()
+    {
+        var editor = PromotionTests.FillerPromo(Known, Editable);
+        Line(editor, 1).SetTreatment("Full-Face Facial Balancin", Known);
+
+        var made = editor.PromotionToKnown(PromotionBlock(editor), Known);
+
+        Assert.Equal("Line 2: Did you mean 'Full-Face Facial Balancing'? It's in your known items.", made.Problem);
+        Assert.Null(made.Promotion);
+        Assert.Empty(made.Added);
+    }
+
+    [Fact]
+    public void An_unfinished_line_is_asked_to_be_finished_or_removed_first()
+    {
+        var editor = PromotionTests.FillerPromo(Known, Editable);
+        PromotionBlock(editor).Promotion.AddTreatment();
+
+        Assert.Equal("Fill in or remove its unfinished lines first.", editor.PromotionToKnown(PromotionBlock(editor), Known).Problem);
+    }
+
+    // Her table, unreachable: reads nothing, fails every write.
+    private sealed class FailingStore : IKnownItemStore
+    {
+        public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken ct = default) => Task.FromResult(KnownItems.None);
+        public Task AddAsync(ClientName client, KnownItem item, CancellationToken ct = default) =>
+            throw new Azure.RequestFailedException(503, "The table service is unavailable.");
+        public Task UpdateAsync(ClientName client, KnownItem item, CancellationToken ct = default) => throw new NotSupportedException();
+        public Task RemoveAsync(ClientName client, string id, CancellationToken ct = default) => throw new NotSupportedException();
+    }
+
+    // Decision 12: a name her saved promotions already have is said, not saved twice; a store failure is said, not thrown.
+    [Fact]
+    public async Task Saving_a_promotion_named_as_one_of_hers_says_it_is_already_known_and_a_store_failure_is_said_not_thrown()
+    {
+        var (_, store, _) = await Session(Midface, Balancing, Holiday());
+
+        var said = await KnownItemsSession.SavePromotionFromCampaignAsync(
+            store, TestRecords.Unwatched.For(Salon, Actor.Demo), Holiday() with { Id = KnownItem.NewId() }, []);
+
+        Assert.Equal(["\"Holiday filler promo\" is already in your known items."], said);
+
+        var log = new ListLogger<KnownItemsSession>();
+        var failed = await KnownItemsSession.SavePromotionFromCampaignAsync(
+            new FailingStore(), TestRecords.Unwatched.For(Salon, Actor.Demo), Holiday(), [], log);
+
+        Assert.Equal([KnownItemsSession.CampaignSaveFailed], failed);
+        Assert.DoesNotContain("Holiday", Assert.Single(log.Entries).ToString());
+    }
+
+    #endregion
 }
 
 /// <summary>
@@ -724,6 +849,23 @@ public class KnownPromotionPageTests(ProofreadDemoApp app) : IClassFixture<Proof
             RenderedPage.Named(html, "promotion-use-message"));
         Assert.Equal(before, RenderedPage.Named(html, "line-sentence-1-l0"));
         Assert.Equal("Filler Promo", ValueOf(html, "promotion-name-1"));
+    }
+
+    [Fact]
+    public async Task Save_as_a_known_promotion_saves_it_says_so_and_is_then_no_longer_offered()
+    {
+        const string name = "Filler Promo 6";
+        var editor = PromotionTests.FillerPromo(template: KnownPromotionTests.Editable);
+        editor.Blocks.OfType<PromotionBlockEditor>().Single().Promotion.Name.Text = name;
+        await using var page = await OpenAsync(editor.Draft);
+        Assert.Equal(1, RenderedPage.Count(await page.HtmlAsync(), "promotion-save-known-1"));
+
+        await page.ClickAsync("promotion-save-known-1");
+
+        var html = await page.HtmlAsync();
+        Assert.Contains($"Saved \"{name}\" to your known items.", RenderedPage.Named(html, "promotion-save-note-1"));
+        Assert.Equal(0, RenderedPage.Count(html, "promotion-save-known-1"));
+        Assert.NotNull((await app.KnownItems.ForClientAsync(DemoApp.Client)).PromotionNamed(name));
     }
 
     [Fact]

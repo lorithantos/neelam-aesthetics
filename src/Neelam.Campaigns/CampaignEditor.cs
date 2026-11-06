@@ -154,6 +154,18 @@ public sealed class CampaignEditor
             : "This campaign has no Fine print block, so the promotion's fine print wasn't added."]);
     }
 
+    /// <summary>
+    /// <paramref name="block"/>'s promotion as a saved one, exactly as written, for "Save as a known promotion".
+    /// Each finished treatment line points at her treatment: the one it is linked to, else the one of that name
+    /// (<see cref="KnownItems.TreatmentNamed"/>), else a new one with the line's regular price, in
+    /// <see cref="KnownPromotionFromCampaign.Added"/> to join her list first. A name that nearly matches one of hers
+    /// is refused, as the checks say it. The fine print is the first Fine print block the template does not fix,
+    /// without a leading sentence for the promotion's dates when both are filled in (decision 8: a saved promotion
+    /// holds no dates); none when it is blank. Nothing is saved here.
+    /// </summary>
+    public KnownPromotionFromCampaign PromotionToKnown(PromotionBlockEditor block, KnownItems known) =>
+        block.Promotion.ToKnown(known, EditableFinePrint?.Field.Text);
+
     // The first Fine print block the template does not fix: the one a saved promotion's fine print goes into.
     private TextBlockEditor? EditableFinePrint =>
         Blocks.OfType<TextBlockEditor>().FirstOrDefault(b => b.Type == BlockType.FinePrint && !b.IsFixed);
@@ -206,6 +218,13 @@ public sealed record PromotionAsks(string? ReplacePromotion, string? ReplaceFine
 /// <param name="Used">The saved promotion went into the block.</param>
 /// <param name="Said">What to tell her: why it was not used, or what of it was left out; empty when nothing.</param>
 public sealed record PromotionUse(bool Used, IReadOnlyList<string> Said);
+
+/// <summary>A campaign's promotion as a saved one (<see cref="CampaignEditor.PromotionToKnown"/>).</summary>
+/// <param name="Promotion">The promotion to save; null while there is a <paramref name="Problem"/>.</param>
+/// <param name="Added">The treatments its lines name that are new to her list, to add before the promotion is saved.</param>
+/// <param name="Problem">What stops it being saved yet; null when nothing does.</param>
+public sealed record KnownPromotionFromCampaign(
+    KnownPromotion? Promotion, IReadOnlyList<KnownTreatment> Added, string? Problem);
 
 /// <summary>One block of the campaign as the form holds it.</summary>
 public abstract class BlockEditor
@@ -706,6 +725,80 @@ public sealed class PromotionEditor
                     break;
             }
         }
+    }
+
+    /// <summary>
+    /// Whether this promotion is already one of her saved ones, so "Save as a known promotion" is not offered:
+    /// a saved promotion with the same name (<see cref="KnownItemMatch.IsKnown"/>), summary and audience, and the
+    /// same lines in order: a treatment by its id or by her name for it, at the same promotion price; a
+    /// benefit by its value. The fine print and the dates are not compared: the campaign says its own dates.
+    /// </summary>
+    public bool IsOneOf(KnownItems known) =>
+        _promotion.Name.HasValue
+        && known.Promotions.Any(p => KnownItemMatch.IsKnown(_promotion.Name.Value, [p.Name]) && Says(p, known));
+
+    private bool Says(KnownPromotion saved, KnownItems known) =>
+        Same(_promotion.Summary, saved.Summary) && Same(_promotion.Audience, saved.Audience)
+        && _promotion.Lines.Count == saved.Lines.Count
+        && _promotion.Lines.Zip(saved.Lines).All(pair => pair switch
+        {
+            (PricedTreatmentDraft t, KnownTreatmentLine k) =>
+                t.Price.HasValue && t.Price.Value == k.Price
+                && (t.TreatmentId == k.TreatmentId
+                    || t.Treatment.HasValue && known.TreatmentNamed(t.Treatment.Value)?.Id == k.TreatmentId),
+            (BenefitLineDraft b, KnownBenefitLine k) => b.Benefit.HasValue && b.Benefit.Value == k.Benefit,
+            _ => false,
+        });
+
+    private static bool Same(Slot<string> written, string? saved) =>
+        (written.HasValue ? FormText.Clean(written.Value) : "") == (saved ?? "");
+
+    /// <summary>
+    /// This promotion as a saved one, exactly as written, with the treatments its lines name that are new to her
+    /// list; see <see cref="CampaignEditor.PromotionToKnown"/>. <paramref name="finePrint"/> is the campaign's
+    /// editable fine print, which loses a leading sentence saying this promotion's dates.
+    /// </summary>
+    internal KnownPromotionFromCampaign ToKnown(KnownItems known, string? finePrint)
+    {
+        if (!_promotion.Name.HasValue) return new(null, [], "Fill in the promotion's name first.");   // (proposed)
+        if (_promotion.Lines.Any(l => !l.IsFinished)) return new(null, [], "Fill in or remove its unfinished lines first.");   // (proposed)
+
+        var added = new List<KnownTreatment>();
+        var lines = new List<KnownPromotionLine>();
+        for (var i = 0; i < _promotion.Lines.Count; i++)
+        {
+            switch (_promotion.Lines[i])
+            {
+                case PricedTreatmentDraft t:
+                    var name = t.Treatment.Value.Trim();
+                    string id;
+                    if (t.TreatmentId is { } linked && known.TreatmentById(linked) is { } onList) id = onList.Id;
+                    else if (known.TreatmentNamed(name) is { } named) id = named.Id;
+                    else if (known.NearMiss(KnownItemKind.Treatment, name) is { } near)
+                        return new(null, [], $"Line {i + 1}: Did you mean '{near}'? It's in your known items.");
+                    else
+                    {
+                        var treatment = added.Find(a => string.Equals(a.Name, name, StringComparison.OrdinalIgnoreCase));
+                        if (treatment is null) added.Add(treatment = new KnownTreatment(KnownItem.NewId(), name, t.RegularPrice.Value));
+                        id = treatment.Id;
+                    }
+                    lines.Add(new KnownTreatmentLine(id, t.Price.Value));
+                    break;
+                case BenefitLineDraft b:
+                    lines.Add(new KnownBenefitLine(b.Benefit.Value));
+                    break;
+            }
+        }
+
+        var text = finePrint?.Trim();
+        if (text is { Length: > 0 } && _promotion.Starts.HasValue && _promotion.Ends.HasValue)
+            text = EditorExport.WithoutLeadingDates(text, _promotion.Starts.Value, _promotion.Ends.Value,
+                _promotion.Audience.HasValue ? _promotion.Audience.Value : null);
+        var promotion = new KnownPromotion(KnownItem.NewId(), _promotion.Name.Value.Trim(),
+            _promotion.Summary.HasValue ? _promotion.Summary.Value : null,
+            _promotion.Audience.HasValue ? _promotion.Audience.Value : null,
+            lines, string.IsNullOrWhiteSpace(text) ? null : text);
+        return new(promotion, added, null);
     }
 
     /// <summary>Typed text the promotion cannot hold yet, each with where it is; empty when there is none.</summary>

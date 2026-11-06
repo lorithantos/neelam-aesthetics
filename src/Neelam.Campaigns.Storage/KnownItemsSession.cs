@@ -288,6 +288,49 @@ public sealed class KnownItemsSession
         return said;
     }
 
+    /// <summary>
+    /// Saves a campaign's promotion as a known one: first the treatments its lines name that are new to her list
+    /// (<see cref="AddFromPromotionAsync"/>), then her list is read again and each line that points at one of
+    /// those goes to the treatment of that name now on it (another tab may have added it under its own id), and
+    /// last the promotion (<see cref="SaveFromCampaignAsync"/>), whose refusal of a name her saved promotions
+    /// already have is the rules' "already in your known items". Never throws, as both are.
+    /// </summary>
+    /// <returns>What to tell her: the sentences of the treatments added, then of the promotion, in order.</returns>
+    public static async Task<IReadOnlyList<string>> SavePromotionFromCampaignAsync(
+        IKnownItemStore store, ActivityTrail trail, KnownPromotion promotion, IReadOnlyList<KnownTreatment> added,
+        ILogger? log = null, CancellationToken ct = default)
+    {
+        var said = (await AddFromPromotionAsync(store, trail, added, log, ct)).ToList();
+        if (added.Count > 0)
+        {
+            KnownItems known;
+            try
+            {
+                known = await store.ForClientAsync(trail.Client, ct);
+            }
+            catch (Exception ex) when (IsStorageFailure(ex))
+            {
+                LogFailure(log ?? NullLogger.Instance, ex, "read the list before saving from a campaign", promotion, trail.Client);
+                said.Add(CampaignSaveFailed);
+                return said;
+            }
+            var lines = new List<KnownPromotionLine>();
+            foreach (var line in promotion.Lines)
+            {
+                if (line is KnownTreatmentLine l && added.FirstOrDefault(a => a.Id == l.TreatmentId) is { } wanted)
+                {
+                    // One that could not be added is already said; the promotion would only be refused for it.
+                    if (known.TreatmentNamed(wanted.Name) is not { } now) return said;
+                    lines.Add(l with { TreatmentId = now.Id });
+                }
+                else lines.Add(line);
+            }
+            promotion = promotion with { Lines = lines };
+        }
+        said.Add(await SaveFromCampaignAsync(store, trail, promotion, log, ct));
+        return said;
+    }
+
     // Anything the store throws other than its own refusals (ArgumentException, InvalidOperationException,
     // which carry a message for her) and a cancelled request: Azure.RequestFailedException, a timeout,
     // a network or authentication failure, a row it cannot read back.

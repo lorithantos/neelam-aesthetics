@@ -331,6 +331,15 @@ else if (_session is not null)
                                     {
                                         <p role="status" data-testid="promotion-use-message">@used.Said</p>
                                     }
+                                    @if (!promotionBlock.Promotion.IsOneOf(Known))
+                                    {
+                                        var cannotSavePromotion = _session!.Editor.PromotionToKnown(promotionBlock, Known).Problem;
+                                        <button type="button" class="button" data-testid="promotion-save-known-@index" disabled="@(cannotSavePromotion is not null)" title="@cannotSavePromotion" @onclick="() => SavePromotionAsync(promotionBlock)">Save as a known promotion</button>
+                                    }
+                                    @if (_promotionSaved is { } saved && ReferenceEquals(saved.Block, promotionBlock))
+                                    {
+                                        <p role="status" data-testid="promotion-save-note-@index">@saved.Said</p>
+                                    }
                                     break;
                             }
                             @if (block.Error is { } error)
@@ -889,6 +898,29 @@ else
         _asks = null;
         var done = _session!.Editor.UsePromotion(use.Block, use.Saved, Known, use.ReplaceFinePrint);
         _used = done.Said.Count > 0 ? (use.Block, string.Join(" ", done.Said)) : null;
+    }
+
+    // What "Save as a known promotion" last said, under its block; null when it has said nothing.
+    private (PromotionBlockEditor Block, string Said)? _promotionSaved;
+
+    // Her click on "Save as a known promotion": its new treatments join her list first, then the promotion
+    // is kept (KnownItemsSession.SavePromotionFromCampaignAsync), then her list is read again as
+    // SaveKnownAsync does, so the button goes once the promotion is hers. Never throws.
+    private async Task SavePromotionAsync(PromotionBlockEditor block)
+    {
+        var made = _session!.Editor.PromotionToKnown(block, Known);
+        if (made.Promotion is null) return;
+        var said = await KnownItemsSession.SavePromotionFromCampaignAsync(
+            Workspace.Known, Recorder.For(_client!, await Workspace.ActorAsync()), made.Promotion, made.Added, Log);
+        _promotionSaved = (block, string.Join(" ", said));
+        try
+        {
+            _business = await Workspace.BusinessAsync(_client!);
+        }
+        catch (Exception ex)
+        {
+            Log.LogError(ex, "Could not read the registration of {Client} again after saving a known promotion.", _client!.Value);
+        }
     }
 
     // Her click, and only that, runs the proofread, of the saved version as it stands. It never throws
