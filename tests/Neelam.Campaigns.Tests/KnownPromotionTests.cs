@@ -762,6 +762,11 @@ public class KnownPromotionTests
         Assert.Equal("From your treatments: Midface Lift / Cheek Rejuvenation is regularly $2,550.", Line(editor, 0).Follow(Midface));
         Assert.Equal("2550", Line(editor, 0).RegularPrice.Text);
         Assert.Null(Line(editor, 0).Follow(Midface));
+
+        var renamed = WithHoliday();
+        Line(renamed, 0).RegularPrice.Text = "";
+        Assert.Equal("From your treatments: Midface Lift / Cheek Rejuvenation is now called Midface Lift, regularly $2,550.",
+            Line(renamed, 0).Follow(Midface with { Name = "Midface Lift" }));
     }
 
     [Fact]
@@ -1015,5 +1020,39 @@ public class KnownPromotionPageTests(ProofreadDemoApp app) : IClassFixture<Proof
         Assert.Contains("(Regularly $5,100, saving $1,601)", RenderedPage.Named(html, "line-sentence-1-l0"));
         Assert.Contains("is regularly $5,400 in your known items; here it is $5,100.", RenderedPage.Named(html, "checks-findings"));
         Assert.Equal(1, RenderedPage.Count(html, "approved"));
+    }
+
+    // The note says what following changed as the campaign opened. Undo, Restore and restoring it after a delete
+    // put a saved version in place of the form, so the note goes, and her list is not followed again until the
+    // campaign is next opened: the line shows the price as that version was saved.
+    [Fact]
+    public async Task Undo_and_Restore_clear_the_followed_note_and_do_not_follow_again()
+    {
+        var (treatment, first) = await LinkedAsync(9);
+        // Saved again, so Undo has a version before it to open.
+        await Store.SaveDraftAsync(first.Id, "Filler Promo", await Store.LoadDraftAsync(first));
+        app.Clock.Now += TimeSpan.FromSeconds(1);
+        await app.KnownItems.UpdateAsync(DemoApp.Client, treatment with { RegularPrice = 5400m });
+        await using var page = await OpenCampaignPage.OpenAsync(app, first.Id, FakeProofreader.Clean);
+        Assert.Equal(1, RenderedPage.Count(await page.HtmlAsync(), "known-followed"));
+
+        async Task AsSaved(string after)
+        {
+            var html = await page.HtmlAsync();
+            Assert.True(RenderedPage.Count(html, "known-followed") == 0, $"no note after {after}");
+            Assert.Contains("(Regularly $5,100, saving $1,601)", RenderedPage.Named(html, "line-sentence-1-l0"));
+        }
+
+        await page.ClickAsync("undo-button");
+        await page.ClickAsync("undo-confirm");
+        await AsSaved("Undo");
+
+        await page.ClickAsync("restore-button");
+        await AsSaved("Restore");
+
+        await page.ClickAsync("delete-button");
+        await page.ClickAsync("delete-confirm");
+        await page.ClickAsync("restore-deleted");
+        await AsSaved("restoring the deleted campaign");
     }
 }
