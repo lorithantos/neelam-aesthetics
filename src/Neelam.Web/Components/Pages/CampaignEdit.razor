@@ -849,7 +849,8 @@ else
     }
 
     // "Use a saved promotion" in a Promotion block: used at once, unless it would replace what she wrote; then
-    // the page asks first, in turn (CampaignEditor.AsksBeforeUsing): the promotion, then the fine print. Keep
+    // the page asks first, in turn (CampaignEditor.AsksBeforeUsing): the promotion, then the fine print. One
+    // with problems is never asked about: the use refuses it at once and says what to fix. Keep
     // mine at the first stops it; keeping her fine print still fills the promotion. Picking and answering are
     // editing, as typing is, never an action (ActingAsync): the keeper sees the change after the render and
     // tells her other tab (owner, 2026-11-05: every action she takes is editing).
@@ -865,7 +866,7 @@ else
     {
         _used = null;
         _using = (block, saved, false);
-        _asks = _session!.Editor.AsksBeforeUsing(block, saved);
+        _asks = _session!.Editor.AsksBeforeUsing(block, saved, Known);
         if (_asks is { ReplacePromotion: null, ReplaceFinePrint: null }) UseNow(_using.Value);
     }
 

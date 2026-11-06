@@ -462,13 +462,18 @@ public class KnownPromotionTests
         var editor = CampaignEditor.Start(Editable);
         var block = PromotionBlock(editor);
         var saved = Known.Promotions[0];
-        Assert.Equal(new PromotionAsks(null, null), editor.AsksBeforeUsing(block, saved));
+        Assert.Equal(new PromotionAsks(null, null), editor.AsksBeforeUsing(block, saved, Known));
 
+        // Anything she wrote is asked about: a name alone, with no lines yet.
+        block.Promotion.Name.Text = "My promo";
+        Assert.Equal(new PromotionAsks("Replace this promotion with Holiday filler promo?", null), editor.AsksBeforeUsing(block, saved, Known));
+
+        block.Promotion.Name.Text = "";
         block.Promotion.AddTreatment();
         FinePrint(editor).Field.Text = "Mine.";
 
         Assert.Equal(new PromotionAsks("Replace this promotion with Holiday filler promo?", "Replace the fine print too, or keep yours?"),
-            editor.AsksBeforeUsing(block, saved));
+            editor.AsksBeforeUsing(block, saved, Known));
         Assert.True(editor.UsePromotion(block, saved, Known, replaceFinePrint: false).Used);
         Assert.Equal("Mine.", FinePrint(editor).Field.Text);
     }
@@ -536,6 +541,11 @@ public class KnownPromotionTests
         Assert.Equal("'Full-Face Facial Balancing' is $3,499 in the promotion but regularly $3,499: the promotion price must be below the regular price.",
             again.Said[1]);
         Assert.Empty(block.Promotion.Lines);
+
+        // Not picked, so nothing is asked about it, whatever she wrote.
+        block.Promotion.AddTreatment();
+        FinePrint(editor).Field.Text = "Mine.";
+        Assert.Equal(new PromotionAsks(null, null), editor.AsksBeforeUsing(block, priced.Promotions[0], priced));
     }
 
     [Fact]
@@ -688,6 +698,32 @@ public class KnownPromotionPageTests(ProofreadDemoApp app) : IClassFixture<Proof
             RenderedPage.Named(html, "line-sentence-1-l0"));
         Assert.Equal("Mine.", ValueOf(html, "text-3"));
         Assert.Equal(0, RenderedPage.Count(html, "fine-print-question"));
+    }
+
+    // Decision 10 on the page: a saved promotion with a problem is not picked, so nothing is asked about it
+    // even over her lines and fine print; it is refused at once.
+    [Fact]
+    public async Task A_saved_promotion_with_a_problem_is_refused_at_once_without_asking()
+    {
+        var balancing = new KnownTreatment(KnownItem.NewId(), "Full-Face Facial Balancing 5", 5100m);
+        var saved = new KnownPromotion(KnownItem.NewId(), "Holiday filler promo 5", null, null,
+            [new KnownTreatmentLine(balancing.Id, 3499m)], SavedFinePrint);
+        await app.KnownItems.AddAsync(DemoApp.Client, balancing);
+        await app.KnownItems.AddAsync(DemoApp.Client, saved);
+        // Its regular price changed since, to the promotion's price: the promotion now has a problem.
+        await app.KnownItems.UpdateAsync(DemoApp.Client, balancing with { RegularPrice = 3499m });
+        await using var page = await OpenAsync(PromotionTests.FillerPromo(template: KnownPromotionTests.Editable).Draft);
+        var before = RenderedPage.Named(await page.HtmlAsync(), "line-sentence-1-l0");
+
+        await page.TypeIntoAsync("promotion-use-saved-1", saved.Name);
+
+        var html = await page.HtmlAsync();
+        Assert.Equal(0, RenderedPage.Count(html, "promotion-replace-question"));
+        Assert.Equal(0, RenderedPage.Count(html, "fine-print-question"));
+        Assert.StartsWith("Holiday filler promo 5 can't be used until it is fixed on the Known items page.",
+            RenderedPage.Named(html, "promotion-use-message"));
+        Assert.Equal(before, RenderedPage.Named(html, "line-sentence-1-l0"));
+        Assert.Equal("Filler Promo", ValueOf(html, "promotion-name-1"));
     }
 
     [Fact]

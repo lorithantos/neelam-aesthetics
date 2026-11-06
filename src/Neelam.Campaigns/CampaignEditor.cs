@@ -109,15 +109,25 @@ public sealed class CampaignEditor
             .ToList();
 
     /// <summary>
-    /// What to ask, in turn, before a saved promotion goes into <paramref name="block"/>: whether to replace
-    /// the promotion, when the block has lines; and whether to replace the fine print too, when the first
-    /// Fine print block the template does not fix has text and the saved promotion has fine print.
+    /// What to ask, in turn, before a saved promotion goes into <paramref name="block"/>, so nothing she wrote
+    /// is replaced unasked: whether to replace the promotion, when the block has a line or a name, summary or
+    /// audience with text; and whether to replace the fine print too, when the first Fine print block the
+    /// template does not fix has text and the saved promotion has fine print. Nothing is asked of a saved
+    /// promotion with any <see cref="KnownItemRules.Problems"/>: it is not used, and
+    /// <see cref="UsePromotion"/> says why at once.
     /// </summary>
-    public PromotionAsks AsksBeforeUsing(PromotionBlockEditor block, KnownPromotion saved) => new(
-        block.Promotion.Lines.Count > 0 ? $"Replace this promotion with {saved.Name}?" : null,
-        saved.FinePrint is not null && EditableFinePrint is { } fine && !string.IsNullOrWhiteSpace(fine.Field.Text)
-            ? "Replace the fine print too, or keep yours?"
-            : null);
+    public PromotionAsks AsksBeforeUsing(PromotionBlockEditor block, KnownPromotion saved, KnownItems known)
+    {
+        if (KnownItemRules.Problems(saved, known).Count > 0) return new(null, null);
+        var promotion = block.Promotion;
+        var written = promotion.Lines.Count > 0
+            || new[] { promotion.Name, promotion.Summary, promotion.Audience }.Any(f => !string.IsNullOrWhiteSpace(f.Text));
+        return new(
+            written ? $"Replace this promotion with {saved.Name}?" : null,
+            saved.FinePrint is not null && EditableFinePrint is { } fine && !string.IsNullOrWhiteSpace(fine.Field.Text)
+                ? "Replace the fine print too, or keep yours?"
+                : null);
+    }
 
     /// <summary>
     /// A saved promotion put into <paramref name="block"/> (<see cref="PromotionEditor.Use"/>), its dates left
