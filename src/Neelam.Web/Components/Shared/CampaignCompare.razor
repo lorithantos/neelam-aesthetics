@@ -1,0 +1,114 @@
+@* The one block-by-block compare (owner, 2026-10-31, answer 7a/b/c), as the campaign page shows it in all
+   three places: an earlier save against the last one, the form against its last save, and the campaign
+   against a template before she uses it. What changed comes from CampaignComparison; this only lays it
+   out: the email's own fields first, then each block not as it was, with what happened to it ("Added",
+   "Moved from 3rd to 5th") and each changed field's old and new text, the words that went struck
+   through and the words that came marked. Inline, the old above the new, so it reads the same in the
+   side column and on a phone. A block added has no old side, and one removed no new side. Named by
+   Name, so two on one page never share a test id. *@
+
+@if (!Comparison.HasChanges)
+{
+    <p data-testid="@($"{Name}-none")">@NoChanges</p>
+}
+else
+{
+    <p data-testid="@($"{Name}-heading")">@Heading</p>
+    @if (Comparison.Email.Count > 0)
+    {
+        <div class="compare-block">
+            @Fields(Comparison.Email, "email", null)
+        </div>
+    }
+    @for (var k = 0; k < Comparison.Blocks.Count; k++)
+    {
+        var change = Comparison.Blocks[k];
+        var key = k.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        <div class="compare-block">
+            <h3 class="compare-label" data-testid="@($"{Name}-label-{key}")">@change.Label</h3>
+            <p class="muted" data-testid="@($"{Name}-what-{key}")">@CompareWords.What(change)</p>
+            @Fields(change.Fields, key, change.Kind)
+        </div>
+    }
+}
+
+@code {
+    /// <summary>What changed, from <see cref="CampaignComparison.Of"/>.</summary>
+    [Parameter, EditorRequired]
+    public CampaignComparison Comparison { get; set; } = default!;
+
+    /// <summary>Starts every test id inside, such as "compare-unsaved".</summary>
+    [Parameter, EditorRequired]
+    public string Name { get; set; } = "";
+
+    /// <summary>The line above the changes, such as "Changed since your save at 6 Nov 2026, 10:42 AM PST:".</summary>
+    [Parameter, EditorRequired]
+    public string Heading { get; set; } = "";
+
+    /// <summary>What is said when nothing changed, such as "No changes since your last save."</summary>
+    [Parameter, EditorRequired]
+    public string NoChanges { get; set; } = "";
+
+    /// <summary>Before the old text, such as "Saved:".</summary>
+    [Parameter, EditorRequired]
+    public string BeforeWord { get; set; } = "";
+
+    /// <summary>Before the new text, such as "Now:".</summary>
+    [Parameter, EditorRequired]
+    public string AfterWord { get; set; } = "";
+
+    // One list of changed fields; "Empty" where a side had nothing, except the side a block added or
+    // removed never had.
+    private RenderFragment Fields(IReadOnlyList<FieldChange> fields, string key, BlockChangeKind? kind) => __builder =>
+    {
+        if (fields.Count == 0) return;
+        <dl class="compare-fields">
+            @for (var j = 0; j < fields.Count; j++)
+            {
+                var field = fields[j];
+                var words = field.Words;
+                var id = $"{key}-{j}";
+                <dt data-testid="@($"{Name}-field-{id}")">
+                    @field.Field
+                    @if (field.Fixed)
+                    {
+                        <span class="compare-fixed">· @CompareWords.FixedText</span>
+                    }
+                </dt>
+                @if (kind != BlockChangeKind.Added)
+                {
+                    <dd data-testid="@($"{Name}-before-{id}")"><span class="compare-side">@BeforeWord</span> @Side(words.Before, "del")</dd>
+                }
+                @if (kind != BlockChangeKind.Removed)
+                {
+                    <dd data-testid="@($"{Name}-after-{id}")"><span class="compare-side">@AfterWord</span> @Side(words.After, "ins")</dd>
+                }
+            }
+        </dl>
+    };
+
+    // One side's text, its changed words in <del> or <ins>; "Empty" when it has none.
+    private static RenderFragment Side(IReadOnlyList<WordPiece> pieces, string mark) => __builder =>
+    {
+        if (pieces.Count == 0)
+        {
+            <span class="muted">@CompareWords.Empty</span>
+            return;
+        }
+        foreach (var piece in pieces)
+        {
+            if (!piece.Changed)
+            {
+                @piece.Text
+            }
+            else if (mark == "del")
+            {
+                <del class="compare">@piece.Text</del>
+            }
+            else
+            {
+                <ins class="compare">@piece.Text</ins>
+            }
+        }
+    };
+}

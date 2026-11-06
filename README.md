@@ -257,6 +257,11 @@ the client's own container (see [Clients and access](#clients-and-access)):
   A campaign refers to its template by id; one saved before it recorded the id is linked once,
   by the template link update, in its save's metadata (`templateid`, `templateversion`: ids,
   never content), so the save itself, its history and its approvals stay as they were.
+- **Comparing versions only reads** (2026-11-06). The campaign page compares an earlier save with the
+  last one, the form with its last save, and the campaign with a template before she uses it, block
+  by block (`CampaignComparison`, pure). It reads the saves in use (one listing, then the one save
+  picked) and keeps nothing: no new blob, field, table, setting or activity row. Undone saves are not
+  offered for comparing.
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed

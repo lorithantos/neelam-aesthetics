@@ -154,6 +154,49 @@ public sealed class DraftSession : IWatched<SaveRef>
                 ? "This campaign was approved, so it is kept as a record and can't be deleted."
                 : null;
 
+    // SavedDraft, read from _saved once for each _saved.
+    private (string Json, CampaignDraft Draft)? _savedDraft;
+
+    /// <summary>
+    /// The draft of <see cref="Latest"/> as it was saved or opened, apart from the form: what "What haven't I
+    /// saved yet?" and an earlier save are compared with (<see cref="CampaignComparison"/>). Read from the
+    /// session's own copy, so nothing is read from storage; null before the first save.
+    /// </summary>
+    public CampaignDraft? SavedDraft
+    {
+        get
+        {
+            if (_saved is null) return null;
+            if (_savedDraft is not { } held || !ReferenceEquals(held.Json, _saved))
+                _savedDraft = held = (_saved, CampaignJson.DeserializeDraft(_saved));
+            return held.Draft;
+        }
+    }
+
+    /// <summary>True when the campaign has a save in use older than <see cref="Latest"/>, to compare it with.</summary>
+    public bool HasEarlierSaves => Latest is not null && _versions > 1;
+
+    /// <summary>
+    /// The campaign's saves in use older than <see cref="Latest"/>, newest first, as storage has them now:
+    /// what an earlier save is picked from. Undone saves are not among them. One listing; no save is read.
+    /// </summary>
+    public async Task<IReadOnlyList<SaveRef>> EarlierSavesAsync(CancellationToken ct = default)
+    {
+        if (Latest is not { } latest || Id is not { } id) return [];
+        return (await _store.HistoryAsync(DocumentKind.Draft, id, ct))
+            .Where(s => s.BlobName != latest.BlobName && s.SavedAt < latest.SavedAt).ToList();
+    }
+
+    /// <summary>One save of the campaign, read, to compare with <see cref="SavedDraft"/>. Reads only.</summary>
+    public Task<CampaignDraft> ReadSaveAsync(SaveRef save, CancellationToken ct = default) => _store.LoadDraftAsync(save, ct);
+
+    /// <summary>
+    /// What using <paramref name="choice"/>'s template would make of the form as it stands now, to show before
+    /// she says yes: worked out as <see cref="UseTemplate"/> would at the click. Changes and reads nothing.
+    /// </summary>
+    public TemplateUpdate PreviewTemplate(TemplateChoice choice) =>
+        TemplateUpdate.Of(Editor.Draft, choice.Template, choice.Version.Id, choice.Version.SavedAt, choice.MadeFrom, StandingApproval);
+
     /// <summary>
     /// Whether <paramref name="draftJson"/> (<see cref="CampaignJson.SerializeDraft"/>) is the draft as last saved
     /// or opened from <see cref="Latest"/>; false before the first save. A working copy equal to it is nothing

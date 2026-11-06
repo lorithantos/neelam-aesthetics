@@ -85,8 +85,16 @@ public class TemplatePickerPageTests(DemoApp app) : IClassFixture<DemoApp>
         await page.ChooseAsync("template-picker", template.ToString());
         await page.ClickAsync("template-use");
 
+        // Shown what it would change first (owner, 2026-10-31, answer 7c), though nothing of hers is lost.
         html = await page.HtmlAsync();
-        // Nothing of hers lost, so not asked.
+        Assert.Equal(1, RenderedPage.Count(html, "template-confirm"));
+        Assert.Equal(0, RenderedPage.Count(html, "template-dropped"));
+        Assert.Equal(0, RenderedPage.Count(html, "template-replaced"));
+        Assert.Equal(0, RenderedPage.Count(html, "template-message"));
+
+        await page.ClickAsync("template-confirm-use");
+
+        html = await page.HtmlAsync();
         Assert.Equal(0, RenderedPage.Count(html, "template-confirm"));
         Assert.Equal(0, RenderedPage.Count(html, "template-use"));
         Assert.Equal("The template Membership announcement is in the form now. Save the campaign to keep it; leave without saving and the campaign stays as it was.",
@@ -115,6 +123,7 @@ public class TemplatePickerPageTests(DemoApp app) : IClassFixture<DemoApp>
 
         await page.ChooseAsync("template-picker", other.ToString());
         await page.ClickAsync("template-use");
+        await page.ClickAsync("template-confirm-use");
 
         var html = await page.HtmlAsync();
         Assert.Equal(other.ToString(), RenderedPage.Attribute(html, "template-picker", "value"));

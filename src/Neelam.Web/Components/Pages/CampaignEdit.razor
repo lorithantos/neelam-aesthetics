@@ -144,21 +144,30 @@ else if (_session is not null)
                 <button class="button" data-testid="template-update" disabled="@(errors.Count > 0)" @onclick="UseTemplateAsync">Update to template</button>
             }
         </div>
+        @* Before she uses a template, always (owner, 2026-10-31, answer 7c): what it would change, block by
+           block, worked out against the form as it stands now, under what of hers it would lose, if anything. *@
         @if (_askTemplate is { } ask)
         {
-            <section class="card" role="alert" data-testid="template-confirm">
-                <p>Using the template @ask.Template.Name changes what you wrote here:</p>
-                <ul>
-                    @foreach (var label in ask.Update.Dropped)
-                    {
-                        <li data-testid="template-dropped">@label: the template has no place for it, so it goes.</li>
-                    }
-                    @foreach (var label in ask.Update.Replaced)
-                    {
-                        <li data-testid="template-replaced">@label: the template's own text takes the place of yours.</li>
-                    }
-                </ul>
-                <button class="button danger" data-testid="template-confirm-use" disabled="@(errors.Count > 0)" @onclick="ConfirmTemplateAsync">Use the template</button>
+            var loses = ask.Update.LosesAnything;
+            <section class="card" role="@(loses ? "alert" : null)" data-testid="template-confirm">
+                @if (loses)
+                {
+                    <p>Using the template @ask.Template.Name changes what you wrote here:</p>
+                    <ul>
+                        @foreach (var label in ask.Update.Dropped)
+                        {
+                            <li data-testid="template-dropped">@label: the template has no place for it, so it goes.</li>
+                        }
+                        @foreach (var label in ask.Update.Replaced)
+                        {
+                            <li data-testid="template-replaced">@label: the template's own text takes the place of yours.</li>
+                        }
+                    </ul>
+                }
+                <CampaignCompare Comparison="CampaignComparison.Of(editor.Draft, _session.PreviewTemplate(ask).Draft)" Name="compare-template"
+                                 Heading="@CompareWords.TemplateHeading(ask.Template.Name)" NoChanges="@CompareWords.NothingFromTemplate(ask.Template.Name)"
+                                 BeforeWord="Now:" AfterWord="With the template:" />
+                <button class="@(loses ? "button danger" : "button primary")" data-testid="template-confirm-use" disabled="@(errors.Count > 0)" @onclick="ConfirmTemplateAsync">Use the template</button>
                 <button class="button" data-testid="template-keep" @onclick="() => _askTemplate = null">Keep it as it is</button>
             </section>
         }
@@ -323,6 +332,22 @@ else if (_session is not null)
                 @if (_session.Latest is { } latest)
                 {
                     <p class="muted" data-testid="last-saved">Last saved @Times.DateAndTime(latest.SavedAt).</p>
+                    @* The compare (owner, 2026-10-31, answers 7a and 7b): the form against this save, and an
+                       earlier save against it. Each opens a card below this one and closes again on its
+                       button; neither changes the form or stores anything. *@
+                    <div class="block-actions">
+                        <button type="button" class="button" data-testid="compare-unsaved-button" aria-expanded="@(_showUnsaved ? "true" : "false")"
+                                @onclick="() => _showUnsaved = !_showUnsaved">@CompareWords.UnsavedButton</button>
+                        @if (_session.HasEarlierSaves)
+                        {
+                            <button type="button" class="button" data-testid="compare-earlier-button" aria-expanded="@(EarlierOpen ? "true" : "false")"
+                                    @onclick="ToggleEarlierAsync">@CompareWords.EarlierButton</button>
+                        }
+                    </div>
+                    @if (_earlierMessage is not null)
+                    {
+                        <p role="status" data-testid="compare-earlier-message">@_earlierMessage</p>
+                    }
                 }
                 @* Undo last save only while there is a version before the newest to go back to: with
                    none, undoing it would be the same as deleting, which Delete campaign below offers. *@
@@ -358,6 +383,44 @@ else if (_session is not null)
                     }
                 }
             </section>
+
+            @* 7b: what the form holds that its last save does not, following what she types; changes
+               brought back from her working copy are among them, as unsaved as anything typed. *@
+            @if (_showUnsaved && _session.SavedDraft is { } savedDraft && _session.Latest is { } savedAt)
+            {
+                <section class="card" data-testid="compare-unsaved">
+                    <h2>@CompareWords.UnsavedButton</h2>
+                    <CampaignCompare Comparison="CampaignComparison.Of(savedDraft, editor.Draft)" Name="compare-unsaved"
+                                     Heading="@CompareWords.UnsavedHeading(Times.DateAndTime(savedAt.SavedAt))"
+                                     NoChanges="@CompareWords.NothingUnsaved" BeforeWord="Saved:" AfterWord="Now:" />
+                    @if (errors.Count > 0)
+                    {
+                        <p class="field-help" data-testid="compare-unsaved-errors">@CompareWords.UnsavedErrors</p>
+                    }
+                </section>
+            }
+
+            @* 7a: an earlier save against the last one, picked from her saves in use, newest first. Gone
+               once the page holds another last save (a save, an undo, Load the latest), as that list is. *@
+            @if (EarlierOpen && _earlier is { } then && _session.SavedDraft is { } lastDraft)
+            {
+                <section class="card" data-testid="compare-earlier">
+                    <h2>@CompareWords.EarlierButton</h2>
+                    <div class="field">
+                        <label for="earlier-save">@CompareWords.EarlierLabel</label>
+                        <select id="earlier-save" data-testid="compare-earlier-picker" @bind:get="then.Picked.BlobName" @bind:set="PickEarlierAsync">
+                            @foreach (var save in then.Saves)
+                            {
+                                <option value="@save.BlobName">@Times.DateAndTime(save.SavedAt)</option>
+                            }
+                        </select>
+                    </div>
+                    <CampaignCompare Comparison="CampaignComparison.Of(then.Draft, lastDraft)" Name="compare-earlier"
+                                     Heading="@CompareWords.EarlierHeading(Times.DateAndTime(then.Picked.SavedAt))"
+                                     NoChanges="@CompareWords.NothingSinceEarlier(Times.DateAndTime(then.Picked.SavedAt))"
+                                     BeforeWord="Then:" AfterWord="Last save:" />
+                </section>
+            }
 
             @if (status.Missing.Count > 0)
             {
@@ -843,9 +906,59 @@ else
     // The template she picked, by id; null until she picks one, when the picker shows the one attached,
     // or with none attached the one of hers with the campaign's template name.
     private string? _pickedTemplate;
-    // A template that would lose something she wrote, while she is asked.
+    // A template she is about to use, while the page shows what it would change and asks.
     private TemplateChoice? _askTemplate;
     private string? _templateMessage;
+
+    // "What haven't I saved yet?" open: the form against its last save (7b).
+    private bool _showUnsaved;
+
+    // An earlier save against the last one (7a): her earlier saves as listed when she opened it, the one
+    // picked, read, and the last save it was opened against. Read only, and only on her click.
+    private sealed record EarlierCompare(string Latest, IReadOnlyList<SaveRef> Saves, SaveRef Picked, CampaignDraft Draft);
+    private EarlierCompare? _earlier;
+    private string? _earlierMessage;
+
+    // Open while the page still holds the last save it was opened against: after a save, an undo or Load
+    // the latest its list of earlier saves is out of date, so it closes.
+    private bool EarlierOpen => _earlier is { } e && e.Latest == _session?.Latest?.BlobName;
+
+    private async Task ToggleEarlierAsync()
+    {
+        _earlierMessage = null;
+        if (EarlierOpen)
+        {
+            _earlier = null;
+            return;
+        }
+        await CompareEarlierAsync(saves => saves.FirstOrDefault());
+    }
+
+    private Task PickEarlierAsync(string? blobName) =>
+        CompareEarlierAsync(saves => saves.FirstOrDefault(s => s.BlobName == blobName));
+
+    // Her earlier saves listed again and the one picked read. Storage failing leaves the page as it was and
+    // says so; nothing is written either way.
+    private async Task CompareEarlierAsync(Func<IReadOnlyList<SaveRef>, SaveRef?> pick)
+    {
+        _earlierMessage = null;
+        try
+        {
+            var latest = _session!.Latest?.BlobName;
+            var saves = await _session.EarlierSavesAsync();
+            if (latest is null || pick(saves) is not { } picked)
+            {
+                _earlier = null;
+                return;
+            }
+            _earlier = new EarlierCompare(latest, saves, picked, await _session.ReadSaveAsync(picked));
+        }
+        catch (Exception ex) when (StorageFailed.Is(ex))
+        {
+            Log.LogError(ex, "Not compared: storage failed reading an earlier save of a campaign of {Client}.", _client!.Value);
+            _earlierMessage = StorageFailed.NotDone("Not compared");
+        }
+    }
 
     // With none attached (a campaign saved before campaigns recorded theirs, until the one-time update
     // links it), nothing is picked: no template is guessed from a name.
@@ -873,8 +986,9 @@ else
         _templateMessage = null;
     }
 
-    // "Use this template" and "Update to template": the picked template's newest version, read now, into
-    // the form at once when nothing she wrote would be lost, otherwise asked first. Nothing is saved.
+    // "Use this template" and "Update to template": the picked template's newest version, read now, and
+    // what it would change shown block by block before she says yes (owner, 2026-10-31, answer 7c), with
+    // what of hers it would lose, if anything. Nothing is in the form until "Use the template"; nothing is saved.
     private Task UseTemplateAsync() => ActingAsync(async () =>
     {
         _askTemplate = null;
@@ -883,7 +997,7 @@ else
         try
         {
             if (await _session!.ChooseTemplateAsync(id) is { } choice)
-                TemplateUsed(choice, _session.UseTemplate(choice));
+                _askTemplate = choice;
             else
             {
                 _pickedTemplate = null;

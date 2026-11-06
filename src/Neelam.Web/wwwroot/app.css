@@ -39,6 +39,10 @@
 
     --valid: #1e7a3c;
 
+    /* Words a compare shows as come in (CampaignCompare); what went uses the error colours. */
+    --added-text: #14532d;
+    --added-bg: #e7f5ec;
+
     /* Blazor's own error panel and boundary. */
     --error-ui-bg: lightyellow;
     --error-ui-shadow: rgba(0, 0, 0, 0.2);
@@ -290,6 +294,47 @@ h1:focus {
     color: var(--text-muted);
     border-color: var(--border);
     background: var(--bg);
+}
+
+/* The compare (CampaignCompare): each block apart, the old text above the new, words that went struck
+   through on the error colours and words that came on the added ones, never colour alone. */
+.compare-block {
+    border-top: 1px solid var(--border);
+    margin-top: 0.75rem;
+    padding-top: 0.5rem;
+}
+
+.compare-label {
+    font-size: 1rem;
+    margin: 0;
+}
+
+.compare-fields dt {
+    font-weight: 600;
+    margin-top: 0.5rem;
+}
+
+.compare-fields dd {
+    margin: 0 0 0.25rem 0;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.compare-side,
+.compare-fixed {
+    color: var(--text-muted);
+    font-weight: normal;
+}
+
+del.compare {
+    color: var(--error-text);
+    background: var(--error-bg);
+}
+
+ins.compare {
+    color: var(--added-text);
+    background: var(--added-bg);
+    text-decoration: underline;
 }
 
 .button:disabled,
