@@ -87,4 +87,103 @@ public class KnownPromotionTests
     }
 
     #endregion
+
+    #region Store
+
+    private static readonly Actor Priya = new("Priya Sharma", FromSignIn: true);
+
+    [Fact]
+    public void A_promotion_round_trips_through_its_table_row()
+    {
+        var promotion = Holiday() with { Summary = "Two months to refresh.", Audience = "new clients" };
+        var row = KnownItemTable.FromItem(Salon, promotion);
+        Assert.Equal("Promotion", row.GetString("Kind"));
+        Assert.Equal("Holiday filler promo", row.GetString("Text"));
+        Assert.Equal(CampaignJson.SerializePromotionLines(promotion.Lines), row.GetString("Lines"));
+        Assert.Equal("Two months to refresh.", row.GetString("Summary"));
+        Assert.Equal("new clients", row.GetString("Audience"));
+        Assert.Equal(promotion.FinePrint, row.GetString("FinePrint"));
+
+        var back = Assert.IsType<KnownPromotion>(KnownItemTable.ToItem(Salon, row));
+        Assert.Equal(promotion.Name, back.Name);
+        Assert.Equal(promotion.Summary, back.Summary);
+        Assert.Equal(promotion.Audience, back.Audience);
+        Assert.Equal(promotion.FinePrint, back.FinePrint);
+        Assert.Equal(promotion.Lines, back.Lines);
+    }
+
+    [Fact]
+    public void A_promotion_with_no_summary_audience_or_fine_print_has_no_such_columns()
+    {
+        var row = KnownItemTable.FromItem(Salon, Holiday() with { FinePrint = null });
+        Assert.False(row.ContainsKey("Summary"));
+        Assert.False(row.ContainsKey("Audience"));
+        Assert.False(row.ContainsKey("FinePrint"));
+    }
+
+    [Fact]
+    public void A_promotion_row_that_cannot_be_read_is_left_out_and_logged_by_its_key_alone()
+    {
+        var log = new ListLogger<KnownItemTable>();
+        string?[] bad = [null, "{not json", "[null]", """[{"line":"treatment","treatmentId":"","price":1}]"""];
+        var rows = bad.Select(lines =>
+        {
+            var row = new Azure.Data.Tables.TableEntity(Salon.Value, KnownItem.NewId()) { ["Kind"] = "Promotion", ["Text"] = "Secret" };
+            if (lines is not null) row["Lines"] = lines;
+            return row;
+        }).Append(KnownItemTable.FromItem(Salon, Balancing)).ToList();
+
+        var read = KnownItemTable.ReadAll(Salon, rows, log);
+
+        Assert.Equal([Balancing.Id], read.All.Select(i => i.Id));
+        Assert.Equal(4, log.Entries.Count);
+        Assert.DoesNotContain(log.Entries, e => e.ToString()!.Contains("Secret"));
+    }
+
+    [Fact]
+    public async Task A_promotion_is_kept_by_the_store_only_with_its_treatments_on_her_list()
+    {
+        var store = new InMemoryKnownItems();
+        var holiday = Holiday();
+        var refused = await Assert.ThrowsAsync<ArgumentException>(() => store.AddAsync(Salon, holiday));
+        Assert.Contains("a treatment no longer on your list", refused.Message);
+
+        await store.AddAsync(Salon, Midface);
+        await store.AddAsync(Salon, Balancing);
+        await store.AddAsync(Salon, holiday);
+        Assert.Equal(holiday.Lines, (await store.ForClientAsync(Salon)).Promotions.Single().Lines);
+    }
+
+    [Fact]
+    public async Task Removing_a_treatment_a_saved_promotion_uses_is_refused_naming_it()
+    {
+        var store = new InMemoryKnownItems();
+        foreach (var item in new KnownItem[] { Midface, Balancing, Wellness })
+            await store.AddAsync(Salon, item);
+        await store.AddAsync(Salon, Holiday());
+        var records = new TestRecords(new ManualClock(new DateTimeOffset(2026, 11, 6, 12, 0, 0, TimeSpan.Zero)));
+        var session = await KnownItemsSession.OpenAsync(store, records.Recorder.For(Salon, Priya));
+
+        await session.RemoveAsync(Balancing);
+
+        Assert.Equal(["Used by Holiday filler promo. Change or remove that promotion first."], session.Errors);
+        Assert.NotNull((await store.ForClientAsync(Salon)).TreatmentById(Balancing.Id));
+        Assert.Empty(records.Activity.Events);
+
+        await session.RemoveAsync(Wellness);
+
+        Assert.Equal("Removed \"Wellness injection\". Campaigns that used it keep their text.", session.Message);
+        Assert.Null((await store.ForClientAsync(Salon)).TreatmentById(Wellness.Id));
+    }
+
+    [Fact]
+    public void The_store_rules_name_every_promotion_that_uses_a_treatment()
+    {
+        var known = new KnownItems([Midface, Balancing, Holiday(), Holiday() with { Id = KnownItem.NewId(), Name = "Spring refresh" }]);
+        var ex = Assert.Throws<InvalidOperationException>(() => KnownItemStoreRules.CheckRemove(known, Balancing.Id));
+        Assert.Equal("Used by Holiday filler promo and Spring refresh. Change or remove those promotions first.", ex.Message);   // (proposed)
+        KnownItemStoreRules.CheckRemove(known, KnownItem.NewId());
+    }
+
+    #endregion
 }

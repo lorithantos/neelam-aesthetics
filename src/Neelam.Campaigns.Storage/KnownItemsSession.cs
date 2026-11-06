@@ -196,6 +196,12 @@ public sealed class KnownItemsSession
         {
             await _store.RemoveAsync(_trail.Client, item.Id, ct);
         }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            // The store's own refusal, such as a treatment a saved promotion uses: said, nothing recorded.
+            Refuse(ex.Message);
+            return;
+        }
         catch (Exception ex) when (IsStorageFailure(ex))
         {
             LogFailure(_log, ex, "remove", item, _trail.Client);

@@ -44,6 +44,19 @@ public static class KnownItemStoreRules
         Refuse(KnownItemRules.Problems(item, existing));
     }
 
+    /// <summary>
+    /// Refuses to remove a treatment a saved promotion has a line for, naming the promotions; any
+    /// other id is no concern of this check.
+    /// </summary>
+    public static void CheckRemove(KnownItems existing, string id)
+    {
+        var names = existing.PromotionsUsing(id).Select(p => p.Name).ToList();
+        if (names.Count == 0) return;
+        var named = names.Count == 1 ? names[0] : $"{string.Join(", ", names.Take(names.Count - 1))} and {names[^1]}";
+        throw new InvalidOperationException(
+            $"Used by {named}. Change or remove {(names.Count == 1 ? "that promotion" : "those promotions")} first.");
+    }
+
     private static void Refuse(IReadOnlyList<string> problems)
     {
         if (problems.Count > 0) throw new ArgumentException(string.Join(" ", problems));
@@ -119,10 +132,11 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         await _table.UpdateEntityAsync(FromItem(client, item), ETag.All, TableUpdateMode.Replace, cancellationToken);
     }
 
-    public Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default)
+    public async Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParseExact(id, "N", out _)) throw new ArgumentException("A known item's id is 32 hex digits.", nameof(id));
-        return _table.DeleteEntityAsync(client.Value, id, ETag.All, cancellationToken);
+        KnownItemStoreRules.CheckRemove(await ForClientAsync(client, cancellationToken), id);
+        await _table.DeleteEntityAsync(client.Value, id, ETag.All, cancellationToken);
     }
 
     /// <summary>The query for one client's partition, and nothing else.</summary>
@@ -152,6 +166,13 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
                 row["Price"] = t.Price.ToString(CultureInfo.InvariantCulture);
                 row["Benefits"] = CampaignJson.SerializeBenefits(t.Benefits);
                 break;
+            case KnownPromotion p:
+                // Lines point at her treatments by id; no dates, names or regular prices are kept here.
+                row["Lines"] = CampaignJson.SerializePromotionLines(p.Lines);
+                if (p.Summary is not null) row["Summary"] = p.Summary;
+                if (p.Audience is not null) row["Audience"] = p.Audience;
+                if (p.FinePrint is not null) row["FinePrint"] = p.FinePrint;
+                break;
         }
         return row;
     }
@@ -172,6 +193,7 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
             nameof(KnownItemKind.Tier) => new KnownTier(row.RowKey, text,
                 decimal.Parse(Required(row, "Price"), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture),
                 CampaignJson.DeserializeBenefits(Required(row, "Benefits"))),
+            nameof(KnownItemKind.Promotion) => Promotion(row),
             var kind => throw new InvalidDataException($"Known item {row.RowKey} is of no known kind ('{kind}')."),
         };
     }
@@ -200,6 +222,21 @@ public sealed class KnownItemTable(StorageClients storage, ILogger<KnownItemTabl
         if (line.LimitProblems().Count > 0)
             throw new InvalidDataException($"Known item {row.RowKey} has limits that do not hold.");
         return line;
+    }
+
+    /// <summary>
+    /// A promotion from its row. Its Lines must parse, hold no empty line and no treatment line without
+    /// an id; otherwise the row is malformed, left out by <see cref="ReadAll"/> like any other. The
+    /// summary, audience and fine print are optional columns.
+    /// </summary>
+    private static KnownPromotion Promotion(TableEntity row)
+    {
+        var lines = CampaignJson.DeserializePromotionLines(Required(row, "Lines"));
+        if (lines.Any(l => l is null)) throw new InvalidDataException($"Known item {row.RowKey} has an empty line.");
+        if (lines.Any(l => l is KnownTreatmentLine { TreatmentId: var id } && string.IsNullOrWhiteSpace(id)))
+            throw new InvalidDataException($"Known item {row.RowKey} has a line with no treatment.");
+        return new KnownPromotion(row.RowKey, row.GetString("Text")!, row.GetString("Summary"), row.GetString("Audience"),
+            lines, row.GetString("FinePrint"));
     }
 
     /// <summary>

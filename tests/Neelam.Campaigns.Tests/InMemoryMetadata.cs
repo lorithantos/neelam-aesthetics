@@ -228,10 +228,14 @@ internal sealed class InMemoryKnownItems : IKnownItemStore
         }
     }
 
-    public Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default)
+    public async Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default)
     {
-        lock (_rows) _rows.Remove((client.Value, id));
-        return Task.CompletedTask;
+        var existing = await ForClientAsync(client, cancellationToken);
+        lock (_rows)
+        {
+            KnownItemStoreRules.CheckRemove(existing, id);
+            _rows.Remove((client.Value, id));
+        }
     }
 }
 
