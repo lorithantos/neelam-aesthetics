@@ -201,8 +201,11 @@ public abstract record PromotionLine
 /// <summary>
 /// A treatment at a promotion price, beside its regular price, the saving worked out:
 /// "Full-Face Facial Balancing — $3,499 (Regularly $5,100, saving $1,601)".
+/// <paramref name="TreatmentId"/> is the known treatment the line came from; null for a line typed by
+/// hand or saved before 2026-11-06.
 /// </summary>
-public sealed record PricedTreatment(string Treatment, decimal Price, decimal RegularPrice) : PromotionLine
+public sealed record PricedTreatment(string Treatment, decimal Price, decimal RegularPrice,
+    [property: JsonIgnore] string? TreatmentId = null) : PromotionLine
 {
     /// <summary>What she saves: the regular price less the promotion price.</summary>
     [JsonIgnore]

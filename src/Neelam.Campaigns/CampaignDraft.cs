@@ -320,6 +320,9 @@ public sealed class PricedTreatmentDraft : PromotionLineDraft
     public Slot<decimal> Price { get; } = Slot<decimal>.Empty();
     public Slot<decimal> RegularPrice { get; } = Slot<decimal>.Empty();
 
+    /// <summary>The known treatment the line came from; null for a line typed by hand.</summary>
+    public string? TreatmentId { get; set; }
+
     public override bool IsFinished => Treatment.HasValue && Price.HasValue && RegularPrice.HasValue;
 
     internal override void Check(DraftProblems problems, string where)
@@ -329,7 +332,7 @@ public sealed class PricedTreatmentDraft : PromotionLineDraft
         problems.Require(RegularPrice, $"{where} › Regular price");
     }
 
-    internal override PromotionLine ToLine() => new PricedTreatment(Treatment.Value, Price.Value, RegularPrice.Value);
+    internal override PromotionLine ToLine() => new PricedTreatment(Treatment.Value, Price.Value, RegularPrice.Value, TreatmentId);
 }
 
 /// <summary>A typed benefit as a promotion line.</summary>

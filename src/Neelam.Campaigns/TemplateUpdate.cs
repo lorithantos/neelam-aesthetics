@@ -151,6 +151,7 @@ public sealed record TemplateUpdate(CampaignDraft Draft, IReadOnlyList<string> D
                     Copy(t.Treatment, priced.Treatment);
                     Copy(t.Price, priced.Price);
                     Copy(t.RegularPrice, priced.RegularPrice);
+                    priced.TreatmentId = t.TreatmentId;
                     break;
                 case BenefitLineDraft b:
                     Copy(b.Benefit, into.AddBenefit().Benefit);

@@ -523,6 +523,65 @@ public class PromotionTests
             EditorExport.PreviewBlocks(update.Draft.Build().Campaign!).Select(b => b.Text));
     }
 
+    // ---- Linked lines
+
+    private static CampaignEditor LinkedPromo(string? line0 = null, string? line1 = null)
+    {
+        var editor = FillerPromo(template: KnownPromotionTests.Editable);
+        var lines = editor.Draft.Promotion("Promotion").Lines;
+        ((PricedTreatmentDraft)lines[0]).TreatmentId = line0;
+        ((PricedTreatmentDraft)lines[1]).TreatmentId = line1;
+        return editor;
+    }
+
+    [Fact]
+    public void A_linked_line_round_trips_through_the_draft_s_json()
+    {
+        var editor = LinkedPromo(line1: KnownPromotionTests.Balancing.Id);
+
+        var json = CampaignJson.SerializeDraft(editor.Draft);
+        var back = CampaignJson.DeserializeDraft(json);
+
+        Assert.Contains($"\"treatmentId\": \"{KnownPromotionTests.Balancing.Id}\"", json);
+        var lines = back.Promotion("Promotion").Lines;
+        Assert.Null(((PricedTreatmentDraft)lines[0]).TreatmentId);
+        Assert.Equal(KnownPromotionTests.Balancing.Id, ((PricedTreatmentDraft)lines[1]).TreatmentId);
+        Assert.Equal(json, CampaignJson.SerializeDraft(back));
+    }
+
+    [Fact]
+    public void Without_a_link_drafts_and_templates_are_written_as_before()
+    {
+        var draftJson = CampaignJson.SerializeDraft(FillerPromo().Draft);
+        var templateJson = CampaignJson.SerializeTemplate(Template);
+
+        Assert.DoesNotContain("treatmentId", draftJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("treatmentId", templateJson, StringComparison.OrdinalIgnoreCase);
+        var back = CampaignJson.DeserializeDraft(draftJson);
+        Assert.Null(((PricedTreatmentDraft)back.Promotion("Promotion").Lines[0]).TreatmentId);
+    }
+
+    [Fact]
+    public void Linking_a_line_is_not_part_of_what_an_approval_is_of()
+    {
+        var editor = FillerPromo(template: KnownPromotionTests.Editable);
+        var before = CampaignJson.SerializeContent(editor.Draft);
+
+        ((PricedTreatmentDraft)editor.Draft.Promotion("Promotion").Lines[0]).TreatmentId = KnownPromotionTests.Midface.Id;
+
+        Assert.Equal(before, CampaignJson.SerializeContent(editor.Draft));
+    }
+
+    [Fact]
+    public void A_template_update_keeps_a_line_s_link()
+    {
+        var editor = LinkedPromo(line0: KnownPromotionTests.Midface.Id);
+
+        var update = TemplateUpdate.Of(editor.Draft, KnownPromotionTests.Editable, Guid.NewGuid(), DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(KnownPromotionTests.Midface.Id, ((PricedTreatmentDraft)update.Draft.Promotion("Promotion").Lines[0]).TreatmentId);
+    }
+
     [Fact]
     public void A_template_never_fixes_a_promotion_and_previews_it_as_set_out_for_each_campaign()
     {

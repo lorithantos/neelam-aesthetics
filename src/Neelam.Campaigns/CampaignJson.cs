@@ -36,7 +36,7 @@ public static class CampaignJson
     private static string SerializeDraft(CampaignDraft d, bool content) =>
         JsonSerializer.Serialize(new DraftDocument(
             SchemaVersion, content ? null : d.TemplateName, Save(d.Subject), Save(d.Preheader),
-            d.Blocks.Select(Save).ToList(),
+            d.Blocks.Select(b => Save(b, content)).ToList(),
             content || string.IsNullOrWhiteSpace(d.Label) ? null : d.Label.Trim(),
             content ? null : d.TemplateId,
             content ? null : d.TemplateVersion), Options);
@@ -68,7 +68,7 @@ public static class CampaignJson
         return d;
     }
 
-    private static BlockDocument Save(BlockDraft b) => b switch
+    private static BlockDocument Save(BlockDraft b, bool content) => b switch
     {
         ValueBlockDraft<string> v => new(b.Label, b.Type, b.Required, Text: Save(v.Value)),
         ValueBlockDraft<IReadOnlyList<string>> v => new(b.Label, b.Type, b.Required, Paragraphs: Save(v.Value)),
@@ -78,7 +78,7 @@ public static class CampaignJson
         ValueBlockDraft<ImageRef> v => new(b.Label, b.Type, b.Required, Image: Save(v.Value)),
         SpacerBlockDraft => new(b.Label, b.Type, b.Required),
         OfferBlockDraft o => new(b.Label, b.Type, b.Required, Offer: Save(o.Offer), Marker: o.Marker),
-        PromotionBlockDraft p => new(b.Label, b.Type, b.Required, Promotion: Save(p.Promotion)),
+        PromotionBlockDraft p => new(b.Label, b.Type, b.Required, Promotion: Save(p.Promotion, content)),
         _ => throw new InvalidOperationException($"No saved form for a {b.Type} block."),
     };
 
@@ -115,6 +115,7 @@ public static class CampaignJson
                     Restore(priced.Treatment, line.Treatment);
                     Restore(priced.Price, line.Price);
                     Restore(priced.RegularPrice, line.RegularPrice);
+                    priced.TreatmentId = line.TreatmentId;
                     break;
                 case PromotionLineKind.Benefit:
                     Restore(promotion.AddBenefit().Benefit, line.Benefit);
@@ -125,12 +126,15 @@ public static class CampaignJson
         }
     }
 
-    private static PromotionDocument Save(PromotionDraft p) => new(
+    // The link to a known treatment says where a line came from, not what the email says, so an
+    // approval's content leaves it out.
+    private static PromotionDocument Save(PromotionDraft p, bool content) => new(
         Save(p.Name), Save(p.Summary), Save(p.Audience), Save(p.Starts), Save(p.Ends),
         p.Lines.Select(l => l switch
         {
             PricedTreatmentDraft t => new PromotionLineDocument(PromotionLineKind.Treatment,
-                Treatment: Save(t.Treatment), Price: Save(t.Price), RegularPrice: Save(t.RegularPrice)),
+                Treatment: Save(t.Treatment), Price: Save(t.Price), RegularPrice: Save(t.RegularPrice),
+                TreatmentId: content ? null : t.TreatmentId),
             BenefitLineDraft b => new PromotionLineDocument(PromotionLineKind.Benefit, Benefit: Save(b.Benefit)),
             _ => throw new InvalidOperationException("No saved form for this promotion line."),
         }).ToList());
@@ -156,7 +160,7 @@ public static class CampaignJson
     /// compact, every value written as typed (<see cref="Origin.Entered"/>), an offer never marked as
     /// recurring, and nothing about where the block sits. The same content is always the same text.
     /// </summary>
-    internal static string SerializeBlockContent(BlockDraft b) => JsonSerializer.Serialize(AsTyped(ContentOf(Save(b))), Compact);
+    internal static string SerializeBlockContent(BlockDraft b) => JsonSerializer.Serialize(AsTyped(ContentOf(Save(b, content: false))), Compact);
 
     /// <summary>
     /// Puts content written by <see cref="SerializeBlockContent"/> into a block with nothing in it, every
@@ -211,7 +215,7 @@ public static class CampaignJson
             : null,
         c.Promotion is { } p
             ? new PromotionDocument(AsTyped(p.Name)!, AsTyped(p.Summary)!, AsTyped(p.Audience)!, AsTyped(p.Starts)!, AsTyped(p.Ends)!,
-                p.Lines.Select(l => new PromotionLineDocument(l.Kind, AsTyped(l.Treatment), AsTyped(l.Price), AsTyped(l.RegularPrice), AsTyped(l.Benefit))).ToList())
+                p.Lines.Select(l => new PromotionLineDocument(l.Kind, AsTyped(l.Treatment), AsTyped(l.Price), AsTyped(l.RegularPrice), AsTyped(l.Benefit), l.TreatmentId)).ToList())
             : null);
 
     private static SlotDocument<T>? AsTyped<T>(SlotDocument<T>? s) =>
@@ -440,7 +444,8 @@ public static class CampaignJson
         SlotDocument<string>? Treatment = null,
         SlotDocument<decimal>? Price = null,
         SlotDocument<decimal>? RegularPrice = null,
-        SlotDocument<Benefit>? Benefit = null);
+        SlotDocument<Benefit>? Benefit = null,
+        string? TreatmentId = null);
 
     private enum PromotionLineKind
     {
