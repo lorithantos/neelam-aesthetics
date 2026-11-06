@@ -772,7 +772,7 @@ public sealed class PromotionEditor
         (written.HasValue ? FormText.Clean(written.Value) : "") == (saved ?? "");
 
     /// <summary>
-    /// This promotion as a saved one, exactly as written, with the treatments its lines name that are new to her
+    /// This promotion as a saved one, as written and cleaned as <see cref="IsOneOf"/> compares it, with the treatments its lines name that are new to her
     /// list; see <see cref="CampaignEditor.PromotionToKnown"/>. <paramref name="finePrint"/> is the campaign's
     /// editable fine print, which loses a leading sentence saying this promotion's dates.
     /// </summary>
@@ -788,7 +788,7 @@ public sealed class PromotionEditor
             switch (_promotion.Lines[i])
             {
                 case PricedTreatmentDraft t:
-                    var name = t.Treatment.Value.Trim();
+                    var name = FormText.Clean(t.Treatment.Value);
                     string id;
                     if (t.TreatmentId is { } linked && known.TreatmentById(linked) is { } onList) id = onList.Id;
                     else if (known.TreatmentNamed(name) is { } named) id = named.Id;
@@ -812,12 +812,15 @@ public sealed class PromotionEditor
         if (text is { Length: > 0 } && _promotion.Starts.HasValue && _promotion.Ends.HasValue)
             text = EditorExport.WithoutLeadingDates(text, _promotion.Starts.Value, _promotion.Ends.Value,
                 _promotion.Audience.HasValue ? _promotion.Audience.Value : null);
-        var promotion = new KnownPromotion(KnownItem.NewId(), _promotion.Name.Value.Trim(),
-            _promotion.Summary.HasValue ? _promotion.Summary.Value : null,
-            _promotion.Audience.HasValue ? _promotion.Audience.Value : null,
+        var promotion = new KnownPromotion(KnownItem.NewId(), FormText.Clean(_promotion.Name.Value),
+            Optional(_promotion.Summary), Optional(_promotion.Audience),
             lines, string.IsNullOrWhiteSpace(text) ? null : text);
         return new(promotion, added, null);
     }
+
+    // Cleaned as IsOneOf compares it, null when blank (as KnownPromotionForm keeps them).
+    private static string? Optional(Slot<string> written) =>
+        written.HasValue && FormText.Clean(written.Value) is { Length: > 0 } clean ? clean : null;
 
     /// <summary>Typed text the promotion cannot hold yet, each with where it is; empty when there is none.</summary>
     public IReadOnlyList<string> Errors()

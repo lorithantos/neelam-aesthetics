@@ -711,6 +711,25 @@ public class KnownPromotionTests
         Assert.Single(kept.Treatments, t => t.Name == "Full-Face Facial Balancing");
     }
 
+    // Final review, Important 3: what is saved is the cleaned text IsOneOf compares, so the button does not come back.
+    // The form's fields clean what she types; a draft can hold text not typed there (one saved before, say).
+    [Fact]
+    public void A_promotion_saved_from_a_campaign_keeps_its_text_cleaned_and_is_then_one_of_hers()
+    {
+        var known = new KnownItems([Midface]);
+        var editor = PromotionTests.FillerPromo(known, Editable);
+        var draft = editor.Draft.Promotion("Promotion");
+        draft.Summary.Set("  Two months to refresh.\r\nBook now.  ");
+        draft.Audience.Set("   ");
+        var block = PromotionBlock(editor);
+
+        var made = editor.PromotionToKnown(block, known);
+
+        Assert.Equal("Two months to refresh.\nBook now.", made.Promotion!.Summary);
+        Assert.Null(made.Promotion.Audience);
+        Assert.True(block.Promotion.IsOneOf(new KnownItems([Midface, .. made.Added, made.Promotion])));
+    }
+
     [Fact]
     public void Saving_a_promotion_with_a_near_miss_line_is_refused_with_did_you_mean()
     {
