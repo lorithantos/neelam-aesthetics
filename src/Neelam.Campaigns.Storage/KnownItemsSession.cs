@@ -73,7 +73,7 @@ public sealed class KnownItemsSession
         var (treatment, errors) = NewTreatment.ToItem(KnownItem.NewId());
         if (treatment is null) return Refuse([.. errors]);
         if (!await ChangeAsync(treatment, adding: true, ct)) return false;
-        NewTreatment = new KnownTreatmentForm();
+        ClearNewTreatment();
         return true;
     }
 
@@ -82,7 +82,7 @@ public sealed class KnownItemsSession
         var (benefit, errors) = NewLimits.ToItem(KnownItem.NewId(), NewBenefit, "Choose what kind of benefit, and fill it in.");
         if (benefit is null) return Refuse([.. errors]);
         if (!await ChangeAsync(benefit, adding: true, ct)) return false;
-        (NewBenefit, NewLimits) = (BenefitEditor.Standalone(), new AmountLimitsForm());
+        ClearNewBenefit();
         return true;
     }
 
@@ -91,9 +91,25 @@ public sealed class KnownItemsSession
         var (tier, errors) = NewTier.ToItem(KnownItem.NewId());
         if (tier is null) return Refuse([.. errors]);
         if (!await ChangeAsync(tier, adding: true, ct)) return false;
-        NewTier = new KnownTierForm();
+        ClearNewTier();
         return true;
     }
+
+    // She folded a builder away without adding: what she typed in it is dropped, as after an add, and
+    // so are the problems an add of it was refused with. The status line is left as it was.
+    public void CancelNewTreatment() { ClearNewTreatment(); ForgetRefusal(); }
+    public void CancelNewBenefit() { ClearNewBenefit(); ForgetRefusal(); }
+    public void CancelNewTier() { ClearNewTier(); ForgetRefusal(); }
+
+    // The problems shown may be a change form's, on a card; those are left while one is open.
+    private void ForgetRefusal()
+    {
+        if (Editing is null) Errors = [];
+    }
+
+    private void ClearNewTreatment() => NewTreatment = new KnownTreatmentForm();
+    private void ClearNewBenefit() => (NewBenefit, NewLimits) = (BenefitEditor.Standalone(), new AmountLimitsForm());
+    private void ClearNewTier() => NewTier = new KnownTierForm();
 
     // ---- Changing one item ----
 
@@ -437,9 +453,13 @@ public sealed class KnownItemsSession
         var (plan, errors) = NewPromotion.ToPlan(KnownItem.NewId(), Items);
         if (plan is null) return Refuse([.. errors]);
         if (!await ApplyAsync(plan, adding: true, ct)) return false;
-        NewPromotion = new KnownPromotionForm();
+        ClearNewPromotion();
         return true;
     }
+
+    public void CancelNewPromotion() { ClearNewPromotion(); ForgetRefusal(); }
+
+    private void ClearNewPromotion() => NewPromotion = new KnownPromotionForm();
 
     /// <summary>How far changing one of her treatments reaches, said beside its form; null when no saved promotion uses it.</summary>
     public string? Reach(KnownTreatment treatment) => Items.PromotionsUsing(treatment.Id).Count switch

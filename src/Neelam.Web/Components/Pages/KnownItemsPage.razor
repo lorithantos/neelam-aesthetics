@@ -39,22 +39,33 @@ else if (_session is not null)
     }
     <Problems Messages="_session.Errors" />
 
-    @* Each tab's way to add one comes first, above what she has. *@
+    @* Each tab's way to add one is still first, but folded to one line until she asks for it (owner,
+       2026-11-06), so what she has is the first thing on screen. *@
     @if (tab == KnownItemsTab.Treatments)
     {
         <h2>Treatments and services</h2>
         <section class="card" aria-label="Treatments and services">
-            <div class="field">
-                <label for="new-treatment">Add a treatment</label>
-                <input id="new-treatment" @bind="_session.NewTreatment.Name" @bind:event="oninput" />
-                <span class="field-help">Spelled the way every campaign should spell it, such as "Wellness injection".</span>
-            </div>
-            <div class="field">
-                <label for="new-treatment-price">Regular price, in dollars (optional)</label>
-                <input id="new-treatment-price" inputmode="decimal" @bind="_session.NewTreatment.RegularPrice" @bind:event="oninput" />
-                <span class="field-help">What it usually costs, such as 5,100.</span>
-            </div>
-            <button class="button primary" data-testid="add-treatment" @onclick="() => _session.AddTreatmentAsync()">Add treatment</button>
+            @if (_open == tab)
+            {
+                <div class="field">
+                    <label for="new-treatment">Add a treatment</label>
+                    <input id="new-treatment" @ref="_firstBoxes[NewBuilder]" @bind="_session.NewTreatment.Name" @bind:event="oninput" />
+                    <span class="field-help">Spelled the way every campaign should spell it, such as "Wellness injection".</span>
+                </div>
+                <div class="field">
+                    <label for="new-treatment-price">Regular price, in dollars (optional)</label>
+                    <input id="new-treatment-price" inputmode="decimal" @bind="_session.NewTreatment.RegularPrice" @bind:event="oninput" />
+                    <span class="field-help">What it usually costs, such as 5,100.</span>
+                </div>
+                <span class="block-actions">
+                    <button class="button primary" data-testid="add-treatment" @onclick="() => Added(_session.AddTreatmentAsync())">Add treatment</button>
+                    <button class="button" data-testid="cancel-add-treatment" @onclick="() => Cancelled(_session.CancelNewTreatment)">Cancel</button>
+                </span>
+            }
+            else
+            {
+                <button class="button" data-testid="open-add-treatment" @onclick="() => Open(tab)">Add a treatment</button>
+            }
             @if (items.Treatments.Count == 0)
             {
                 <p>No treatments yet.</p>
@@ -101,9 +112,19 @@ else if (_session is not null)
     {
         <h2>Promotions</h2>
         <section class="card" aria-label="Promotions">
-            <h3>Build a promotion</h3>
-            @PromotionFormFields(_session.NewPromotion, "new")
-            <button class="button primary" data-testid="add-promotion" @onclick="() => _session.AddPromotionAsync()">Add promotion</button>
+            @if (_open == tab)
+            {
+                <h3>Build a promotion</h3>
+                @PromotionFormFields(_session.NewPromotion, "new")
+                <span class="block-actions">
+                    <button class="button primary" data-testid="add-promotion" @onclick="() => Added(_session.AddPromotionAsync())">Add promotion</button>
+                    <button class="button" data-testid="cancel-add-promotion" @onclick="() => Cancelled(_session.CancelNewPromotion)">Cancel</button>
+                </span>
+            }
+            else
+            {
+                <button class="button" data-testid="open-add-promotion" @onclick="() => Open(tab)">Build a promotion</button>
+            }
             @if (items.Promotions.Count == 0)
             {
                 <p>No promotions yet.</p>
@@ -140,11 +161,24 @@ else if (_session is not null)
     {
         <h2>Benefit lines</h2>
         <section class="card" aria-label="Benefit lines">
-            <h3>Add a benefit line</h3>
-            <p class="field-help">The amounts you type are the usual ones: picking the line in a campaign fills them in, and you can change them there.</p>
-            <BenefitFields Benefit="_session.NewBenefit" Id="new" Label="Kind of benefit" Changed="KindMayHaveChanged" />
-            @LimitFields(_session.NewLimits, _session.NewBenefit, "new")
-            <button class="button primary" @onclick="() => _session.AddBenefitAsync()">Add benefit line</button>
+            @if (_open == tab)
+            {
+                @* BenefitFields is shared with the campaign page, so focus goes to this wrapper, just ahead of its first box. *@
+                <div tabindex="-1" @ref="_firstBoxes[NewBuilder]">
+                    <h3>Add a benefit line</h3>
+                    <p class="field-help">The amounts you type are the usual ones: picking the line in a campaign fills them in, and you can change them there.</p>
+                    <BenefitFields Benefit="_session.NewBenefit" Id="new" Label="Kind of benefit" Changed="KindMayHaveChanged" />
+                    @LimitFields(_session.NewLimits, _session.NewBenefit, "new")
+                </div>
+                <span class="block-actions">
+                    <button class="button primary" data-testid="add-benefit" @onclick="() => Added(_session.AddBenefitAsync())">Add benefit line</button>
+                    <button class="button" data-testid="cancel-add-benefit" @onclick="() => Cancelled(_session.CancelNewBenefit)">Cancel</button>
+                </span>
+            }
+            else
+            {
+                <button class="button" data-testid="open-add-benefit" @onclick="() => Open(tab)">Add a benefit line</button>
+            }
             @if (items.Benefits.Count == 0)
             {
                 <p>No benefit lines yet.</p>
@@ -178,9 +212,19 @@ else if (_session is not null)
     {
         <h2>Offers and tiers</h2>
         <section class="card" aria-label="Offers and tiers">
-            <h3>Build a tier</h3>
-            @TierFields(_session.NewTier, "new")
-            <button class="button primary" @onclick="() => _session.AddTierAsync()">Add tier</button>
+            @if (_open == tab)
+            {
+                <h3>Build a tier</h3>
+                @TierFields(_session.NewTier, "new")
+                <span class="block-actions">
+                    <button class="button primary" data-testid="add-tier" @onclick="() => Added(_session.AddTierAsync())">Add tier</button>
+                    <button class="button" data-testid="cancel-add-tier" @onclick="() => Cancelled(_session.CancelNewTier)">Cancel</button>
+                </span>
+            }
+            else
+            {
+                <button class="button" data-testid="open-add-tier" @onclick="() => Open(tab)">Build a tier</button>
+            }
             @if (items.Tiers.Count == 0)
             {
                 <p>No tiers yet.</p>
@@ -244,6 +288,48 @@ else if (_session is not null)
     private readonly Dictionary<KnownTierForm, string> _picks = [];
     // The same, for a promotion form's.
     private readonly Dictionary<KnownPromotionForm, string> _promotionPicks = [];
+
+    // Which tab's builder is open, or none: every tab starts folded to one line (owner, 2026-11-06), and
+    // changing tab folds it again. Page state only, kept nowhere.
+    private string? _open;
+    // The box focus goes to when a builder opens, kept under the id its form is drawn with ("new", as
+    // the change forms are "edit"): its first, or for the benefit line's, the wrapper in front of it.
+    private const string NewBuilder = "new";
+    private readonly Dictionary<string, ElementReference> _firstBoxes = [];
+    private bool _focusFirstBox;
+
+    protected override void OnParametersSet()
+    {
+        if (_open != KnownItemsTab.Chosen(Show, Cap)) _open = null;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusFirstBox) return;
+        _focusFirstBox = false;
+        try
+        {
+            if (_firstBoxes.TryGetValue(NewBuilder, out var box)) await box.FocusAsync();
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException)
+        {
+            // Focus is a courtesy: a browser that has gone, or a host with no browser to focus in, loses nothing.
+        }
+    }
+
+    private void Open(string tab) => (_open, _focusFirstBox) = (tab, true);
+
+    // An add that went through folds the builder again; one that was refused leaves it open to fix.
+    private async Task Added(Task<bool> add)
+    {
+        if (await add) _open = null;
+    }
+
+    private void Cancelled(Action discard)
+    {
+        discard();
+        _open = null;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -341,7 +427,7 @@ else if (_session is not null)
     private RenderFragment TierFields(KnownTierForm form, string id) => @<div>
         <div class="field">
             <label for="tier-name-@id">Tier name</label>
-            <input id="tier-name-@id" @bind="form.Name" @bind:event="oninput" />
+            <input id="tier-name-@id" @ref="_firstBoxes[id]" @bind="form.Name" @bind:event="oninput" />
             <span class="field-help">Such as "Platinum Member".</span>
         </div>
         <div class="field">
@@ -378,7 +464,7 @@ else if (_session is not null)
     private RenderFragment PromotionFormFields(KnownPromotionForm form, string id) => @<div>
         <div class="field">
             <label for="promotion-name-@id">Promotion name</label>
-            <input id="promotion-name-@id" @bind="form.Name" @bind:event="oninput" />
+            <input id="promotion-name-@id" @ref="_firstBoxes[id]" @bind="form.Name" @bind:event="oninput" />
         </div>
         <div class="field">
             <label for="promotion-summary-@id">Summary (optional)</label>

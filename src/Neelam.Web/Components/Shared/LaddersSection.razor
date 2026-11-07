@@ -21,6 +21,33 @@
                         Help="@(Refused is not null
                             ? "Keep mine saves yours as the newest; the other version stays stored. Load the latest shows the other version and replaces what you changed here."
                             : "Load the latest replaces what you changed here and have not saved.")" />
+        @* The way to add one is first, folded to one line until she asks for it, as every tab's is (owner, 2026-11-06). *@
+        @if (_adding)
+        {
+            <div>
+                <div class="field">
+                    <label for="ladder-name">Name</label>
+                    <input id="ladder-name" @ref="_firstBox" @bind="_newName" @bind:event="oninput" />
+                </div>
+                <div class="field">
+                    <label for="ladder-words">Words, lowest first</label>
+                    <input id="ladder-words" @bind="_newWords" @bind:event="oninput" />
+                    <span class="field-help">Separated by commas, such as "Glow, Radiance, Luminous".</span>
+                </div>
+                <label class="check">
+                    <input type="checkbox" checked="@_newOrdered" @onchange="e => _newOrdered = e.Value is true" />
+                    Ordered: a tier on a later word should cost more
+                </label>
+                <p class="block-actions">
+                    <button class="button" data-testid="add-ladder" @onclick="Add">Add ladder</button>
+                    <button class="button" data-testid="cancel-add-ladder" @onclick="CancelAdd">Cancel</button>
+                </p>
+            </div>
+        }
+        else
+        {
+            <p><button class="button" data-testid="open-add-ladder" @onclick="OpenAdd">Add a ladder</button></p>
+        }
         @if (_working.Ladders.Count == 0)
         {
             <p>No ladders: tier names are not read against any.</p>
@@ -56,24 +83,6 @@
             </section>
         }
 
-        <details>
-            <summary>Add a ladder</summary>
-            <div class="field">
-                <label for="ladder-name">Name</label>
-                <input id="ladder-name" @bind="_newName" @bind:event="oninput" />
-            </div>
-            <div class="field">
-                <label for="ladder-words">Words, lowest first</label>
-                <input id="ladder-words" @bind="_newWords" @bind:event="oninput" />
-                <span class="field-help">Separated by commas, such as "Glow, Radiance, Luminous".</span>
-            </div>
-            <label class="check">
-                <input type="checkbox" checked="@_newOrdered" @onchange="e => _newOrdered = e.Value is true" />
-                Ordered: a tier on a later word should cost more
-            </label>
-            <p><button class="button" @onclick="Add">Add ladder</button></p>
-        </details>
-
         <p>
             <button class="button primary" data-testid="ladders-save-own" @onclick="SaveOwnAsync">Save as your own</button>
             @if (_inForce.IsOwn)
@@ -95,6 +104,11 @@
     private string _newName = "";
     private string _newWords = "";
     private bool _newOrdered;
+    // Whether the add-a-ladder form is open: folded to one line until she asks.
+    private bool _adding;
+    private bool _addRefused;
+    private ElementReference _firstBox;
+    private bool _focusFirstBox;
 
     protected override async Task<HeldDocument> ReadAsync(ClientName client)
     {
@@ -118,6 +132,7 @@
     private void Add()
     {
         var (ladder, problem) = TierLadder.Parse(_newName, _newWords, _newOrdered);
+        _addRefused = true;
         if (ladder is null)
         {
             Message = problem;
@@ -128,9 +143,36 @@
             Message = $"There is already a ladder named '{ladder.Name}'.";
             return;
         }
+        _addRefused = false;
         _working = _working.With(ladder);
         (_newName, _newWords, _newOrdered) = ("", "", false);
+        _adding = false;
         Message = "Not saved yet: save them as your own to use them.";
+    }
+
+    private void OpenAdd() => (_adding, _focusFirstBox) = (true, true);
+
+    private void CancelAdd()
+    {
+        (_newName, _newWords, _newOrdered) = ("", "", false);
+        _adding = false;
+        // What a refused add said goes with the form; a "Not saved yet" about her ladders stays.
+        if (_addRefused) Message = null;
+        _addRefused = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_focusFirstBox) return;
+        _focusFirstBox = false;
+        try
+        {
+            await _firstBox.FocusAsync();
+        }
+        catch (Exception e) when (e is JSException or JSDisconnectedException or InvalidOperationException)
+        {
+            // Focus is a courtesy: a browser that has gone, or a host with no browser to focus in, loses nothing.
+        }
     }
 
     private Task SaveOwnAsync()

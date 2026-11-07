@@ -63,23 +63,23 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Contains("What Salon One writes again and again, spelled once.", treatments);
         Assert.Contains("<span>Wellness injection</span>", treatments);
-        // A treatment's regular price beside its name when it has one, and a box to give a new one hers.
+        // A treatment's regular price beside its name when it has one; the box to give a new one hers
+        // is folded away until she opens it (owner, 2026-11-06), so only the one line shows.
         Assert.Contains("<span>Full-Face Facial Balancing, regularly $5,100</span>", treatments);
-        Assert.Contains("Regular price, in dollars (optional)", treatments);
-        Assert.Contains("id=\"new-treatment-price\"", treatments);
-        Assert.Contains("Add treatment</button>", treatments);
+        Assert.DoesNotContain("id=\"new-treatment-price\"", treatments);
+        Assert.Contains("data-testid=\"open-add-treatment\">Add a treatment</button>", treatments);
         // A benefit line with its usual amount, and no limit on it: any amount is fine.
         Assert.Contains("<span>$75 birthday credit during your birth month — usually $75, any amount</span>", lines);
-        Assert.Contains("Add benefit line</button>", lines);
+        Assert.Contains("data-testid=\"open-add-benefit\">Add a benefit line</button>", lines);
         // The price as the campaign shows it: a tier is a monthly price.
         Assert.Contains("<h3>Diamond Member, $499/month</h3>", tiers);
         Assert.Contains("<li>$100 birthday credit during your birth month</li>", tiers);
-        Assert.Contains("Add tier</button>", tiers);
-        Assert.Contains("id=\"tier-pick-new\"", tiers);
-        // The way to add one comes before what she has.
-        Assert.True(treatments.IndexOf("Add treatment</button>") < treatments.IndexOf("<span>Wellness injection</span>"));
-        Assert.True(lines.IndexOf("Add benefit line</button>") < lines.IndexOf("<span>$75 birthday credit"));
-        Assert.True(tiers.IndexOf("Add tier</button>") < tiers.IndexOf("<h3>Diamond Member"));
+        Assert.Contains("data-testid=\"open-add-tier\">Build a tier</button>", tiers);
+        Assert.DoesNotContain("id=\"tier-pick-new\"", tiers);
+        // The way to add one still comes before what she has.
+        Assert.True(treatments.IndexOf("open-add-treatment") < treatments.IndexOf("<span>Wellness injection</span>"));
+        Assert.True(lines.IndexOf("open-add-benefit") < lines.IndexOf("<span>$75 birthday credit"));
+        Assert.True(tiers.IndexOf("open-add-tier") < tiers.IndexOf("<h3>Diamond Member"));
     }
 
     [Fact]
@@ -100,8 +100,8 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains("<h3>Holiday filler promo</h3>", page);
         Assert.Contains("<li>Full-Face Facial Balancing — $3,499 (Regularly $5,100, saving $1,601)</li>", page);
         Assert.Contains("Not valid with other offers.", page);
-        Assert.Contains($"data-testid=\"promotion-fine-print-help-new\">{KnownPromotionForm.FinePrintHelp}</p>", page);
-        var add = page.IndexOf("Add promotion</button>", StringComparison.Ordinal);
+        Assert.DoesNotContain("promotion-fine-print-help-new", page);
+        var add = page.IndexOf("data-testid=\"open-add-promotion\">Build a promotion</button>", StringComparison.Ordinal);
         Assert.True(add > 0, "the way to build one is on the page");
         Assert.True(add < page.IndexOf("<h3>Holiday filler promo</h3>", StringComparison.Ordinal));
     }
@@ -382,6 +382,60 @@ public class KnownItemPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Empty((await store.ForClientAsync(client)).All);
     }
 
+    // Folding a builder away without adding drops what was typed in it and the problems its refused add
+    // left, as an add does the first; nothing is stored, and the status line stays.
+    [Fact]
+    public async Task Cancelling_a_new_item_drops_what_was_typed_and_the_problems_and_stores_nothing()
+    {
+        var (store, client) = (new InMemoryKnownItems(), SalonOne.Name);
+        var page = await Open(store);
+
+        page.NewTreatment.Name = "Dropped treatment";
+        Assert.False(await page.AddBenefitAsync());
+        Assert.NotEmpty(page.Errors);
+        page.CancelNewTreatment();
+        Assert.Equal("", page.NewTreatment.Name);
+        Assert.Empty(page.Errors);
+
+        page.NewBenefit.Kind = "percent-off";
+        page.NewBenefit.Percent = "10";
+        page.CancelNewBenefit();
+        Assert.Equal(BenefitEditor.Standalone().Percent, page.NewBenefit.Percent);
+        Assert.Equal(BenefitEditor.Standalone().Kind, page.NewBenefit.Kind);
+
+        page.NewTier.Name = "Dropped tier";
+        page.CancelNewTier();
+        Assert.Equal("", page.NewTier.Name);
+
+        page.NewPromotion.Name = "Dropped promotion";
+        page.CancelNewPromotion();
+        Assert.Equal("", page.NewPromotion.Name);
+
+        Assert.Empty((await store.ForClientAsync(client)).All);
+    }
+
+    // The problems shown may be a change form's on a card: folding the builder does not take those away.
+    [Fact]
+    public async Task Cancelling_a_new_item_leaves_the_problems_of_a_change_in_progress()
+    {
+        var store = new InMemoryKnownItems();
+        var page = await Open(store);
+        page.NewTreatment.Name = "Kept";
+        Assert.True(await page.AddTreatmentAsync());
+        page.StartEdit(Assert.Single(page.Items.Treatments));
+        page.EditTreatment!.Name = "";
+        Assert.False(await page.SaveEditAsync());
+        var refused = page.Errors.ToArray();
+        Assert.NotEmpty(refused);
+
+        page.CancelNewTreatment();
+        page.CancelNewBenefit();
+        page.CancelNewTier();
+        page.CancelNewPromotion();
+
+        Assert.Equal(refused, page.Errors);
+    }
+
     // Each amount's usual value is the benefit's own; its lowest and highest are optional, shown
     // plainly, kept when the line is changed, and refused when they do not hold together.
     [Fact]
@@ -639,6 +693,7 @@ public class KnownItemsTabPageTests(DemoApp app) : IClassFixture<DemoApp>
         await using var page = await OpenCampaignPage.OpenAsync<Neelam.Web.Components.Pages.KnownItemsPage>(
             app, new Dictionary<string, object?>());
 
+        await page.ClickAsync("open-add-treatment");
         await page.ClickAsync("add-treatment");
 
         var html = await page.HtmlAsync();
@@ -657,6 +712,7 @@ public class KnownItemsTabPageTests(DemoApp app) : IClassFixture<DemoApp>
     {
         await using var page = await OpenPromotions(app);
 
+        await page.ClickAsync("open-add-promotion");
         await page.TypeIntoAsync("promotion-name-new", "Built here");
         await page.ClickAsync("promotion-add-treatment-new");
         await page.TypeIntoAsync("known-line-treatment-new-l0", "Brand-new peel 1");
@@ -671,6 +727,9 @@ public class KnownItemsTabPageTests(DemoApp app) : IClassFixture<DemoApp>
         var html = WebUtility.HtmlDecode(await page.HtmlAsync());
         Assert.Contains("Added Brand-new peel 1 to your treatments, regularly $150.", html);
         Assert.Contains("<h3>Built here</h3>", html);
+        // The builder is folded to its one line again.
+        Assert.True(Has(html, "open-add-promotion"));
+        Assert.False(HasBox(html, "promotion-name-new"));
     }
 
     [Fact]
@@ -706,5 +765,218 @@ public class KnownItemsTabPageTests(DemoApp app) : IClassFixture<DemoApp>
         var card = html[html.IndexOf("aria-label=\"Card promo 3\"", StringComparison.Ordinal)..];
         card = card[..card.IndexOf("</section>", StringComparison.Ordinal)];
         Assert.Contains("'Card problem 3' is $3,499 in the promotion but regularly $3,499: the promotion price must be below the regular price.", card);
+    }
+
+    // ---- Each tab's builder is one line until she opens it (owner, 2026-11-06: one common layout on
+    // every tab, the builder folded to a single line). Per kind: its tab, the button that opens it, its
+    // first box, the buttons it has open, and, where one is typed into, the box whose text Cancel drops.
+
+    public static TheoryData<string, string, string, string, string> Builders => new()
+    {
+        { "treatments", "open-add-treatment", "new-treatment", "add-treatment", "cancel-add-treatment" },
+        { "promotions", "open-add-promotion", "promotion-name-new", "add-promotion", "cancel-add-promotion" },
+        { "benefit-lines", "open-add-benefit", "benefit-kind-new", "add-benefit", "cancel-add-benefit" },
+        { "tiers", "open-add-tier", "tier-name-new", "add-tier", "cancel-add-tier" },
+        { "ladders", "open-add-ladder", "ladder-name", "add-ladder", "cancel-add-ladder" },
+    };
+
+    private static Task<OpenCampaignPage> OpenTab(DemoApp app, string show) =>
+        OpenCampaignPage.OpenAtAsync<Neelam.Web.Components.Pages.KnownItemsPage>(
+            app, $"known-items?show={show}", new Dictionary<string, object?>());
+
+    private static bool Has(string html, string testId) => html.Contains($"data-testid=\"{testId}\"", StringComparison.Ordinal);
+
+    private static bool HasBox(string html, string id) => html.Contains($"id=\"{id}\"", StringComparison.Ordinal);
+
+    // What is in the box whose id this is, as it is drawn: nothing when it carries no text.
+    private static string TextIn(string html, string id) =>
+        Regex.Match(html, $"id=\"{Regex.Escape(id)}\"[^>]*?value=\"([^\"]*)\"") is { Success: true } m ? WebUtility.HtmlDecode(m.Groups[1].Value) : "";
+
+    [Theory]
+    [MemberData(nameof(Builders))]
+    public async Task Every_tab_starts_with_its_builder_folded_to_one_line(string show, string open, string box, string add, string cancel)
+    {
+        await using var page = await OpenTab(app, show);
+
+        var html = await page.HtmlAsync();
+        Assert.True(Has(html, open), "the one line that opens it is there");
+        Assert.False(HasBox(html, box), "none of the form shows");
+        Assert.False(Has(html, add) || Has(html, cancel), "neither Add nor Cancel shows");
+    }
+
+    [Theory]
+    [MemberData(nameof(Builders))]
+    public async Task Opening_the_builder_shows_its_form_with_Add_and_Cancel_in_the_same_spot(string show, string open, string box, string add, string cancel)
+    {
+        await using var page = await OpenTab(app, show);
+
+        await page.ClickAsync(open);
+
+        var html = await page.HtmlAsync();
+        Assert.True(HasBox(html, box), "the form is there");
+        Assert.True(Has(html, add), "with its Add");
+        Assert.True(Has(html, cancel), "and a Cancel");
+        Assert.False(Has(html, open), "the one line is replaced by the form");
+    }
+
+    [Fact]
+    public async Task The_opened_form_comes_before_the_items_she_has()
+    {
+        await app.KnownItems.AddAsync(DemoApp.Client, new KnownTreatment(KnownItem.NewId(), "Below the form 8", 100m));
+        await using var page = await OpenTab(app, "treatments");
+        await page.ClickAsync("open-add-treatment");
+
+        var html = await page.HtmlAsync();
+        var form = html.IndexOf("id=\"new-treatment\"", StringComparison.Ordinal);
+        var item = html.IndexOf("<span>Below the form 8, regularly $100</span>", StringComparison.Ordinal);
+        Assert.True(form > 0 && item > form, "the form is first, her item below it");
+    }
+
+    [Theory]
+    [InlineData("treatments", "open-add-treatment", "new-treatment", "cancel-add-treatment")]
+    [InlineData("promotions", "open-add-promotion", "promotion-name-new", "cancel-add-promotion")]
+    [InlineData("tiers", "open-add-tier", "tier-name-new", "cancel-add-tier")]
+    [InlineData("ladders", "open-add-ladder", "ladder-name", "cancel-add-ladder")]
+    public async Task Cancel_folds_the_builder_and_drops_what_she_typed(string show, string open, string box, string cancel)
+    {
+        await using var page = await OpenTab(app, show);
+        await page.ClickAsync(open);
+        await page.TypeIntoAsync(box, "Typed then dropped");
+        Assert.Equal("Typed then dropped", TextIn(await page.HtmlAsync(), box));
+
+        await page.ClickAsync(cancel);
+
+        var folded = await page.HtmlAsync();
+        Assert.True(Has(folded, open));
+        Assert.False(HasBox(folded, box));
+        await page.ClickAsync(open);
+        var reopened = await page.HtmlAsync();
+        Assert.True(HasBox(reopened, box), "the form opens again, so an empty box is read, not a missing one");
+        Assert.Equal("", TextIn(reopened, box));
+    }
+
+    // Changing tab folds an open builder, and coming back finds it folded (owner, 2026-11-06).
+    [Fact]
+    public async Task Changing_tab_folds_an_open_builder()
+    {
+        await using var page = await OpenTab(app, "treatments");
+        await page.ClickAsync("open-add-treatment");
+        Assert.True(HasBox(await page.HtmlAsync(), "new-treatment"));
+
+        await page.NavigateToAsync("known-items?show=promotions");
+        var promotions = await page.WaitForAsync(html => html.Contains("aria-label=\"Promotions\"", StringComparison.Ordinal), "the Promotions tab");
+        Assert.True(Has(promotions, "open-add-promotion"));
+
+        await page.NavigateToAsync("known-items?show=treatments");
+        var back = await page.WaitForAsync(html => html.Contains("aria-label=\"Treatments and services\"", StringComparison.Ordinal), "the Treatments tab");
+        Assert.True(Has(back, "open-add-treatment"), "folded, not open as she left it");
+        Assert.False(HasBox(back, "new-treatment"));
+    }
+
+    // What the builders carry once opened, which the folded line hides from a first look.
+    [Fact]
+    public async Task Opened_builders_carry_their_labels_and_help()
+    {
+        await app.KnownItems.AddAsync(DemoApp.Client, new KnownBenefit(KnownItem.NewId(), new PercentOff(10, "any qualifying treatments"), []));
+        await using var treatments = await OpenTab(app, "treatments");
+        await treatments.ClickAsync("open-add-treatment");
+        Assert.Contains("Regular price, in dollars (optional)", await treatments.HtmlAsync());
+
+        await using var promotions = await OpenTab(app, "promotions");
+        await promotions.ClickAsync("open-add-promotion");
+        Assert.Contains($"data-testid=\"promotion-fine-print-help-new\">{KnownPromotionForm.FinePrintHelp}</p>", WebUtility.HtmlDecode(await promotions.HtmlAsync()));
+
+        await using var tiers = await OpenTab(app, "tiers");
+        await tiers.ClickAsync("open-add-tier");
+        Assert.True(HasBox(await tiers.HtmlAsync(), "tier-pick-new"));
+    }
+
+    [Fact]
+    public async Task The_ladders_way_to_add_one_is_above_the_ladders_she_has()
+    {
+        await using var page = await OpenTab(app, "ladders");
+        var folded = await page.HtmlAsync();
+        var words = folded.IndexOf("<ol class=\"ladder-words\">", StringComparison.Ordinal);
+        Assert.True(words > 0, "the demo has ladders in force");
+        Assert.InRange(folded.IndexOf("open-add-ladder", StringComparison.Ordinal), 0, words - 1);
+
+        await page.ClickAsync("open-add-ladder");
+
+        var open = await page.HtmlAsync();
+        Assert.InRange(open.IndexOf("id=\"ladder-name\"", StringComparison.Ordinal), 0, open.IndexOf("<ol class=\"ladder-words\">", StringComparison.Ordinal) - 1);
+    }
+
+    [Fact]
+    public async Task Cancelling_a_refused_ladder_add_takes_its_message_with_it()
+    {
+        await using var page = await OpenTab(app, "ladders");
+        await page.ClickAsync("open-add-ladder");
+        await page.ClickAsync("add-ladder");
+        Assert.True(Has(await page.HtmlAsync(), "ladders-message"), "the refusal is said");
+
+        await page.ClickAsync("cancel-add-ladder");
+
+        Assert.False(Has(await page.HtmlAsync(), "ladders-message"));
+    }
+
+    [Fact]
+    public async Task Cancel_on_the_benefit_lines_folds_the_builder()
+    {
+        await using var page = await OpenTab(app, "benefit-lines");
+        await page.ClickAsync("open-add-benefit");
+
+        await page.ClickAsync("cancel-add-benefit");
+
+        var html = await page.HtmlAsync();
+        Assert.True(Has(html, "open-add-benefit"));
+        Assert.False(HasBox(html, "benefit-kind-new"));
+    }
+
+    [Fact]
+    public async Task A_treatment_added_folds_the_builder_and_shows_in_the_list_below()
+    {
+        await using var page = await OpenTab(app, "treatments");
+        await page.ClickAsync("open-add-treatment");
+        await page.TypeIntoAsync("new-treatment", "Folded after adding 7");
+
+        await page.ClickAsync("add-treatment");
+
+        var html = await page.HtmlAsync();
+        Assert.True(Has(html, "open-add-treatment"), "folded again");
+        Assert.False(HasBox(html, "new-treatment"));
+        Assert.Contains("<span>Folded after adding 7</span>", html);
+        // The page's own message is as it was.
+        Assert.Contains("Folded after adding 7", WebUtility.HtmlDecode(html[html.IndexOf("role=\"status\"", StringComparison.Ordinal)..]));
+    }
+
+    [Fact]
+    public async Task A_ladder_added_folds_the_builder()
+    {
+        await using var page = await OpenTab(app, "ladders");
+        await page.ClickAsync("open-add-ladder");
+        await page.TypeIntoAsync("ladder-name", "Folded ladder 7");
+        await page.TypeIntoAsync("ladder-words", "Low, Mid, High");
+
+        await page.ClickAsync("add-ladder");
+
+        var html = await page.HtmlAsync();
+        Assert.True(Has(html, "open-add-ladder"), "folded again");
+        Assert.False(HasBox(html, "ladder-name"));
+        Assert.Contains("Folded ladder 7", html);
+    }
+
+    [Theory]
+    [MemberData(nameof(Builders))]
+    public async Task An_add_that_is_refused_leaves_the_builder_open_to_fix(string show, string open, string box, string add, string cancel)
+    {
+        await using var page = await OpenTab(app, show);
+        await page.ClickAsync(open);
+
+        await page.ClickAsync(add);
+
+        var html = await page.HtmlAsync();
+        Assert.True(HasBox(html, box), "still open");
+        Assert.True(Has(html, add) && Has(html, cancel));
+        Assert.False(Has(html, open));
     }
 }

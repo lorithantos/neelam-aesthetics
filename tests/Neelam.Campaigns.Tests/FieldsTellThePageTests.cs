@@ -194,6 +194,7 @@ public class FieldsTellThePageTests(DemoApp app) : IClassFixture<DemoApp>
         await app.KnownItems.AddAsync(DemoApp.Client, TenOff);
         await using var page = await OpenCampaignPage.OpenAtAsync<KnownItemsPage>(app, "known-items?show=tiers", new Dictionary<string, object?>());
 
+        await page.ClickAsync("open-add-tier");
         await page.TypeIntoAsync("tier-pick-new", "10%");
         var typed = await page.HtmlAsync();
         Assert.Equal("10%", ValueOf(typed, "tier-pick-new"));

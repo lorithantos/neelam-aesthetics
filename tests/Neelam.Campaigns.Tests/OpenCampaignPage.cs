@@ -67,6 +67,20 @@ internal sealed class OpenCampaignPage : IAsyncDisposable
         return new(scope, renderer, root);
     }
 
+    /// <summary>
+    /// Moves the held page to another address on the site as a click on a link to the same page does: the
+    /// location changes and is announced, so a page that reads its query is given the new one and the
+    /// component is kept. Nothing is fetched; no browser is attached.
+    /// </summary>
+    public Task NavigateToAsync(string address) => _renderer.Dispatcher.InvokeAsync(() =>
+    {
+        var navigation = _scope.ServiceProvider.GetRequiredService<NavigationManager>();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public;
+        typeof(NavigationManager).GetProperty(nameof(NavigationManager.Uri), flags)!.SetValue(navigation, "http://localhost/" + address);
+        typeof(NavigationManager).GetMethod("NotifyLocationChanged", flags)!.Invoke(navigation, [false]);
+        _renderer.ThrowIfFailed();
+    });
+
     /// <summary>Clicks the one element named <paramref name="testId"/>, through its own onclick.</summary>
     public Task ClickAsync(string testId) => _renderer.Dispatcher.InvokeAsync(async () =>
     {
