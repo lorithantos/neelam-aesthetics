@@ -217,6 +217,25 @@ public class DailyProofreadAllowanceTests
         Assert.True(allowance.TryTake("salon-one"));
     }
 
+    // A clock set back across midnight (NTP) does not give a client the day before again: her count
+    // stays with the latest day it reached.
+    [Fact]
+    public void A_clock_set_back_a_day_starts_no_day_again()
+    {
+        var clock = new ManualClock(new DateTimeOffset(2026, 10, 11, 0, 30, 0, TimeSpan.Zero));
+        var allowance = new DailyProofreadAllowance(2, clock);
+        Assert.True(allowance.TryTake("salon-one"));
+        Assert.True(allowance.TryTake("salon-one"));
+
+        clock.Now -= TimeSpan.FromHours(1);
+        Assert.False(allowance.TryTake("salon-one"));
+
+        clock.Now += TimeSpan.FromHours(1);
+        Assert.False(allowance.TryTake("salon-one"));
+        clock.Now += TimeSpan.FromDays(1);
+        Assert.True(allowance.TryTake("salon-one"));
+    }
+
     [Fact]
     public void A_limit_below_one_is_refused() =>
         Assert.Throws<ArgumentOutOfRangeException>(() => new DailyProofreadAllowance(0, new ManualClock(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero))));

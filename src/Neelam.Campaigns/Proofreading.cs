@@ -46,15 +46,18 @@ public sealed class DailyProofreadAllowance
 
     public int PerClientPerDay { get; }
 
-    /// <summary>Takes one proofread for <paramref name="client"/> today, or false when today's are used up.</summary>
+    /// <summary>
+    /// Takes one proofread for <paramref name="client"/> today, or false when today's are used up. A
+    /// client's day only moves forward: a clock set back counts against the latest day she reached.
+    /// </summary>
     public bool TryTake(string client)
     {
-        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
         lock (_gate)
         {
-            var used = _used.TryGetValue(client, out var u) && u.Day == today ? u.Used : 0;
+            var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
+            var (day, used) = _used.TryGetValue(client, out var u) && u.Day >= today ? u : (today, 0);
             if (used >= PerClientPerDay) return false;
-            _used[client] = (today, used + 1);
+            _used[client] = (day, used + 1);
             return true;
         }
     }
