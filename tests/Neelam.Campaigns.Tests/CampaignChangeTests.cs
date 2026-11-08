@@ -136,8 +136,8 @@ public class CampaignChangeTests
         var (a, b) = await TwoTabs();
         var toA = 0;
         var toB = 0;
-        using var listenA = _signals.Listen(a.Client, a.Id!.Value, a, () => Interlocked.Increment(ref toA));
-        using var listenB = _signals.Listen(b.Client, b.Id!.Value, b, () => Interlocked.Increment(ref toB));
+        using var listenA = _signals.Listen(a.Client, a.Id!.Value, a, () => toA++);
+        using var listenB = _signals.Listen(b.Client, b.Id!.Value, b, () => toB++);
 
         await b.ApproveAsync("Priya");
         await b.WithdrawApprovalAsync();
@@ -155,7 +155,7 @@ public class CampaignChangeTests
     {
         var (a, b) = await TwoTabs();
         var told = 0;
-        using var listening = _signals.Listen(a.Client, a.Id!.Value, a, () => Interlocked.Increment(ref told));
+        using var listening = _signals.Listen(a.Client, a.Id!.Value, a, () => told++);
         await b.UndoLastSaveAsync();
         var undone = b.Restorable!;
 
@@ -169,7 +169,7 @@ public class CampaignChangeTests
     {
         var (a, b) = await TwoTabs(approved: true);
         var toB = 0;
-        using var listening = _signals.Listen(b.Client, b.Id!.Value, b, () => Interlocked.Increment(ref toB));
+        using var listening = _signals.Listen(b.Client, b.Id!.Value, b, () => toB++);
         b.Editor.Subject.Text = "Theirs";
         var theirs = await b.SaveAsync();
         _clock.Now += TimeSpan.FromMinutes(1);

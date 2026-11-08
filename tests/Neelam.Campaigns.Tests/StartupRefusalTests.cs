@@ -94,5 +94,5 @@ internal sealed class ServicesDisposal : IDisposable
 
     public bool IsDisposed => Volatile.Read(ref this._disposed) == 1;
 
-    public void Dispose() => Interlocked.Exchange(ref this._disposed, 1);
+    public void Dispose() => Volatile.Write(ref this._disposed, 1);
 }

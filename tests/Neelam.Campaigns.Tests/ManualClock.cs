@@ -141,7 +141,7 @@ internal sealed class ManualClock : TimeProvider
 
         public void Dispose()
         {
-            Interlocked.Exchange(ref this._disposed, 1);
+            Volatile.Write(ref this._disposed, 1);
             clock._timers.TryRemove(this, out _);
             clock.Changed.Raise();
         }

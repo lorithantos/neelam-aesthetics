@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -371,59 +372,46 @@ public sealed class StartsApp : InMemoryApp
 /// <summary>The record of starts in memory, safe to write from the writer while a test reads it.</summary>
 internal sealed class InMemoryStartRecords : IStartRecords
 {
-    private readonly Dictionary<string, StartRecord> _starts = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, StartRecord> _starts = new(StringComparer.Ordinal);
 
     /// <summary>Raised after each record kept and each beat, for a test waiting on the writer or the heartbeat.</summary>
     public Pulse Changed { get; } = new();
 
     public Task SaveAsync(StartRecord record, CancellationToken ct = default)
     {
-        lock (_starts)
-            if (!_starts.TryGetValue(record.Id, out var kept) || kept.Version < record.Version) _starts[record.Id] = record;
+        _starts.AddOrUpdate(record.Id, record, (_, kept) => kept.Version < record.Version ? record : kept);
         this.Changed.Raise();
         return Task.CompletedTask;
     }
 
     /// <summary>The newest start's record, or null.</summary>
-    public StartRecord? Newest()
-    {
-        lock (_starts)
-            return _starts.Values.OrderByDescending(s => s.Id, StringComparer.Ordinal).FirstOrDefault();
-    }
+    public StartRecord? Newest() =>
+        _starts.Values.OrderByDescending(s => s.Id, StringComparer.Ordinal).FirstOrDefault();
 
-    public Task<IReadOnlyList<StartRecord>> RecentAsync(int count, CancellationToken ct = default)
-    {
-        lock (_starts)
-            return Task.FromResult<IReadOnlyList<StartRecord>>(
-                _starts.Values.OrderByDescending(s => s.Id, StringComparer.Ordinal).Take(count).ToList());
-    }
+    public Task<IReadOnlyList<StartRecord>> RecentAsync(int count, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<StartRecord>>(
+            [.. _starts.Values.OrderByDescending(s => s.Id, StringComparer.Ordinal).Take(count)]);
 
-    private readonly List<(DateTimeOffset At, string StartId)> _beats = [];
+    private readonly ConcurrentQueue<(DateTimeOffset At, string StartId)> _beats = new();
 
     /// <summary>Every heartbeat, in order.</summary>
-    public IReadOnlyList<(DateTimeOffset At, string StartId)> Beats
-    {
-        get { lock (_beats) return _beats.ToList(); }
-    }
+    public IReadOnlyList<(DateTimeOffset At, string StartId)> Beats => [.. _beats];
 
     /// <summary>Every read of the last heartbeat and every beat, in order, as "read" or "beat".</summary>
-    public IReadOnlyList<string> Calls
-    {
-        get { lock (_calls) return _calls.ToList(); }
-    }
+    public IReadOnlyList<string> Calls => [.. _calls];
 
-    private readonly List<string> _calls = [];
+    private readonly ConcurrentQueue<string> _calls = new();
 
     public Task<DateTimeOffset?> LastAliveAsync(CancellationToken ct = default)
     {
-        lock (_calls) _calls.Add("read");
-        lock (_beats) return Task.FromResult<DateTimeOffset?>(_beats.Count == 0 ? null : _beats[^1].At);
+        _calls.Enqueue("read");
+        return Task.FromResult<DateTimeOffset?>(_beats.ToArray() is [.., var last] ? last.At : null);
     }
 
     public Task BeatAsync(DateTimeOffset at, string startId, CancellationToken ct = default)
     {
-        lock (_calls) _calls.Add("beat");
-        lock (_beats) _beats.Add((at, startId));
+        _calls.Enqueue("beat");
+        _beats.Enqueue((at, startId));
         this.Changed.Raise();
         return Task.CompletedTask;
     }

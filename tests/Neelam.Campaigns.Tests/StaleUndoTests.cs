@@ -187,8 +187,8 @@ public class StaleUndoTests
         var (a, b) = await TwoTemplateTabs();
         var toA = 0;
         var toB = 0;
-        using var listenA = _signals.Listen(a.Client, a.Subject!, a, () => Interlocked.Increment(ref toA));
-        using var listenB = _signals.Listen(b.Client, b.Subject!, b, () => Interlocked.Increment(ref toB));
+        using var listenA = _signals.Listen(a.Client, a.Subject!, a, () => toA++);
+        using var listenB = _signals.Listen(b.Client, b.Subject!, b, () => toB++);
 
         b.Editor.Name = "Second";
         await b.SaveAsync();
@@ -259,7 +259,7 @@ public class StaleUndoTests
         var a = await Stores.HoldLookAsync(Salon);
         var b = await Stores.HoldLookAsync(Salon);
         var told = 0;
-        using var listening = _signals.Listen(Salon, WatchSubject.Look, b, () => Interlocked.Increment(ref told));
+        using var listening = _signals.Listen(Salon, WatchSubject.Look, b, () => told++);
 
         var undone = await Stores.UndoLastLookSaveAsync(a, Actor.Demo);
 

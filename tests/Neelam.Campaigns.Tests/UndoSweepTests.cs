@@ -232,7 +232,7 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var containers = new InMemoryContainers();
         var opened = new List<string>();
         var clock = new ManualClock(Noon);
-        var stores = new ClientStores(name => { lock (opened) opened.Add(name); return containers.For(name); }, clock, TimeSpan.FromDays(1), new InMemoryApprovals(), TestRecords.Unwatched);
+        var stores = new ClientStores(name => { opened.Add(name); return containers.For(name); }, clock, TimeSpan.FromDays(1), new InMemoryApprovals(), TestRecords.Unwatched);
 
         await SweepOver(stores, new InMemoryClientDirectory(SalonOne, SalonTwo), clock, new PrototypeCallerSource(SalonOne.Name))
             .SweepOnceAsync();
