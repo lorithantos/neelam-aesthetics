@@ -1,0 +1,9 @@
+# Normalise text to LF in the repository and check it out in the platform's own
+# style, as JanetHome does. Until this file, line endings here rested on
+# core.autocrlf from Git for Windows' system config, and files written with LF
+# by agent tools sat beside CRLF checkouts. On 2026-11-08 that left 23 files
+# that Visual Studio's Undo changes could not revert: git listed them as
+# modified while their content, once normalised, was identical to HEAD.
+# Neelam.sln (CRLF) and the test project's .csproj (mixed) were renormalised
+# to LF in the index when this was added; every other tracked file already was.
+* text=auto
