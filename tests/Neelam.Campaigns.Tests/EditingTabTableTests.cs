@@ -162,4 +162,20 @@ public class EditingTabTableTests
         // A row exactly as old as the limit is not older than it.
         Assert.Equal(0, await rows.SweepAsync(Start.AddHours(23)));
     }
+
+    [Fact]
+    public async Task A_sweep_keeps_a_row_written_again_after_it_picked_it_as_the_services_delete_by_etag_does()
+    {
+        // The table tells an unchanged row by reference: two rows alike in every value are still two rows.
+        Assert.False(EqualityComparer<TableEntity>.Default.Equals(new TableEntity("p", "r"), new TableEntity("p", "r")));
+
+        var (rows, clock) = Table();
+        await rows.WriteAsync(SalonOne, TabSubject.Look, TabA, null);
+        await rows.WriteAsync(SalonOne, TabSubject.Look, TabB, null);
+        clock.Now = Start.AddHours(23);
+        rows.BeforeSweepRemoves = () => rows.WriteAsync(SalonOne, TabSubject.Look, TabA, null);
+
+        Assert.Equal(1, await rows.SweepAsync(Start.AddHours(12)));
+        Assert.Equal([new TabRow(TabA, null, Start.AddHours(23))], await rows.ListAsync(SalonOne, TabSubject.Look));
+    }
 }

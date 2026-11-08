@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Neelam.Campaigns.Storage;
 
 namespace Neelam.Campaigns.Tests;
@@ -9,7 +10,7 @@ internal sealed class InMemoryClientDirectory(params ClientRecord[] clients) : I
 
     public Task<IReadOnlyList<ClientRecord>> ListAsync(CancellationToken cancellationToken = default)
     {
-        lock (_clients) return Task.FromResult<IReadOnlyList<ClientRecord>>(_clients.ToList());
+        lock (_clients) return Task.FromResult<IReadOnlyList<ClientRecord>>([.. _clients]);
     }
 
     /// <summary>A row put in the table by hand, past the rules, as a stored zone this machine does not know would be.</summary>
@@ -44,16 +45,16 @@ internal sealed class InMemoryClientDirectory(params ClientRecord[] clients) : I
 /// <summary>Support grants, kept after they expire like the table keeps them.</summary>
 internal sealed class InMemorySupportGrants(params SupportGrant[] grants) : ISupportGrantStore
 {
-    private readonly List<SupportGrant> _grants = [.. grants];
+    private readonly ConcurrentQueue<SupportGrant> _grants = new(grants);
 
     public Task<IReadOnlyList<SupportGrant>> ForClientAsync(ClientName client, CancellationToken cancellationToken = default)
     {
-        lock (_grants) return Task.FromResult<IReadOnlyList<SupportGrant>>(_grants.Where(g => g.Client == client).ToList());
+        return Task.FromResult<IReadOnlyList<SupportGrant>>([.. _grants.Where(g => g.Client == client)]);
     }
 
     public Task RecordAsync(SupportGrant grant, CancellationToken cancellationToken = default)
     {
-        lock (_grants) _grants.Add(grant);
+        _grants.Enqueue(grant);
         return Task.CompletedTask;
     }
 }
@@ -64,59 +65,56 @@ internal sealed class InMemorySupportGrants(params SupportGrant[] grants) : ISup
 /// </summary>
 internal sealed class InMemoryApprovals : IApprovalStore
 {
-    private readonly Dictionary<(string Client, Guid Campaign, string Stamp), ApprovalRecord> _rows = [];
-    private readonly List<string> _partitionsRead = [];
+    private readonly ConcurrentDictionary<(string Client, Guid Campaign, string Stamp), ApprovalRecord> _rows = new();
+    private readonly ConcurrentQueue<string> _partitionsRead = new();
 
     public IReadOnlyList<ApprovalRecord> Rows
     {
-        get { lock (_rows) return _rows.Values.ToList(); }
+        get { return [.. _rows.Values]; }
     }
 
     public IReadOnlyList<string> PartitionsRead
     {
-        get { lock (_rows) return _partitionsRead.ToList(); }
+        get { return [.. _partitionsRead]; }
     }
 
     public Task<IReadOnlyList<ApprovalRecord>> ForCampaignAsync(
         ClientName client, Guid campaignId, CancellationToken cancellationToken = default)
     {
-        lock (_rows)
-        {
-            _partitionsRead.Add(client.Value);
-            return Task.FromResult<IReadOnlyList<ApprovalRecord>>(
-                _rows.Values.Where(r => r.Client == client && r.CampaignId == campaignId).ToList());
-        }
+        _partitionsRead.Enqueue(client.Value);
+        return Task.FromResult<IReadOnlyList<ApprovalRecord>>(
+            [.. _rows.Values.Where(r => r.Client == client && r.CampaignId == campaignId)]);
     }
 
     public Task PutAsync(ApprovalRecord approval, CancellationToken cancellationToken = default)
     {
-        lock (_rows) _rows[(approval.Client.Value, approval.CampaignId, approval.Stamp)] = approval;
+        _rows[(approval.Client.Value, approval.CampaignId, approval.Stamp)] = approval;
         return Task.CompletedTask;
     }
 
     /// <summary>Writes a row as something outside the store might, such as another client's.</summary>
     public void Seed(ApprovalRecord approval)
     {
-        lock (_rows) _rows[(approval.Client.Value, approval.CampaignId, approval.Stamp)] = approval;
+        _rows[(approval.Client.Value, approval.CampaignId, approval.Stamp)] = approval;
     }
 }
 
 /// <summary>The activity table: every event written, in order. <see cref="Fail"/> makes every write throw.</summary>
 internal sealed class InMemoryActivityLog : IActivityLog
 {
-    private readonly List<ActivityEvent> _events = [];
+    private readonly ConcurrentQueue<ActivityEvent> _events = new();
 
     public bool Fail { get; set; }
 
     public IReadOnlyList<ActivityEvent> Events
     {
-        get { lock (_events) return _events.ToList(); }
+        get { return [.. _events]; }
     }
 
     public Task RecordAsync(ActivityEvent activity, CancellationToken cancellationToken = default)
     {
         if (Fail) throw new Azure.RequestFailedException(503, "The activity table is unreachable.");
-        lock (_events) _events.Add(activity);
+        _events.Enqueue(activity);
         return Task.CompletedTask;
     }
 }
@@ -124,11 +122,11 @@ internal sealed class InMemoryActivityLog : IActivityLog
 /// <summary>A logger that keeps what it is told, to show a failure was logged rather than thrown.</summary>
 internal sealed class ListLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
 {
-    private readonly List<(Microsoft.Extensions.Logging.LogLevel Level, string Message, Exception? Error)> _entries = [];
+    private readonly ConcurrentQueue<(Microsoft.Extensions.Logging.LogLevel Level, string Message, Exception? Error)> _entries = new();
 
     public IReadOnlyList<(Microsoft.Extensions.Logging.LogLevel Level, string Message, Exception? Error)> Entries
     {
-        get { lock (_entries) return _entries.ToList(); }
+        get { return [.. _entries]; }
     }
 
     /// <summary>Raised after each entry, for a test waiting on something logged in the background.</summary>
@@ -142,7 +140,7 @@ internal sealed class ListLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
         Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state,
         Exception? exception, Func<TState, Exception?, string> formatter)
     {
-        lock (_entries) _entries.Add((logLevel, formatter(state, exception), exception));
+        _entries.Enqueue((logLevel, formatter(state, exception), exception));
         this.Logged.Raise();
     }
 }
@@ -184,12 +182,12 @@ internal sealed class TestRecords(TimeProvider clock)
 /// </summary>
 internal sealed class InMemoryKnownItems : IKnownItemStore
 {
-    private readonly Dictionary<(string Partition, string Row), Azure.Data.Tables.TableEntity> _rows = [];
+    private readonly ConcurrentDictionary<(string Partition, string Row), Azure.Data.Tables.TableEntity> _rows = new();
 
     /// <summary>Every row in the table, whichever client's.</summary>
     public IReadOnlyList<Azure.Data.Tables.TableEntity> Rows
     {
-        get { lock (_rows) return _rows.Values.ToList(); }
+        get { return [.. _rows.Values]; }
     }
 
     /// <summary>What the table's reading logged: rows it left out.</summary>
@@ -198,44 +196,35 @@ internal sealed class InMemoryKnownItems : IKnownItemStore
     /// <summary>Puts a row in as it is, however malformed, as someone editing the table by hand might.</summary>
     public void PutRow(Azure.Data.Tables.TableEntity row)
     {
-        lock (_rows) _rows[(row.PartitionKey, row.RowKey)] = row;
+        _rows[(row.PartitionKey, row.RowKey)] = row;
     }
 
+    /// <summary>A client's rows in the order the real table returns a partition's: by row key, ordinal.</summary>
     public Task<KnownItems> ForClientAsync(ClientName client, CancellationToken cancellationToken = default)
     {
-        lock (_rows)
-            return Task.FromResult(KnownItemTable.ReadAll(client, _rows.Values.Where(r => r.PartitionKey == client.Value).ToList(), Log));
+        return Task.FromResult(KnownItemTable.ReadAll(client, [.. _rows.Values.Where(r => r.PartitionKey == client.Value).OrderBy(r => r.RowKey, StringComparer.Ordinal)], Log));
     }
 
     public async Task AddAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default)
     {
         var existing = await ForClientAsync(client, cancellationToken);
-        lock (_rows)
-        {
-            KnownItemStoreRules.CheckAdd(existing, item);
-            if (!_rows.TryAdd((client.Value, item.Id), KnownItemTable.FromItem(client, item)))
-                throw new InvalidOperationException("That known item already exists.");
-        }
+        KnownItemStoreRules.CheckAdd(existing, item);
+        if (!_rows.TryAdd((client.Value, item.Id), KnownItemTable.FromItem(client, item)))
+            throw new InvalidOperationException("That known item already exists.");
     }
 
     public async Task UpdateAsync(ClientName client, KnownItem item, CancellationToken cancellationToken = default)
     {
         var existing = await ForClientAsync(client, cancellationToken);
-        lock (_rows)
-        {
-            KnownItemStoreRules.CheckUpdate(existing, item);
-            _rows[(client.Value, item.Id)] = KnownItemTable.FromItem(client, item);
-        }
+        KnownItemStoreRules.CheckUpdate(existing, item);
+        _rows[(client.Value, item.Id)] = KnownItemTable.FromItem(client, item);
     }
 
     public async Task RemoveAsync(ClientName client, string id, CancellationToken cancellationToken = default)
     {
         var existing = await ForClientAsync(client, cancellationToken);
-        lock (_rows)
-        {
-            KnownItemStoreRules.CheckRemove(existing, id);
-            _rows.Remove((client.Value, id));
-        }
+        KnownItemStoreRules.CheckRemove(existing, id);
+        _rows.TryRemove((client.Value, id), out _);
     }
 }
 
@@ -245,20 +234,23 @@ internal sealed class InMemoryKnownItems : IKnownItemStore
 /// </summary>
 internal sealed class InMemoryTabRows(TimeProvider clock) : ITabRows
 {
-    private readonly Dictionary<(string Partition, string Row), Azure.Data.Tables.TableEntity> _rows = [];
+    private readonly ConcurrentDictionary<(string Partition, string Row), Azure.Data.Tables.TableEntity> _rows = new();
 
     /// <summary>Every row in the table, whichever client's.</summary>
     public IReadOnlyList<Azure.Data.Tables.TableEntity> Rows
     {
-        get { lock (_rows) return _rows.Values.ToList(); }
+        get { return [.. _rows.Values]; }
     }
+
+    /// <summary>Run by a sweep after it has picked its rows and before it removes them, for a test to write in between.</summary>
+    public Func<Task>? BeforeSweepRemoves { get; set; }
 
     public Task WriteAsync(ClientName client, TabSubject subject, Guid tabId, DateTimeOffset? lastTyped,
         CancellationToken cancellationToken = default)
     {
         var row = EditingTabTable.FromTab(client, subject, tabId, lastTyped);
         row.Timestamp = clock.GetUtcNow();
-        lock (_rows) _rows[(row.PartitionKey, row.RowKey)] = row;
+        _rows[(row.PartitionKey, row.RowKey)] = row;
         return Task.CompletedTask;
     }
 
@@ -266,45 +258,41 @@ internal sealed class InMemoryTabRows(TimeProvider clock) : ITabRows
         CancellationToken cancellationToken = default)
     {
         var partition = EditingTabTable.PartitionKey(client, subject);
-        lock (_rows)
-            return Task.FromResult<IReadOnlyList<TabRow>>(_rows.Values
-                .Where(r => r.PartitionKey == partition).Select(r => EditingTabTable.ToTab(client, subject, r)).ToList());
+        return Task.FromResult<IReadOnlyList<TabRow>>([.. _rows.Values
+            .Where(r => r.PartitionKey == partition).Select(r => EditingTabTable.ToTab(client, subject, r))]);
     }
 
     public Task DeleteAsync(ClientName client, TabSubject subject, Guid tabId, CancellationToken cancellationToken = default)
     {
-        lock (_rows) _rows.Remove((EditingTabTable.PartitionKey(client, subject), EditingTabTable.RowKeyOf(tabId)));
+        _rows.TryRemove((EditingTabTable.PartitionKey(client, subject), EditingTabTable.RowKeyOf(tabId)), out _);
         return Task.CompletedTask;
     }
 
-    public Task<int> SweepAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Removes the rows older than <paramref name="olderThan"/>, each only if it is still the row the sweep
+    /// picked, as the service's delete by ETag does: a row written again in between is kept and not counted.
+    /// Every write stores a new <c>TableEntity</c>, which compares by reference, so the same instance is the same row.
+    /// </summary>
+    public async Task<int> SweepAsync(DateTimeOffset olderThan, CancellationToken cancellationToken = default)
     {
-        lock (_rows)
-        {
-            var old = _rows.Where(r => r.Value.Timestamp < olderThan).Select(r => r.Key).ToList();
-            foreach (var key in old) _rows.Remove(key);
-            return Task.FromResult(old.Count);
-        }
+        var old = _rows.Where(r => r.Value.Timestamp < olderThan).ToList();
+        if (BeforeSweepRemoves is { } between) await between();
+        return old.Count(row => _rows.TryRemove(row));
     }
 }
 
 /// <summary>A storage account's containers, each an <see cref="InMemoryBlobBackend"/> made on first use.</summary>
 internal sealed class InMemoryContainers
 {
-    private readonly Dictionary<string, InMemoryBlobBackend> _containers = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, InMemoryBlobBackend> _containers = new(StringComparer.Ordinal);
 
     public InMemoryBlobBackend For(string container)
     {
-        lock (_containers)
-        {
-            if (!_containers.TryGetValue(container, out var backend))
-                _containers[container] = backend = new InMemoryBlobBackend();
-            return backend;
-        }
+        return _containers.GetOrAdd(container, _ => new InMemoryBlobBackend());
     }
 
     public IReadOnlyCollection<string> Names
     {
-        get { lock (_containers) return _containers.Keys.ToList(); }
+        get { return [.. _containers.Keys]; }
     }
 }
