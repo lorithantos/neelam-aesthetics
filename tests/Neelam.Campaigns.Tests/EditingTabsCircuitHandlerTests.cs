@@ -30,13 +30,20 @@ public class EditingTabsCircuitHandlerTests
         var mine = _tabs.Register(Client, Campaign, Guid.NewGuid(), () => { });
         var typist = _tabs.Register(Client, Campaign, circuit.Id, () => { });
         _clock.Now += TimeSpan.FromSeconds(1);
-        typist.Typed();
+        await typist.Typed();
         Assert.True(mine.OthersEditing);
 
-        await typistHandler.OnConnectionDownAsync(null!, CancellationToken.None);
+        // The handler hands Blazor a finished Task at once, with the tabs already marked; the notices follow.
+        var down = typistHandler.OnConnectionDownAsync(null!, CancellationToken.None);
+        Assert.True(down.IsCompletedSuccessfully);
+        Assert.False(typist.Connected);
+        await _tabs.SettledAsync();
         Assert.False(mine.OthersEditing);
 
-        await typistHandler.OnConnectionUpAsync(null!, CancellationToken.None);
+        var up = typistHandler.OnConnectionUpAsync(null!, CancellationToken.None);
+        Assert.True(up.IsCompletedSuccessfully);
+        Assert.True(typist.Connected);
+        await _tabs.SettledAsync();
         Assert.True(mine.OthersEditing);
     }
 

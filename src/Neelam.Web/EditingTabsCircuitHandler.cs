@@ -18,8 +18,8 @@ public sealed class TabCircuit
 /// Tells <see cref="EditingTabs"/> when the browser behind a circuit drops and when it comes back. Blazor
 /// keeps a disconnected circuit for a few minutes, so without this a reloaded page would see its own old tab
 /// as another open one. Nothing on a circuit opening or closing: a tab leaves when its page disposes its
-/// handle. <see cref="EditingTabs.SetConnected"/> catches errors from the tabs' callbacks, so nothing
-/// thrown reaches Blazor.
+/// handle. <see cref="EditingTabs.SetConnected"/> marks the tabs here and leaves the notices to be worked
+/// out off the circuit; its Task is not handed to Blazor, so nothing thrown or cancelled there reaches it.
 /// </summary>
 public sealed class EditingTabsCircuitHandler(TabCircuit circuit, EditingTabs tabs) : CircuitHandler
 {
@@ -28,13 +28,13 @@ public sealed class EditingTabsCircuitHandler(TabCircuit circuit, EditingTabs ta
 
     public override Task OnConnectionDownAsync(Circuit circuit, CancellationToken cancellationToken)
     {
-        tabs.SetConnected(CircuitId, false);
+        _ = tabs.SetConnected(CircuitId, false);
         return Task.CompletedTask;
     }
 
     public override Task OnConnectionUpAsync(Circuit circuit, CancellationToken cancellationToken)
     {
-        tabs.SetConnected(CircuitId, true);
+        _ = tabs.SetConnected(CircuitId, true);
         return Task.CompletedTask;
     }
 }

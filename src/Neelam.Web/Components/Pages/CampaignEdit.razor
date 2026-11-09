@@ -1207,7 +1207,7 @@ else
         // Made here, opened only once the page is live (OpenTab): rendered ahead of time, the page is thrown away.
         _tab = new EditingTabNotice(OpenTabs, Circuit, OnCircuitAsync, Logs.CreateLogger<EditingTabNotice>());
         _keeper = new WorkingCopyKeeper(store.WorkingCopies, WorkingCopyDisk, client, Clock, WorkingCopySettings.Value, OnCircuitAsync,
-            StartedAsync, Logs.CreateLogger<WorkingCopyKeeper>(), changed: () => _tab?.Typed());
+            StartedAsync, Logs.CreateLogger<WorkingCopyKeeper>(), changed: () => _ = _tab?.Typed());
         if (Id is { } id)
         {
             _session = await DraftSession.OpenAsync(store, id);
@@ -1318,7 +1318,7 @@ else
     {
         if (_keeper is not null) await _keeper.ResumeAsync(_session);
         OpenTab(_session?.Id);
-        _tab?.Typed();
+        _ = _tab?.Typed();
     }
 
     // A new campaign given its id at her first change: the address names it now, so a reload opens it again.

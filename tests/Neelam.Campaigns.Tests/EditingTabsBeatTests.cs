@@ -120,12 +120,13 @@ public class EditingTabsBeatTests
         var b = Open(circuit: dropped);
         var t = Open(subject: Template);
         var closed = Open();
-        _tabs.SetConnected(dropped, false);
+        await _tabs.SetConnected(dropped, false);
         _clock.Now += Moment;
-        a.Typed();
+        await a.Typed();
         var elsewhere = Guid.NewGuid();
         await _rows.Table.WriteAsync(Client, Template, elsewhere, _clock.Now);
         closed.Dispose();
+        await _tabs.SettledAsync();
         Assert.False(t.OthersEditing);
 
         using var beat = Beat();
@@ -170,7 +171,7 @@ public class EditingTabsBeatTests
         var a = Open();
         var b = Open();
         _clock.Now += Moment;
-        b.Typed();
+        await b.Typed();
         Assert.True(a.OthersEditing);
 
         using var beat = Beat();
@@ -287,6 +288,32 @@ public class EditingTabsBeatTests
         await beat.StopAsync(CancellationToken.None);
     }
 
+    // The notices are worked out by the registry, off the beat, which waits for each. One that is not worked
+    // out (here the registry was stopped under it, so each post comes back cancelled though the app is not
+    // stopping) is logged by its type, and the beat still writes, reads, sweeps and beats again.
+    [Fact]
+    public async Task Notices_that_are_not_worked_out_are_logged_and_the_beat_carries_on()
+    {
+        var a = Open();
+        await _tabs.DisposeAsync();
+
+        using var beat = Beat();
+        await beat.StartAsync(CancellationToken.None);
+        await Beaten(() => Lists == 1, "the first beat");
+        Assert.Equal([Write(Campaign, a), List(Campaign), "sweep"], _rows.Calls);
+        _clock.Advance(_settings.Interval);
+        await Beaten(() => Lists == 2, "the second beat");
+
+        Assert.Equal(4, _log.Entries.Count);
+        Assert.All(_log.Entries, e =>
+        {
+            Assert.Equal(LogLevel.Warning, e.Level);
+            Assert.Null(e.Error);
+            Assert.Equal("Editing tabs: the notices were not worked out: TaskCanceledException.", e.Message);
+        });
+        await beat.StopAsync(CancellationToken.None);
+    }
+
     // A closed tab whose row could not be deleted is read back with the other rows, fresh and typed
     // into, and is still never another tab here.
     [Fact]
@@ -295,13 +322,14 @@ public class EditingTabsBeatTests
         var a = Open();
         var closed = Open();
         _clock.Now += Moment;
-        closed.Typed();
+        await closed.Typed();
         Assert.True(a.OthersEditing);
 
         using var beat = Beat();
         await beat.StartAsync(CancellationToken.None);
         await Beaten(() => Lists == 1, "the first beat");
         closed.Dispose();
+        await _tabs.SettledAsync();
         Assert.False(a.OthersEditing);
         _rows.Fails = call => call.StartsWith("delete ", StringComparison.Ordinal) ? Busy() : null;
 

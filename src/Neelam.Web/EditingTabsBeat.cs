@@ -21,7 +21,9 @@ namespace Neelam.Web;
 /// <para>
 /// Off every request: a hosted service of its own, and no editor page waits on it. A store call that fails
 /// is logged by the failure's type, status and error code (as <see cref="Heartbeat"/> does) and the beat
-/// carries on with the next tab, the next subject and the next beat; it stops when the app does. A delete
+/// carries on with the next tab, the next subject and the next beat; it stops when the app does. The
+/// notices themselves are worked out by <see cref="EditingTabs"/>, which the beat awaits each time, so the
+/// rows are in before the clock is consulted; a working-out that fails is logged the same way. A delete
 /// that fails is not tried again: other instances count the row gone once it is
 /// <see cref="EditingTabsOptions.GoneAfter"/> old, this instance leaves the tab out that long after the beat
 /// took it (<see cref="EditingTabs.ApplyRemote"/>), and the sweep removes it. A sweep is tried once per
@@ -91,9 +93,12 @@ public sealed class EditingTabsBeat(
                 log.LogWarning("Editing tabs: the rows of an open subject could not be read: {Error}.", Heartbeat.Describe(ex));
                 continue;
             }
-            tabs.ApplyRemote(client, edits, read.Select(row => new RemoteTab(row.TabId, row.LastTyped, row.Timestamp)));
+            await WorkedOutAsync(
+                tabs.ApplyRemote(client, edits, read.Select(row => new RemoteTab(row.TabId, row.LastTyped, row.Timestamp)), cancellationToken),
+                cancellationToken);
         }
-        tabs.Refresh();
+        // After every subject's rows: awaited in turn, so the notices are worked out with them in.
+        await WorkedOutAsync(tabs.Refresh(cancellationToken), cancellationToken);
 
         var now = clock.GetUtcNow();
         if (_swept is { } swept && now - swept < _settings.SweepAfter) return;
@@ -105,6 +110,20 @@ public sealed class EditingTabsBeat(
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             log.LogWarning("Editing tabs: old rows were not swept: {Error}.", Heartbeat.Describe(ex));
+        }
+    }
+
+    // The notices are worked out off this service (EditingTabs' loop): one that fails there is logged by its
+    // type and the beat carries on, as with a store call; the app stopping ends the beat as anywhere else.
+    private async Task WorkedOutAsync(Task posted, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await posted;
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            log.LogWarning("Editing tabs: the notices were not worked out: {Error}.", ex.GetType().Name);
         }
     }
 

@@ -11,7 +11,10 @@ namespace Neelam.Web;
 /// </summary>
 /// <remarks>
 /// Another tab's editing is drawn on the page's own circuit (<paramref name="onCircuit"/>, the page's
-/// InvokeAsync and render), never on the thread that worked it out. News arriving as the page closes, which
+/// InvokeAsync and render), never on the thread that worked it out: the news is handed to the pool first,
+/// since Blazor runs InvokeAsync inline on a circuit with nothing else to do, and a page drawn on the thread
+/// that works the notices out would have anything it then told <see cref="EditingTabs"/> refused. A page
+/// opening while its subject is already being edited is told the same way, once its tab is in. News arriving as the page closes, which
 /// <see cref="EditingTabs"/> may still send once, is dropped, as <see cref="PageWatch{T}"/> drops a late
 /// check; anything else is logged by its type only, as <see cref="EditingTabs"/> logs a tab's failure,
 /// since a page's exception may carry what it shows.
@@ -20,6 +23,7 @@ namespace Neelam.Web;
 public sealed class EditingTabNotice(EditingTabs tabs, TabCircuit circuit, Func<Func<Task>, Task> onCircuit, ILogger log) : IDisposable
 {
     private EditingTab? _tab;
+    private Task _drawn = Task.CompletedTask;
     private int _disposed;
 
     /// <summary>Whether another tab is editing what this page shows, as last worked out; false before the page opens it.</summary>
@@ -36,18 +40,26 @@ public sealed class EditingTabNotice(EditingTabs tabs, TabCircuit circuit, Func<
         _tab = tabs.Register(client, subject, circuit.Id, Changed);
         // Closed meanwhile on another thread: the tab just opened goes with it.
         if (IsDisposed) _tab.Dispose();
-        // Told as it registered, the page may have been drawn before it held the tab: drawn once more.
-        else if (_tab.OthersEditing) Changed();
     }
 
-    /// <summary>She changed what the page shows: the other tabs on it are told she is editing. Nothing before the page opens its tab.</summary>
-    public void Typed() => _tab?.Typed();
+    /// <summary>
+    /// She changed what the page shows: the other tabs on it are told she is editing, and the Task completes
+    /// once they have been (<see cref="EditingTab.Typed"/>); a page ignores it. Nothing before the page opens its tab.
+    /// </summary>
+    public Task Typed() => _tab?.Typed() ?? Task.CompletedTask;
 
-    // From EditingTabs, on whatever thread flipped the notice: the page is drawn again on its circuit.
+    /// <summary>The page's opened tab's own <see cref="EditingTab.Opened"/>, for a test to await; complete before it opens one.</summary>
+    internal Task Opened => _tab?.Opened ?? Task.CompletedTask;
+
+    /// <summary>The last news handed on, complete once the page has been drawn with it or it was dropped: for a test to await.</summary>
+    internal Task Drawn => Volatile.Read(ref _drawn);
+
+    // From EditingTabs, on the thread that works the notices out: handed on, and the page drawn again on
+    // its circuit from the pool.
     private void Changed()
     {
         if (IsDisposed) return;
-        _ = OnCircuitAsync();
+        Volatile.Write(ref _drawn, Task.Run(OnCircuitAsync));
     }
 
     private async Task OnCircuitAsync()

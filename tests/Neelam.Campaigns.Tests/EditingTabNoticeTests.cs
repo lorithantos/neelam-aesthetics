@@ -8,7 +8,9 @@ namespace Neelam.Campaigns.Tests;
 /// <summary>
 /// One editor page's tab (<see cref="EditingTabNotice"/>): opened once the page is live, on the subject it
 /// shows, moved when that changes, closed with the page, and another tab's editing drawn on the page's
-/// own circuit, news arriving as the page closes dropped.
+/// own circuit, news arriving as the page closes dropped. The notices are worked out, and the news handed on,
+/// off the test's thread: a test awaits the Task a call hands back (<see cref="EditingTabs.SettledAsync"/>
+/// after a close), then the page's <see cref="EditingTabNotice.Drawn"/>, before it reads either.
 /// </summary>
 public class EditingTabNoticeTests
 {
@@ -53,26 +55,28 @@ public class EditingTabNoticeTests
         Assert.True(_tabs.IsEmpty);
         // Closed with its page: nothing opens it again.
         notice.Open(Client, first);
-        notice.Typed();
+        _ = notice.Typed();
         Assert.True(_tabs.IsEmpty);
         notice.Dispose();
     }
 
     [Fact]
-    public void Another_tab_s_typing_is_drawn_on_the_page_s_circuit_and_its_own_is_not()
+    public async Task Another_tab_s_typing_is_drawn_on_the_page_s_circuit_and_its_own_is_not()
     {
         var subject = TabSubject.Campaign(Guid.NewGuid());
         var (mineDrawn, theirsDrawn) = (0, 0);
         using var mine = Notice(() => mineDrawn++);
         using var theirs = Notice(() => theirsDrawn++);
         // Nothing typed before it opens: a page on no subject yet says nothing and reports nothing.
-        theirs.Typed();
+        await theirs.Typed();
         Assert.False(theirs.OthersEditing);
         mine.Open(Client, subject);
         theirs.Open(Client, subject);
         _clock.Now += TimeSpan.FromSeconds(1);
 
-        theirs.Typed();
+        await theirs.Typed();
+        await mine.Drawn;
+        await theirs.Drawn;
 
         Assert.True(mine.OthersEditing);
         Assert.Equal(1, mineDrawn);
@@ -80,39 +84,65 @@ public class EditingTabNoticeTests
         Assert.Equal(0, theirsDrawn);
 
         theirs.Dispose();
+        await _tabs.SettledAsync();
+        await mine.Drawn;
         Assert.False(mine.OthersEditing);
         Assert.Equal(2, mineDrawn);
     }
 
-    // Told as it registers, before the page holds its tab (EditingTabs works a tab out as it opens): here a row
-    // of another instance whose clock runs ahead. The render that news brought read the page before it held the
-    // tab, so the page is drawn once more, and then shows it.
+    // A page opening on something already being edited (here by a row of another instance whose clock runs
+    // ahead) is not worked out before it holds its tab: once the tab is in, it is told like any other, and
+    // drawn once with the notice.
     [Fact]
-    public void A_tab_told_as_it_opens_is_drawn_again_once_the_page_holds_it()
+    public async Task A_page_opening_on_something_already_being_edited_is_told_once_its_tab_is_in()
     {
         var subject = TabSubject.Campaign(Guid.NewGuid());
         using var here = Notice(() => { });
         here.Open(Client, subject);
         var now = _clock.GetUtcNow();
-        _tabs.ApplyRemote(Client, subject, [new RemoteTab(Guid.NewGuid(), now + TimeSpan.FromSeconds(1), now)]);
-        var drawn = new List<bool>();
+        await _tabs.ApplyRemote(Client, subject, [new RemoteTab(Guid.NewGuid(), now + TimeSpan.FromSeconds(1), now)]);
+        var drawn = 0;
+        using var mine = Notice(() => drawn++);
+
+        mine.Open(Client, subject);
+        await mine.Opened;
+        await mine.Drawn;
+
+        Assert.True(mine.OthersEditing);
+        Assert.Equal(1, drawn);
+    }
+
+    // The news is handed on rather than drawn on the thread that worked it out, where anything the page then
+    // told the tabs would be refused: a campaign page finding a change in its form at the render the news
+    // brought tells its tab she is editing, and that is taken.
+    [Fact]
+    public async Task News_is_handed_on_so_a_page_that_tells_the_tabs_as_it_is_drawn_is_not_refused()
+    {
+        var subject = TabSubject.Campaign(Guid.NewGuid());
+        Task? typedAsDrawn = null;
         EditingTabNotice? mine = null;
         mine = Notice(async work =>
         {
             await work();
-            drawn.Add(mine!.OthersEditing);
+            typedAsDrawn ??= mine!.Typed();
         });
-
+        using var theirs = Notice(() => { });
         mine.Open(Client, subject);
+        theirs.Open(Client, subject);
+        _clock.Now += TimeSpan.FromSeconds(1);
 
-        Assert.True(mine.OthersEditing);
-        Assert.NotEmpty(drawn);
-        Assert.True(drawn[^1]);
+        await theirs.Typed();
+        await mine.Drawn;
+
+        Assert.NotNull(typedAsDrawn);
+        await typedAsDrawn;
+        Assert.True(theirs.OthersEditing);
+        Assert.Empty(_log.Entries);
         mine.Dispose();
     }
 
     [Fact]
-    public void News_the_closing_page_cannot_take_is_dropped_and_anything_else_is_logged_by_type()
+    public async Task News_the_closing_page_cannot_take_is_dropped_and_anything_else_is_logged_by_type()
     {
         var subject = TabSubject.Campaign(Guid.NewGuid());
         Exception failure = new ObjectDisposedException("circuit");
@@ -122,16 +152,19 @@ public class EditingTabNoticeTests
         theirs.Open(Client, subject);
         _clock.Now += TimeSpan.FromSeconds(1);
 
-        theirs.Typed();
+        await theirs.Typed();
+        await mine.Drawn;
         failure = new OperationCanceledException();
         // Quiet long enough: the notice clears, and the news of it is cancelled too.
         _clock.Now += new EditingTabsOptions().QuietAfter;
-        _tabs.Refresh();
+        await _tabs.Refresh();
+        await mine.Drawn;
         Assert.Empty(_log.Entries);
 
         failure = new InvalidOperationException("Something the page shows.");
         _clock.Now += TimeSpan.FromSeconds(1);
-        theirs.Typed();
+        await theirs.Typed();
+        await mine.Drawn;
 
         var entry = Assert.Single(_log.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);

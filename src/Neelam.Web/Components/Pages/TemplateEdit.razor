@@ -398,7 +398,7 @@ else if (_session is not null)
     Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) => HandleHerEventAsync(callback, arg, () =>
     {
         OpenTab();
-        _tab?.Typed();
+        _ = _tab?.Typed();
     });
 
     protected override void Disposing() => _tab?.Dispose();

@@ -1,7 +1,9 @@
 # EditingTabs: a mailbox in place of the `_evaluating` lock
 
-Design for the owner, 2026-11-08. Nothing is built. The open questions are at the end.
-Where a section below follows a recommended answer to one of those questions, it says so.
+Design for the owner, 2026-11-08. **Answered by the owner on 2026-11-09 ("B with S2, yes to the rest; go
+build it") and built the same day**: every recommendation below was taken, so the sections read as built.
+The answers are recorded under "The owner's answers" at the end, followed by "As built", which lists where
+the code went beyond or beside this text. Where a section below follows a recommended answer, it says so.
 
 ## 1. Callers and contexts (RazorGraph `neelam`, built 21:01Z)
 
@@ -140,7 +142,34 @@ Not now: there is no second user. The lock survey found `_evaluating` the only c
 
 **Keep the lock if** the owner wants Register's synchronous working-out kept, or values 1.5 days over the clarity. Then the cheaper improvement is a lock doc comment that names the invariants.
 
-## Open questions for the owner
+## The owner's answers (2026-11-09)
+
+"B with S2, yes to the rest; go build it." None of the questions below is open any more:
+
+1. **B**: the loop owns `_remote` and every working-out and tell; membership stays lock-free.
+2. **S2**: synchronous call shape; `Typed`, `SetConnected`, `Refresh` and `ApplyRemote` return the item's Task.
+3. **Yes**: Register no longer says "may be told before this returns", and Open's redraw-once-more is gone.
+4. **Yes**: batch on dequeue.
+5. **No** shared `Mailbox<TState>`: it is private to `EditingTabs`.
+6. **Yes**: the rule is stated once in README ("Saving"); only the mailbox's side is built here.
+7. **Rebuild in process on the next post**; ended 3 times within 10 minutes, it is not built again, Critical is logged and the notices are off.
+8. **Yes**: a post from inside the loop is refused.
+
+## As built (2026-11-09)
+
+Where the code differs from the text above, or adds to it:
+
+- **The page's callback hands the news to the pool** (`EditingTabNotice.Changed`, `Task.Run`). Sections 4 and 5 say the production callback "only queues `InvokeAsync`, which runs later elsewhere". It does not: Blazor runs `InvokeAsync` inline on a circuit with nothing else to do, so the page was drawn on the loop's thread, inside the working-out. `CampaignEdit.OnAfterRenderAsync` there calls the keeper's `LookedAsync`, which tells the tab she typed when it finds the form changed; with question 8 that post is refused, as an exception in the page's render. Handing on first makes the sentence true. The owner was given the alternatives (drop the refusal for tells; dispatch tells off the loop inside `EditingTabs`, which loses awaitable tells) and answered on 2026-11-09: "Keep what was built". Not checked in a browser. Pinned by `News_is_handed_on_so_a_page_that_tells_the_tabs_as_it_is_drawn_is_not_refused`; tests await the internal `EditingTabNotice.Drawn`.
+- **What the loop owns lives in the loop object**, so a rebuilt loop starts with no rows of other instances (they return at the next beat) and its first working-out takes every tab, as does the one after a working-out that failed.
+- **Off means off**: `EditingTab.OthersEditing` is false once the notices are off, so a notice showing at that moment does not stay for ever. Nobody is told.
+- **Every post has a completion source** (section 5 said fire-and-forget posts carry none): `EditingTab.Opened` and `SettledAsync` need one, and a failure is marked observed as it is set, so nothing goes unobserved all the same.
+- **The refusal is checked before the caller changes anything** (`RefuseWhileWorking`), so a refused Typed, SetConnected, Register or Dispose leaves the tabs as they were. `DisposeAsync` is refused from inside the loop too.
+- **A failed working-out is logged before its Tasks fail**, and a loop's end is recorded before what it held fails, so whoever awaits finds the log and the next loop's state settled. The Tasks of a loop that ended carry the exception that ended it.
+- **The loop runs with no ExecutionContext of its builder** (flow suppressed around `Task.Run`): a rebuild happens on whichever circuit posts next.
+- **The beat catches a working-out that fails** (`WorkedOutAsync`): an awaited Task that faulted would otherwise end the hosted service, and with it the host.
+- **Tests**: `A_tab_the_beat_took_as_closed_...` is not unchanged: it and `A_tab_opened_while_another_types_...` settle before arming their clock, or the loop's own reading would take the hook. Nine new tests, not seven: the seven of section 6, a working-out that fails, and the beat carrying on; plus the notice test above. "A token already fired is refused without posting" is asserted but cannot be told apart from registering on a fired token, which cancels the item at once anyway.
+
+## The questions as asked
 
 1. **Which state does the loop own: A (everything) or B (notices and `_remote`)?** Recommend **B**: the same gains, the beat's reads unchanged, about half the churn. A is purer, and every token in it means something.
 2. **Register and SetConnected: async (S1) or synchronous with fire-and-forget posts (S2)?** Recommend **S2**.

@@ -300,7 +300,7 @@ else if (_fields is not null)
         // off the address without loading the page again, so a reload of hers or a link to it tells no one.
         if (Acted != "1" || _actedTold) return;
         _actedTold = true;
-        _tab?.Typed();
+        _ = _tab?.Typed();
         _ = ShowAddressAsync(Navigation.GetUriWithQueryParameter(ActedMark, (string?)null));
     }
 
@@ -330,7 +330,7 @@ else if (_fields is not null)
     // marked as hers, tells them again once it is open (OnAfterRender). Only she makes events: opening, the
     // watch and another tab's news draw the page without one.
     Task IHandleEvent.HandleEventAsync(EventCallbackWorkItem callback, object? arg) =>
-        HandleHerEventAsync(callback, arg, () => _tab?.Typed());
+        HandleHerEventAsync(callback, arg, () => _ = _tab?.Typed());
 
     protected override void Disposing() => _tab?.Dispose();
 

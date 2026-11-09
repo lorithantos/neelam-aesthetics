@@ -262,6 +262,13 @@ the client's own container (see [Clients and access](#clients-and-access)):
   by block (`CampaignComparison`, pure). It reads the saves in use (one listing, then the one save
   picked) and keeps nothing: no new blob, field, table, setting or activity row. Undone saves are not
   offered for comparing.
+- **Past its commit point, an operation reports what happened.** Until the point where it takes
+  effect, an operation that is cancelled or fails did not happen, and says so. From that point on
+  it never says "did not happen": it reports what it did, a failure in what followed included. The
+  rule is stated here once and applied where it arises, with no shared code: a post to the editing
+  tabs' loop is cancelled by its token only until the loop takes it (`EditingTabs`,
+  `docs/editing-tabs-mailbox.md`); an editor action whose storage write went through must say so
+  even when the re-read after it fails (Undo, Restore and Save do not yet: `WIP.md`).
 - **A delete is final.** Versioning, soft delete, change feed, point-in-time restore and storage
   diagnostic logs are all off, so there is no recycle bin.
 - A draft is saved with each value's origin, so an unreviewed copied benefit is still unreviewed
