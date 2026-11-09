@@ -23,7 +23,7 @@
         try
         {
             if (await Stores.Look(client).CurrentAsync() is { } look)
-                _css = LookStyle.RootBlock(look);
+                _css = look.CssRootBlock();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

@@ -79,7 +79,7 @@ else if (_fields is not null)
             <h2 id="sample-heading">Sample</h2>
             @* Drawn with the same custom properties as every page, every one set from the colours above,
                so nothing comes through from the look this page itself is drawn in. *@
-            <div class="look-sample" data-testid="look-sample" style="@LookStyle.Declarations(chosen.Palette)">
+            <div class="look-sample" data-testid="look-sample" style="@chosen.Palette.CssDeclarations()">
                 <div class="card">
                     <p>Text as you write it.</p>
                     <p class="muted">Help and dates, a little quieter.</p>

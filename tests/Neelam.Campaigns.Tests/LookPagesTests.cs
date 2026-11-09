@@ -58,9 +58,9 @@ public class LookPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (status, page) = await Get("/templates", Blush, Features.Templates);
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Equal(LookStyle.RootBlock(ClientLookTests.Blush), RenderedPage.Named(page, "client-look"));
+        Assert.Equal(ClientLookTests.Blush.CssRootBlock(), RenderedPage.Named(page, "client-look"));
         // As written, not entity-encoded: inside a style element the browser would not decode it.
-        Assert.Contains($"<style data-testid=\"client-look\">{LookStyle.RootBlock(ClientLookTests.Blush)}</style>", page);
+        Assert.Contains($"<style data-testid=\"client-look\">{ClientLookTests.Blush.CssRootBlock()}</style>", page);
     }
 
     // Nothing of her own: no block, so the stylesheet's defaults, the standard look, stand.
@@ -127,7 +127,7 @@ public class LookPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(LookPalette.Standard.Accent, RenderedPage.Attribute(page, "look-hex-accent", "value"));
         Assert.Equal(0, RenderedPage.Count(page, "look-problems"));
         // Every colour set on the sample, the standard ones too, so the page's own look never shows through.
-        Assert.Equal(LookStyle.Declarations(LookPalette.Standard), RenderedPage.Attribute(page, "look-sample", "style"));
+        Assert.Equal(LookPalette.Standard.CssDeclarations(), RenderedPage.Attribute(page, "look-sample", "style"));
         // Nothing saved: nothing listed, nothing to undo.
         Assert.Equal(1, RenderedPage.Count(page, "earlier-looks-none"));
         Assert.Equal(0, RenderedPage.Count(page, "look-undo"));
@@ -223,7 +223,7 @@ public class LookPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var (_, templates) = await Get("/templates", Undoing, Features.Templates);
         var (status, page) = await Get("/look", Undoing, Features.Look);
 
-        Assert.Equal(LookStyle.RootBlock(Green), RenderedPage.Named(templates, "client-look"));
+        Assert.Equal(Green.CssRootBlock(), RenderedPage.Named(templates, "client-look"));
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal("#225e3e", RenderedPage.Attribute(page, "look-hex-accent", "value"));
         Assert.Equal(LookPalette.Standard.PageBackground, RenderedPage.Attribute(page, "look-hex-background", "value"));
@@ -263,7 +263,7 @@ public class LookPagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal("#2d2525", RenderedPage.Attribute(page, "look-hex-text", "value"));
         Assert.Equal("#6b5858", RenderedPage.Attribute(page, "look-hex-muted", "value"));
         Assert.Equal("#225e3e", RenderedPage.Attribute(page, "look-hex-accent", "value"));
-        Assert.Equal(LookStyle.Declarations(ClientLookTests.Blush.Palette),
+        Assert.Equal(ClientLookTests.Blush.Palette.CssDeclarations(),
             RenderedPage.Attribute(page, "look-sample", "style"));
     }
 

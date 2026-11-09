@@ -1,4 +1,5 @@
 using Neelam.Campaigns.Storage;
+using Neelam.Web;
 
 namespace Neelam.Campaigns.Tests;
 
@@ -227,7 +228,7 @@ public class LookHistoryTests
         Assert.Equal(ClientLook.Standard, CampaignJson.DeserializeLook(json));
         Assert.True(CampaignJson.DeserializeLook(json).IsStandard);
         Assert.Equal(LookPalette.Standard, ClientLook.Standard.Palette);
-        Assert.Null(Neelam.Web.LookStyle.RootBlock(ClientLook.Standard));
+        Assert.Null(ClientLook.Standard.CssRootBlock());
         // A reader from before the marker skips it and finds no colours: the standard look either way.
         Assert.Equal(ClientLook.Default, CampaignJson.DeserializeLook(json.Replace("\"standard\"", "\"unknownToAnOldReader\"")));
         // A look she saved is never the marker, so an old look still reads as hers.

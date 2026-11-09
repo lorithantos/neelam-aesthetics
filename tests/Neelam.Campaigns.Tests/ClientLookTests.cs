@@ -24,14 +24,14 @@ public class ClientLookTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Equal(
             ":root{--bg:#faf0f2;--surface:#fffbf7;--border:#e3cfcf;--text:#2d2525;--text-muted:#6b5858;" +
             "--accent:#225e3e;--accent-hover:#1b4b31}",
-            LookStyle.RootBlock(Blush));
+            Blush.CssRootBlock());
 
     // Only what the look sets is written; the stylesheet's own defaults stand for the rest.
     [Fact]
     public void Missing_colours_fall_back_to_the_defaults()
     {
-        Assert.Equal(":root{--bg:#faf0f2}", LookStyle.RootBlock(new ClientLook(pageBackground: "#faf0f2")));
-        Assert.Null(LookStyle.RootBlock(ClientLook.Default));
+        Assert.Equal(":root{--bg:#faf0f2}", new ClientLook(pageBackground: "#faf0f2").CssRootBlock());
+        Assert.Null(ClientLook.Default.CssRootBlock());
 
         var palette = new ClientLook(pageBackground: "#faf0f2").Palette;
         Assert.Equal(LookPalette.Standard with { PageBackground = "#faf0f2" }, palette);
@@ -75,7 +75,7 @@ public class ClientLookTests(EnforcedApp app) : IClassFixture<EnforcedApp>
 
         Assert.Equal(new ClientLook("#B08D57"), look);
         Assert.Equal(LookPalette.Standard with { Accent = "#B08D57" }, look.Palette);
-        Assert.Equal(":root{--accent:#B08D57;--accent-hover:#8c7045}", LookStyle.RootBlock(look));
+        Assert.Equal(":root{--accent:#B08D57;--accent-hover:#8c7045}", look.CssRootBlock());
     }
 
     [Fact]
@@ -174,12 +174,22 @@ public class ClientLookTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     }
 
     // Every property a look sets is one the stylesheet defines, so each colour she picks lands somewhere.
+    // A look with every colour writes the table's properties and no other, in the table's order.
     [Fact]
     public void Every_property_a_look_sets_is_defined_in_the_stylesheet()
     {
-        var set = Regex.Matches(LookStyle.RootBlock(Blush)!, "(--[a-z-]+):").Select(m => m.Groups[1].Value);
+        var set = Blush.CssDeclarations()!.Split(';').Select(d => d[..d.IndexOf(':')]).ToList();
 
+        Assert.Equal(LookStyle.Properties, set);
         Assert.All(set, property => Assert.Contains(property, Defaults().Keys));
+    }
+
+    // The table itself, whatever a look happens to set: each name is a custom property of the stylesheet.
+    [Fact]
+    public void Every_property_in_the_look_s_table_is_defined_in_the_stylesheet()
+    {
+        Assert.NotEmpty(LookStyle.Properties);
+        Assert.All(LookStyle.Properties, property => Assert.Contains(property, Defaults().Keys));
     }
 
     // A look changes the custom properties, so a rule naming a colour of its own would not follow it.
