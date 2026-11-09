@@ -198,6 +198,9 @@ public class StartRecordTests
         Assert.Contains(warmup.Steps, s => s.Name == "GET /campaigns" && s.Outcome == "200");
 
         var start = app.Services.GetRequiredService<StartLog>();
+        // The start takes the warm-up's outcome in a continuation of its own, queued apart from this
+        // test's wait above: the record kept with the outcome says it has run.
+        await Eventually(app.StartRecords, r => r.Warmup is not null);
         var before = start.Snapshot(0);
         Assert.Null(before.FirstRequest);
         Assert.Empty(before.FirstVisits);

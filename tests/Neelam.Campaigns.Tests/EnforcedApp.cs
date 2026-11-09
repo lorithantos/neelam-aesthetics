@@ -100,6 +100,22 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
     }
 }
 
+/// <summary>The app's own background work, held still for a test that counts what a request does.</summary>
+internal static class BackgroundWork
+{
+    /// <summary>
+    /// Stops the app's undo sweep, and returns once its run has ended. The sweep makes its first pass as
+    /// the app starts, off the startup path, so at a moment no test chooses, over the same stores and
+    /// disk the test uses. A test that looks at what is stored need not care: the pass removes only what
+    /// has expired. One that counts what a request reads stops the sweep first, or the pass lands in
+    /// its count one run in many; so does one that makes something expire and then compares the whole
+    /// trail, which the pass could be writing to. On a manual clock nobody advances there is no later
+    /// pass to lose.
+    /// </summary>
+    public static Task SweepStoppedAsync(this WebApplicationFactory<Program> app) =>
+        app.Services.GetServices<IHostedService>().OfType<UndoSweep>().Single().StopAsync(CancellationToken.None);
+}
+
 /// <summary>An environment that is only a name, for registering policies outside a host.</summary>
 internal sealed class NamedEnvironment(string name) : IHostEnvironment
 {

@@ -1,5 +1,8 @@
 using System.Net;
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Neelam.Campaigns.Storage;
 using Neelam.Web.Security;
 
@@ -73,6 +76,9 @@ public class NotSavedYetListTests(EnforcedApp app) : IClassFixture<EnforcedApp>
     public async Task A_never_saved_campaign_only_on_the_disk_is_listed_from_its_name_and_title_alone()
     {
         var client = await SignedIn();
+        // The app's own sweep lists the disk as the app starts, and the disk counts that listing as a
+        // content read: stopped, its pass has ended before the count is taken, so the count is the page's.
+        await app.SweepStoppedAsync();
         var id = Guid.NewGuid();
         app.Disk.Put(Salon.Name, OnDisk(id, "Only on the disk", app.Clock.Now));
         var contentReads = app.Disk.ContentReads;
@@ -83,6 +89,82 @@ public class NotSavedYetListTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.Contains($"<a class=\"button\" href=\"campaigns/{id}\">Open</a>", card);
         Assert.Contains("<button type=\"submit\" class=\"button\">Discard</button>", card);
         Assert.Equal(contentReads, app.Disk.ContentReads);
+    }
+
+    // Why the test above stops the sweep. Here the app's first pass is caught at its listing of the disk
+    // and let go only once the count has been taken: the moment at which that test, before it stopped
+    // the sweep, failed one run in many. Stopped first, the pass has ended by then, and the count holds.
+    [Fact]
+    public async Task The_apps_own_sweep_once_stopped_reads_nothing_into_a_count_taken_after()
+    {
+        using var own = new EnforcedApp();
+        await own.Clients.AddAsync(Salon);
+        var held = new HeldDisk(own.Disk);
+        using var hosted = own.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.RemoveAll<IWorkingCopyDisk>().AddSingleton<IWorkingCopyDisk>(held)));
+        var client = hosted.CreateClient(new() { AllowAutoRedirect = false });
+        client.SignedIn([Features.Campaigns], [Salon.GroupId]);
+        await Eventually.Until(() => held.Arrived > 0, "the app's sweep listing the disk as it starts", held.Changed);
+
+        await hosted.SweepStoppedAsync();
+        var id = Guid.NewGuid();
+        own.Disk.Put(Salon.Name, OnDisk(id, "Only on the disk", own.Clock.Now));
+        var contentReads = own.Disk.ContentReads;
+
+        held.Release();
+        await Eventually.Until(() => held.Listed > 0, "the sweep's listing of the disk going through", held.Changed);
+        var card = Card(await ListAsync(client), "Only on the disk");
+
+        Assert.Contains($"<a class=\"button\" href=\"campaigns/{id}\">Open</a>", card);
+        Assert.Equal(contentReads, own.Disk.ContentReads);
+    }
+
+    /// <summary>
+    /// The disk, with each listing of its copies held until the test lets go, or until the lister is told to
+    /// stop; then it lists, and the disk counts it.
+    /// </summary>
+    private sealed class HeldDisk(InMemoryWorkingCopyDisk inner) : IWorkingCopyDisk
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+        private int _listed;
+
+        /// <summary>Raised as a listing arrives, and again as it goes through.</summary>
+        public Pulse Changed { get; } = new();
+
+        /// <summary>How many listings have arrived.</summary>
+        public int Arrived => Volatile.Read(ref _arrived);
+
+        /// <summary>How many have gone through to the disk.</summary>
+        public int Listed => Volatile.Read(ref _listed);
+
+        public void Release() => _release.TrySetResult();
+
+        public async Task<IReadOnlyList<DiskCopy>> ListAsync(ClientName client, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _arrived);
+            Changed.Raise();
+            try
+            {
+                await _release.Task.WaitAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // Told to stop. The disk lists whether or not its caller was, so this does too.
+            }
+            var listed = await inner.ListAsync(client, CancellationToken.None);
+            Interlocked.Increment(ref _listed);
+            Changed.Raise();
+            return listed;
+        }
+
+        public Task WriteAsync(ClientName client, DiskCopy copy, CancellationToken ct = default) => inner.WriteAsync(client, copy, ct);
+
+        public Task<DiskCopy?> ReadAsync(ClientName client, Guid campaignId, CancellationToken ct = default) => inner.ReadAsync(client, campaignId, ct);
+
+        public Task<bool> RemoveAsync(ClientName client, Guid campaignId, CancellationToken ct = default) => inner.RemoveAsync(client, campaignId, ct);
+
+        public Task<IReadOnlyList<NotSavedYet>> ListNotSavedYetAsync(ClientName client, CancellationToken ct = default) => inner.ListNotSavedYetAsync(client, ct);
     }
 
     // In storage and on the disk both: one row, at the newer of the two times.

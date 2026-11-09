@@ -184,6 +184,9 @@ public class HeartbeatTests
         Assert.Equal(StartCause.Down, record.Cause);
         Assert.Equal(app.Clock.Now.AddMinutes(-7), record.DownFrom);
         Assert.Equal(420_000, record.DownForMs);
+        // The record needs only the heartbeat's read: its own first beat is a later step, and may not
+        // have landed when the record is kept.
+        await Until(() => app.StartRecords.Beats.Count == 2, app.StartRecords, app.Clock);
         Assert.Equal(app.Clock.Now, (await app.StartRecords.LastAliveAsync()).GetValueOrDefault());
         Assert.Contains(app.Log.Entries, e => e.Message.EndsWith(": cause down; last heartbeat before it 2026-10-03T11:53:00.0000000Z, 420000 ms before the start.", StringComparison.Ordinal));
     }

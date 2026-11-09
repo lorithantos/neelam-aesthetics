@@ -306,6 +306,9 @@ public class ActivityTests
     public async Task The_app_records_through_its_own_tables()
     {
         await using var app = new DemoApp();
+        // The app's own first pass shares these tables and may still be running once the clock has moved:
+        // stopped, the only sweep is the one run by hand below, so its event is on the trail when it returns.
+        await app.SweepStoppedAsync();
         var store = app.Stores.Campaigns(DemoApp.Client, Actor.Demo);
         var saved = await store.SaveDraftAsync(Guid.NewGuid(), "WE’RE TURNING ONE!", DraftFixtures.Finished());
         await store.ApproveAsync(saved, "Priya");

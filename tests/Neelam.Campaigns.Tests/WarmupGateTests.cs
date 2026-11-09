@@ -307,6 +307,10 @@ public class WarmupGateTests
         app.Clock.Now = at + TimeSpan.FromSeconds(9);
         app.Gate!.SetResult();
         await app.Services.GetRequiredService<WarmupState>().Completion.WaitAsync(Patience);
+        // The start reads the time it was ready in a continuation of its own, queued apart from this
+        // test's wait above. The record kept with the warm-up's outcome says it has read it, so the
+        // clock moves only after.
+        await StartRecordTests.Eventually(app.StartRecords, r => r.Warmup is not null);
         app.Clock.Now += TimeSpan.FromSeconds(30);
 
         Assert.Equal(new HeldRequests(2, at, 9000), start.Snapshot(0).Held);
