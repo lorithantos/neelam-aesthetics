@@ -68,8 +68,10 @@ reachable over HTTP:
 - **A deleted save's contents leave no record.** No versioning, soft delete,
   change feed, index or storage logging, so they cannot be recovered. The
   activity table does record that a save was deleted, and when, by ids only,
-  never the content. Telemetry naming a blob is fine: customer data does not
-  live in blob names or metadata.
+  never the content. Telemetry naming a blob is fine: data about a client's
+  customers is never held, so none lives in blob names or metadata. A client's
+  own wording, such as a campaign title in metadata, is not customer data
+  (owner, 2026-11-09).
 - **The operator does not read client data.** Clients are kept apart in code
   by Entra: a group per client, and Operator as an app role. The operator manages clients and each
   client's look, but reading a client's drafts, templates, catalog or check policy takes a
