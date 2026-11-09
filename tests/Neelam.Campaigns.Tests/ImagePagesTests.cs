@@ -206,7 +206,7 @@ public class ImagePagesTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         }
         finally
         {
-            app.Containers.For(SalonOne.Name.ToString()).Blobs.Remove("images/Front%20desk");
+            app.Containers.For(SalonOne.Name.ToString()).Remove("images/Front%20desk");
         }
     }
 

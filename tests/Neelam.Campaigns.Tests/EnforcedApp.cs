@@ -91,8 +91,8 @@ public abstract class InMemoryApp : WebApplicationFactory<Program>
             services.RemoveAll<ISupportGrantStore>().AddSingleton<ISupportGrantStore>(Grants);
             services.RemoveAll<IKnownItemStore>().AddSingleton<IKnownItemStore>(KnownItems);
             services.RemoveAll<ITabRows>().AddSingleton<ITabRows>(TabRows);
-            // Apart from Containers: the record of starts is written in the background while a test's
-            // pages read the settings container, which the in-memory container does not lock for.
+            // Apart from Containers, as its own fake: tests seed the record of starts and wait on what
+            // the app writes there in the background, through StartRecords rather than blobs.
             services.RemoveAll<IStartRecords>().AddSingleton<IStartRecords>(StartRecords);
             // The working copies' disk fallback in memory: no test writes to the server's disk.
             services.RemoveAll<IWorkingCopyDisk>().AddSingleton<IWorkingCopyDisk>(Disk);

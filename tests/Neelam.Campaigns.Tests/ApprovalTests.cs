@@ -402,7 +402,7 @@ public class ApprovalTests
         await swept.UndoLastSaveAsync();
         _clock.Now += Grace + TimeSpan.FromMinutes(1);
         Assert.Equal(1, await Store.SweepAsync());
-        Assert.True(_container.Blobs.Remove(deleted.Latest!.BlobName));
+        Assert.True(_container.Remove(deleted.Latest!.BlobName));
 
         var after = Records.Approvals.Rows.OrderBy(r => r.ApprovedBy).ToList();
         Assert.Equal(before.Select(r => (r.CampaignId, r.Stamp, r.ApprovedBy, r.ApprovedAt)),
@@ -441,7 +441,7 @@ public class ApprovalTests
 
         var session = await SavedFinished();
         var name = session.Latest!.BlobName;
-        _container.Blobs[name] = (_container.Blobs[name].Blob,
+        _container.Put(name, _container.Text(name),
             new Dictionary<string, string>(_container.Blobs[name].Metadata)
             {
                 ["approvedby"] = "Priya",

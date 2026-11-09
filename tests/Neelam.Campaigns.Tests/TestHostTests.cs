@@ -32,6 +32,28 @@ public class TestHostTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         Assert.All(containers.For("settings").Blobs.Keys, name => Assert.StartsWith("test-salon-one/", name));
     }
 
+    // The container lists each blob with its ETag as it stood when listed, as a real listing does: a
+    // blob written after the listing began, while the lister holds the one before it, is still
+    // listed with its old ETag, so a delete made with that ETag misses.
+    [Fact]
+    public async Task A_blob_written_after_it_was_listed_is_not_deleted_with_the_listed_etag()
+    {
+        var container = new InMemoryBlobBackend();
+        container.Put("drafts/a.json", "{}");
+        container.Put("drafts/b.json", "{}");
+
+        var listed = new List<BlobEntry>();
+        await foreach (var entry in container.ListAsync("drafts/"))
+        {
+            listed.Add(entry);
+            if (listed.Count == 1) container.Put("drafts/b.json", """{"subject":"Changed"}""");
+        }
+
+        Assert.Equal(["drafts/a.json", "drafts/b.json"], listed.Select(e => e.Name));
+        Assert.False(await container.DeleteIfUnchangedAsync("drafts/b.json", listed[1].ETag));
+        Assert.Contains("drafts/b.json", container.Blobs.Keys);
+    }
+
     [Fact]
     public async Task A_client_s_description_and_display_name_can_be_changed()
     {

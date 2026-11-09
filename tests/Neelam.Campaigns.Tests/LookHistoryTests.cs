@@ -25,7 +25,7 @@ public class LookHistoryTests
         _stores = _records.Stores(_containers.For, Grace);
     }
 
-    private IReadOnlyCollection<string> SettingsBlobs => _containers.For("settings").Blobs.Keys;
+    private IReadOnlyCollection<string> SettingsBlobs => [.. _containers.For("settings").Blobs.Keys];
 
     // Saves a look a minute after the last, so each version has its own time.
     private async Task<DocumentVersion> Saved(ClientLook look)

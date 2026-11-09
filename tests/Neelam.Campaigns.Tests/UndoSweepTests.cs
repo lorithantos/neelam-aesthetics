@@ -58,16 +58,16 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var undone = await store.MarkUndoneAsync(save);
 
         // Blob states, not counts: the app's own sweep, run at its start, shares these containers.
-        var blobs = app.Containers.For(SalonOne.Name.Value).Blobs;
+        var container = app.Containers.For(SalonOne.Name.Value);
         app.Clock.Now = undone.UndoneAt!.Value + TimeSpan.FromHours(2) - TimeSpan.FromTicks(1);
         Assert.NotNull(await store.RestorableAsync(DocumentKind.Draft, save.Id));
         await SweepOf(configured.Services).SweepOnceAsync();
-        Assert.Contains(save.BlobName, blobs.Keys);
+        Assert.Contains(save.BlobName, container.Blobs.Keys);
 
         app.Clock.Now += TimeSpan.FromTicks(1);
         Assert.Null(await store.RestorableAsync(DocumentKind.Draft, save.Id));
         await SweepOf(configured.Services).SweepOnceAsync();
-        Assert.DoesNotContain(save.BlobName, blobs.Keys);
+        Assert.DoesNotContain(save.BlobName, container.Blobs.Keys);
     }
 
     [Fact]
@@ -212,17 +212,17 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         var expired = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Undone", DraftFixtures.Finished()));
         clock.Now += TimeSpan.FromDays(1);
         var fresh = await store.MarkUndoneAsync(await store.SaveDraftAsync(Guid.NewGuid(), "Just undone", DraftFixtures.Finished()));
-        var keys = containers.For(SalonOne.Name.Value).Blobs.Keys;
+        var container = containers.For(SalonOne.Name.Value);
         var prototype = new PrototypeCallerSource(SalonOne.Name);
 
         Assert.Equal(0, await SweepOver(stores, new InMemoryClientDirectory(), clock).SweepOnceAsync());
         Assert.Equal(1, await SweepOver(stores, new InMemoryClientDirectory(), clock, prototype).SweepOnceAsync());
-        Assert.DoesNotContain(expired.BlobName, keys);
-        Assert.Contains(fresh.BlobName, keys);
+        Assert.DoesNotContain(expired.BlobName, container.Blobs.Keys);
+        Assert.Contains(fresh.BlobName, container.Blobs.Keys);
 
         clock.Now += TimeSpan.FromDays(1);
         Assert.Equal(1, await SweepOver(stores, new UnreadableDirectory(), clock, prototype).SweepOnceAsync());
-        Assert.Empty(keys);
+        Assert.Empty(container.Blobs);
     }
 
     // A prototype client that also has a row is still swept once a run, not twice.
@@ -258,17 +258,17 @@ public class UndoSweepTests(EnforcedApp app) : IClassFixture<EnforcedApp>
         clock.Now += TimeSpan.FromMinutes(1);
         await stores.SaveLookAsync(SalonOne.Name, new ClientLook(accentColour: "#225e3e"), Actor.Demo);
         var undone = await stores.UndoLastLookSaveAsync(await stores.HoldLookAsync(SalonOne.Name), Actor.Demo);
-        var keys = containers.For(ClientStores.SettingsContainer).Blobs.Keys;
+        var settings = containers.For(ClientStores.SettingsContainer);
         var sweep = SweepOver(stores, new InMemoryClientDirectory(SalonOne), clock);
 
         clock.Now = undone!.UndoneAt!.Value + TimeSpan.FromDays(1) - TimeSpan.FromTicks(1);
         Assert.Equal(0, await sweep.SweepOnceAsync());
-        Assert.Contains(undone.BlobName, keys);
+        Assert.Contains(undone.BlobName, settings.Blobs.Keys);
 
         clock.Now += TimeSpan.FromTicks(1);
         Assert.Equal(1, await sweep.SweepOnceAsync());
-        Assert.DoesNotContain(undone.BlobName, keys);
-        Assert.Contains(kept.BlobName, keys);
+        Assert.DoesNotContain(undone.BlobName, settings.Blobs.Keys);
+        Assert.Contains(kept.BlobName, settings.Blobs.Keys);
         Assert.Equal(ClientLookTests.Blush, await stores.Look(SalonOne.Name).CurrentAsync());
 
         var swept = Assert.Single(records.Activity.Events, e => e.Action == ActivityAction.DeletedBySweep);
